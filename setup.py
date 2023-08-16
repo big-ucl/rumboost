@@ -16,6 +16,7 @@ setup(
     long_description_content_type="text/markdown",
     long_description=LONG_DESCRIPTION,
     packages=find_packages(),
+    url="https://github.com/NicoSlvd/rumboost",
     install_requires=['lightgbm', 'matplotlib', 'seaborn', 'numpy', 
                       'pandas', 'pickle', 'sklearn', 'random', 'collections', 
                       'scipy', 'copy', 'json', 'operator', 'pathlib', 
