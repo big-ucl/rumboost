@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>rumboost.utils &mdash; rumboost 0.0.1 documentation</title>
+      <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="../../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="../../_static/jquery.js"></script>
+        <script src="../../_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script data-url_root="../../" id="documentation_options" src="../../_static/documentation_options.js"></script>
+        <script src="../../_static/doctools.js"></script>
+        <script src="../../_static/sphinx_highlight.js"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            rumboost
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">rumboost</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">rumboost</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">rumboost.utils</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for rumboost.utils</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
+<span class="kn">import</span> <span class="nn">random</span>
+
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">Counter</span><span class="p">,</span> <span class="n">defaultdict</span>
+<span class="kn">from</span> <span class="nn">scipy.interpolate</span> <span class="kn">import</span> <span class="n">interp1d</span>
+
+<div class="viewcode-block" id="process_parent"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.process_parent">[docs]</a><span class="k">def</span> <span class="nf">process_parent</span><span class="p">(</span><span class="n">parent</span><span class="p">,</span> <span class="n">pairs</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    dig into the biogeme expression to retrieve name of variable and beta parameter. Work only with simple utility specification (beta * variable)</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="c1"># final expression to be stored</span>
+    <span class="k">if</span> <span class="n">parent</span><span class="o">.</span><span class="n">getClassName</span><span class="p">()</span> <span class="o">==</span> <span class="s1">&#39;Times&#39;</span><span class="p">:</span>
+        <span class="n">pairs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">get_pair</span><span class="p">(</span><span class="n">parent</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span> <span class="c1">#if not final</span>
+        <span class="k">try</span><span class="p">:</span> <span class="c1">#dig into the expression</span>
+            <span class="n">left</span> <span class="o">=</span> <span class="n">parent</span><span class="o">.</span><span class="n">left</span>
+            <span class="n">right</span> <span class="o">=</span> <span class="n">parent</span><span class="o">.</span><span class="n">right</span>
+        <span class="k">except</span><span class="p">:</span> <span class="c1">#if no left and right children</span>
+            <span class="k">return</span> <span class="n">pairs</span> 
+        <span class="k">else</span><span class="p">:</span> <span class="c1">#dig further left and right</span>
+            <span class="n">process_parent</span><span class="p">(</span><span class="n">left</span><span class="p">,</span> <span class="n">pairs</span><span class="p">)</span>
+            <span class="n">process_parent</span><span class="p">(</span><span class="n">right</span><span class="p">,</span> <span class="n">pairs</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">pairs</span></div>
+
+<div class="viewcode-block" id="get_pair"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.get_pair">[docs]</a><span class="k">def</span> <span class="nf">get_pair</span><span class="p">(</span><span class="n">parent</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    return beta and variable names on a tupple from a parent expression</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="n">left</span> <span class="o">=</span> <span class="n">parent</span><span class="o">.</span><span class="n">left</span>
+    <span class="n">right</span> <span class="o">=</span> <span class="n">parent</span><span class="o">.</span><span class="n">right</span>
+    <span class="n">beta</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">variable</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">for</span> <span class="n">exp</span> <span class="ow">in</span> <span class="p">[</span><span class="n">left</span><span class="p">,</span> <span class="n">right</span><span class="p">]:</span>
+        <span class="k">if</span> <span class="n">exp</span><span class="o">.</span><span class="n">getClassName</span><span class="p">()</span> <span class="o">==</span> <span class="s1">&#39;Beta&#39;</span><span class="p">:</span>
+            <span class="n">beta</span> <span class="o">=</span> <span class="n">exp</span><span class="o">.</span><span class="n">name</span>
+        <span class="k">elif</span> <span class="n">exp</span><span class="o">.</span><span class="n">getClassName</span><span class="p">()</span> <span class="o">==</span> <span class="s1">&#39;Variable&#39;</span><span class="p">:</span>
+            <span class="n">variable</span> <span class="o">=</span> <span class="n">exp</span><span class="o">.</span><span class="n">name</span>
+    <span class="k">if</span> <span class="n">beta</span> <span class="ow">and</span> <span class="n">variable</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">beta</span><span class="p">,</span> <span class="n">variable</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Parent does not contain beta and variable&quot;</span><span class="p">)</span></div>
+    
+<div class="viewcode-block" id="bio_to_rumboost"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.bio_to_rumboost">[docs]</a><span class="k">def</span> <span class="nf">bio_to_rumboost</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">all_columns</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">monotonic_constraints</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">interaction_contraints</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">max_depth</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Converts a biogeme model to a rumboost dict</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="n">utilities</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">loglike</span><span class="o">.</span><span class="n">util</span> <span class="c1">#biogeme expression</span>
+    <span class="n">rum_structure</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="c1">#for all utilities</span>
+    <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">utilities</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="n">rum_structure</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s1">&#39;columns&#39;</span><span class="p">:</span> <span class="p">[],</span> <span class="s1">&#39;monotone_constraints&#39;</span><span class="p">:</span> <span class="p">[],</span> <span class="s1">&#39;interaction_constraints&#39;</span><span class="p">:</span> <span class="p">[],</span> <span class="s1">&#39;betas&#39;</span><span class="p">:</span> <span class="p">[],</span> <span class="s1">&#39;categorical_feature&#39;</span><span class="p">:</span> <span class="p">[]})</span>
+        <span class="n">interac_2d</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">pair</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">process_parent</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="p">[])):</span> <span class="c1"># get all the pairs of the utility</span>
+            <span class="n">rum_structure</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="s1">&#39;columns&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">pair</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span> <span class="c1">#append variable name</span>
+            <span class="n">rum_structure</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="s1">&#39;betas&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="c1">#append beta name</span>
+            <span class="k">if</span> <span class="n">interaction_contraints</span><span class="p">:</span>
+                <span class="k">if</span> <span class="p">(</span><span class="n">max_depth</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">)</span> <span class="ow">and</span> <span class="p">((</span><span class="s1">&#39;weekend&#39;</span><span class="ow">in</span> <span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="o">|</span><span class="p">(</span><span class="s1">&#39;dur_driving&#39;</span> <span class="ow">in</span> <span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="o">|</span><span class="p">(</span><span class="s1">&#39;dur_walking&#39;</span> <span class="ow">in</span> <span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="o">|</span><span class="p">(</span><span class="s1">&#39;dur_cycling&#39;</span> <span class="ow">in</span> <span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="o">|</span><span class="p">(</span><span class="s1">&#39;dur_pt_rail&#39;</span> <span class="ow">in</span> <span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">])):</span> <span class="c1">#(&#39;distance&#39; in pair[0])): |(&#39;dur_pt_bus&#39; in pair[0]))</span>
+                    <span class="n">interac_2d</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="c1">#in the case of interaction constraint, append only the relevant continous features to be interacted</span>
+                <span class="k">else</span><span class="p">:</span>             
+                    <span class="n">rum_structure</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="s1">&#39;interaction_constraints&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">i</span><span class="p">])</span> <span class="c1">#no interaction between features</span>
+            <span class="k">if</span> <span class="p">(</span><span class="s1">&#39;fueltype&#39;</span> <span class="ow">in</span> <span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">|</span> <span class="p">(</span><span class="s1">&#39;female&#39;</span> <span class="ow">in</span> <span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">|</span> <span class="p">(</span><span class="s1">&#39;purpose&#39;</span> <span class="ow">in</span> <span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">|</span> <span class="p">(</span><span class="s1">&#39;license&#39;</span> <span class="ow">in</span> <span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">|</span> <span class="p">(</span><span class="s1">&#39;week&#39;</span> <span class="ow">in</span> <span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+                <span class="n">rum_structure</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="s1">&#39;categorical_feature&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="c1">#register categorical features</span>
+            <span class="n">bounds</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">getBoundsOnBeta</span><span class="p">(</span><span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="c1">#get bounds on beta parameter for monotonic constraint</span>
+            <span class="k">if</span> <span class="n">monotonic_constraints</span><span class="p">:</span>
+                <span class="k">if</span> <span class="p">(</span><span class="n">bounds</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">bounds</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">):</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Only one bound can be not None&quot;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">bounds</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">bounds</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+                        <span class="n">rum_structure</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="s1">&#39;monotone_constraints&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="c1">#register positive monotonic constraint</span>
+                <span class="k">elif</span> <span class="n">bounds</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">bounds</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+                        <span class="n">rum_structure</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="s1">&#39;monotone_constraints&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="c1">#register negative monotonic constraint</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">rum_structure</span><span class="p">[</span><span class="n">k</span><span class="p">][</span><span class="s1">&#39;monotone_constraints&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="c1">#none</span>
+        <span class="k">if</span> <span class="n">all_columns</span><span class="p">:</span>
+            <span class="n">rum_structure</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="s1">&#39;columns&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">col</span> <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">database</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">drop</span><span class="p">([</span><span class="s1">&#39;household_id&#39;</span><span class="p">,</span> <span class="s1">&#39;choice&#39;</span><span class="p">,</span> <span class="s1">&#39;travel_month&#39;</span><span class="p">,</span><span class="s1">&#39;driving_traffic_percent&#39;</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">tolist</span><span class="p">()]</span>
+        <span class="k">if</span> <span class="n">max_depth</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">rum_structure</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="s1">&#39;interaction_constraints&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">interac_2d</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">rum_structure</span></div>
+    
+<div class="viewcode-block" id="get_mid_pos"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.get_mid_pos">[docs]</a><span class="k">def</span> <span class="nf">get_mid_pos</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">split_points</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s1">&#39;data&#39;</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Return the mid point in-between two split points for a specific feature (used in pw linear predict)</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    data: pandas.Series</span>
+<span class="sd">        The column of the dataframe associated with the feature</span>
+<span class="sd">    split_points: list</span>
+<span class="sd">        The list of split points for that feature</span>
+<span class="sd">    end: str</span>
+<span class="sd">        How to compute the mid position of the first and last point, it can be:</span>
+<span class="sd">            -&#39;data&#39;: add min and max values of data</span>
+<span class="sd">            -&#39;split point&#39;: add first and last split points</span>
+<span class="sd">            -&#39;mean_data&#39;: add the mean of data before the first split point, and after the last split point</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+
+<span class="sd">    mid_pos: list</span>
+<span class="sd">        A list of points in the middle of every consecutive split points</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="c1">#getting position in the middle of splitting points intervals</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">split_points</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">mid_pos</span> <span class="o">=</span> <span class="p">[(</span><span class="n">sp2</span> <span class="o">+</span> <span class="n">sp1</span><span class="p">)</span><span class="o">/</span><span class="mi">2</span> <span class="k">for</span> <span class="n">sp2</span><span class="p">,</span> <span class="n">sp1</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">split_points</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">split_points</span><span class="p">[</span><span class="mi">1</span><span class="p">:])]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">mid_pos</span> <span class="o">=</span> <span class="p">[]</span>
+    
+    <span class="k">if</span> <span class="n">end</span> <span class="o">==</span> <span class="s1">&#39;data&#39;</span><span class="p">:</span>
+        <span class="n">mid_pos</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">data</span><span class="p">))</span> <span class="c1">#adding first point</span>
+        <span class="n">mid_pos</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="n">data</span><span class="p">))</span> <span class="c1">#adding last point</span>
+    <span class="k">elif</span> <span class="n">end</span> <span class="o">==</span> <span class="s1">&#39;split point&#39;</span><span class="p">:</span>
+        <span class="n">mid_pos</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">split_points</span><span class="p">))</span> <span class="c1">#adding first point</span>
+        <span class="n">mid_pos</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="n">split_points</span><span class="p">))</span> <span class="c1">#adding last point</span>
+    <span class="k">elif</span> <span class="n">end</span> <span class="o">==</span> <span class="s1">&#39;mean_data&#39;</span><span class="p">:</span>
+        <span class="n">mid_pos</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">data</span><span class="p">[</span><span class="n">data</span><span class="o">&lt;</span><span class="n">split_points</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span><span class="o">.</span><span class="n">mean</span><span class="p">())</span> <span class="c1">#adding first point</span>
+        <span class="n">mid_pos</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">data</span><span class="o">&gt;</span><span class="n">split_points</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]]</span><span class="o">.</span><span class="n">mean</span><span class="p">())</span> <span class="c1">#adding last point</span>
+
+    <span class="k">return</span> <span class="n">mid_pos</span></div>
+
+<div class="viewcode-block" id="get_mean_pos"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.get_mean_pos">[docs]</a><span class="k">def</span> <span class="nf">get_mean_pos</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">split_points</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Return the mean point in-between two split points for a specific feature (used in smoothing).</span>
+<span class="sd">    At end points, it is the mean of data before the first split point, and after the last split point.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    data: pandas.Series</span>
+<span class="sd">        The column of the dataframe associated with the feature</span>
+<span class="sd">    split_points: list</span>
+<span class="sd">        The list of split points for that feature</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+
+<span class="sd">    mid_pos: list</span>
+<span class="sd">        A list of points in the middle of every consecutive split points</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="c1">#getting the mean of data of splitting points intervals</span>
+    <span class="n">mean_data</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">data</span><span class="p">[(</span><span class="n">data</span> <span class="o">&lt;</span> <span class="n">s_ii</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">data</span> <span class="o">&gt;</span> <span class="n">s_i</span><span class="p">)])</span> <span class="k">for</span> <span class="n">s_i</span><span class="p">,</span> <span class="n">s_ii</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">split_points</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">split_points</span><span class="p">[</span><span class="mi">1</span><span class="p">:])]</span>
+    <span class="n">mean_data</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">data</span><span class="o">&lt;</span><span class="n">split_points</span><span class="p">[</span><span class="mi">0</span><span class="p">]]))</span> <span class="c1">#adding first point</span>
+    <span class="n">mean_data</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">data</span><span class="o">&gt;</span><span class="n">split_points</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]]))</span> <span class="c1">#adding last point</span>
+
+    <span class="k">return</span> <span class="n">mean_data</span></div>
+
+<div class="viewcode-block" id="data_leaf_value"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.data_leaf_value">[docs]</a><span class="k">def</span> <span class="nf">data_leaf_value</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">weights_feature</span><span class="p">,</span> <span class="n">technique</span><span class="o">=</span><span class="s1">&#39;weighted_data&#39;</span><span class="p">):</span>
+
+    <span class="k">if</span> <span class="n">technique</span> <span class="o">==</span> <span class="s1">&#39;mid_point&#39;</span><span class="p">:</span>
+        <span class="n">mid_points</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">get_mid_pos</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">weights_feature</span><span class="p">[</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">]))</span>
+        <span class="k">return</span> <span class="n">mid_points</span><span class="p">,</span> <span class="n">weights_feature</span><span class="p">[</span><span class="s1">&#39;Histogram values&#39;</span><span class="p">]</span>
+    <span class="k">elif</span> <span class="n">technique</span> <span class="o">==</span> <span class="s1">&#39;mean_data&#39;</span><span class="p">:</span>
+        <span class="n">mean_data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">get_mean_pos</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">weights_feature</span><span class="p">[</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">]))</span>
+        <span class="k">return</span> <span class="n">mean_data</span><span class="p">,</span> <span class="n">weights_feature</span><span class="p">[</span><span class="s1">&#39;Histogram values&#39;</span><span class="p">]</span>  
+
+    <span class="n">data_ordered</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span><span class="o">.</span><span class="n">sort_values</span><span class="p">()</span>
+    <span class="n">data_values</span> <span class="o">=</span> <span class="p">[</span><span class="n">weights_feature</span><span class="p">[</span><span class="s1">&#39;Histogram values&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]]</span><span class="o">*</span><span class="nb">sum</span><span class="p">(</span><span class="n">data_ordered</span> <span class="o">&lt;</span> <span class="n">weights_feature</span><span class="p">[</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span>
+
+    <span class="k">if</span> <span class="n">technique</span> <span class="o">==</span> <span class="s1">&#39;mid_point_weighted&#39;</span><span class="p">:</span>
+        <span class="n">mid_points</span> <span class="o">=</span> <span class="n">get_mid_pos</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">weights_feature</span><span class="p">[</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">])</span>
+        <span class="n">mid_points_weighted</span> <span class="o">=</span> <span class="p">[</span><span class="n">mid_points</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span><span class="o">*</span><span class="nb">sum</span><span class="p">(</span><span class="n">data_ordered</span> <span class="o">&lt;</span> <span class="n">weights_feature</span><span class="p">[</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span>
+    <span class="k">elif</span> <span class="n">technique</span> <span class="o">==</span> <span class="s1">&#39;mean_data_weighted&#39;</span><span class="p">:</span>
+        <span class="n">mean_data</span> <span class="o">=</span> <span class="n">get_mean_pos</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">weights_feature</span><span class="p">[</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">])</span>
+        <span class="n">mean_data_weighted</span> <span class="o">=</span> <span class="p">[</span><span class="n">mean_data</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span><span class="o">*</span><span class="nb">sum</span><span class="p">(</span><span class="n">data_ordered</span> <span class="o">&lt;</span> <span class="n">weights_feature</span><span class="p">[</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span>
+
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">s_i</span><span class="p">,</span> <span class="n">s_ii</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">weights_feature</span><span class="p">[</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">][:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">weights_feature</span><span class="p">[</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">][</span><span class="mi">1</span><span class="p">:])):</span>
+        <span class="n">data_values</span> <span class="o">+=</span> <span class="p">[</span><span class="n">weights_feature</span><span class="p">[</span><span class="s1">&#39;Histogram values&#39;</span><span class="p">][</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]]</span><span class="o">*</span><span class="nb">sum</span><span class="p">((</span><span class="n">data_ordered</span> <span class="o">&lt;</span> <span class="n">s_ii</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">data_ordered</span> <span class="o">&gt;</span> <span class="n">s_i</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">technique</span> <span class="o">==</span> <span class="s1">&#39;mid_point_weighted&#39;</span><span class="p">:</span>
+            <span class="n">mid_points_weighted</span> <span class="o">+=</span> <span class="p">[</span><span class="n">mid_points</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]]</span><span class="o">*</span><span class="nb">sum</span><span class="p">((</span><span class="n">data_ordered</span> <span class="o">&lt;</span> <span class="n">s_ii</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">data_ordered</span> <span class="o">&gt;</span> <span class="n">s_i</span><span class="p">))</span>
+        <span class="k">elif</span> <span class="n">technique</span> <span class="o">==</span> <span class="s1">&#39;mean_data_weighted&#39;</span><span class="p">:</span>
+            <span class="n">mean_data_weighted</span> <span class="o">+=</span> <span class="p">[</span><span class="n">mean_data</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]]</span><span class="o">*</span><span class="nb">sum</span><span class="p">((</span><span class="n">data_ordered</span> <span class="o">&lt;</span> <span class="n">s_ii</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">data_ordered</span> <span class="o">&gt;</span> <span class="n">s_i</span><span class="p">))</span>
+
+    <span class="n">data_values</span> <span class="o">+=</span> <span class="p">[</span><span class="n">weights_feature</span><span class="p">[</span><span class="s1">&#39;Histogram values&#39;</span><span class="p">][</span><span class="o">-</span><span class="mi">1</span><span class="p">]]</span><span class="o">*</span><span class="nb">sum</span><span class="p">(</span><span class="n">data_ordered</span> <span class="o">&gt;</span> <span class="n">weights_feature</span><span class="p">[</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">][</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+    <span class="k">if</span> <span class="n">technique</span> <span class="o">==</span> <span class="s1">&#39;mid_point_weighted&#39;</span><span class="p">:</span>
+        <span class="n">mid_points_weighted</span> <span class="o">+=</span> <span class="p">[</span><span class="n">mid_points</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]]</span><span class="o">*</span><span class="nb">sum</span><span class="p">(</span><span class="n">data_ordered</span> <span class="o">&gt;</span> <span class="n">weights_feature</span><span class="p">[</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">][</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">mid_points_weighted</span><span class="p">),</span> <span class="n">data_values</span>
+    <span class="k">elif</span> <span class="n">technique</span> <span class="o">==</span> <span class="s1">&#39;mean_data_weighted&#39;</span><span class="p">:</span>
+        <span class="n">mean_data_weighted</span> <span class="o">+=</span> <span class="p">[</span><span class="n">mean_data</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]]</span><span class="o">*</span><span class="nb">sum</span><span class="p">(</span><span class="n">data_ordered</span> <span class="o">&gt;</span> <span class="n">weights_feature</span><span class="p">[</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">][</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">mean_data_weighted</span><span class="p">),</span> <span class="n">data_values</span>
+
+    <span class="k">return</span> <span class="n">data_ordered</span><span class="p">,</span> <span class="n">data_values</span></div>
+
+<div class="viewcode-block" id="get_grad"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.get_grad">[docs]</a><span class="k">def</span> <span class="nf">get_grad</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">technique</span><span class="o">=</span><span class="s1">&#39;slope&#39;</span><span class="p">,</span> <span class="n">sample_points</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">normalise</span> <span class="o">=</span> <span class="kc">False</span><span class="p">):</span>
+
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">0</span>
+    
+    <span class="n">x_values</span> <span class="o">=</span> <span class="n">x</span>
+    <span class="n">y_values</span> <span class="o">=</span> <span class="n">y</span>
+
+    <span class="k">if</span> <span class="n">normalise</span><span class="p">:</span>
+        <span class="n">x_values</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">x</span><span class="p">))</span><span class="o">/</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">x</span><span class="p">))</span>
+        <span class="n">y_values</span> <span class="o">=</span> <span class="p">(</span><span class="n">y</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">y</span><span class="p">))</span><span class="o">/</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">y</span><span class="p">)</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">y</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="n">technique</span> <span class="o">==</span> <span class="s1">&#39;slope&#39;</span>  <span class="p">:</span>
+        <span class="n">grad</span> <span class="o">=</span> <span class="p">[(</span><span class="n">y_values</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="n">y_values</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="o">/</span><span class="p">(</span><span class="n">x_values</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="n">x_values</span><span class="p">[</span><span class="n">i</span><span class="p">])</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">x_values</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">)]</span>
+        <span class="c1">#grad.insert(0, 0) #adding first slope</span>
+        <span class="n">grad</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="c1">#adding last slope</span>
+    <span class="k">elif</span> <span class="n">technique</span> <span class="o">==</span> <span class="s1">&#39;sample_data&#39;</span><span class="p">:</span>
+        <span class="n">x_sample</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">x_values</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">x_values</span><span class="p">),</span> <span class="n">sample_points</span><span class="p">)</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">interp1d</span><span class="p">(</span><span class="n">x_values</span><span class="p">,</span> <span class="n">y_values</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s1">&#39;previous&#39;</span><span class="p">)</span>
+        <span class="n">y_sample</span> <span class="o">=</span> <span class="n">f</span><span class="p">(</span><span class="n">x_sample</span><span class="p">)</span>
+        <span class="n">grad</span> <span class="o">=</span> <span class="p">[(</span><span class="n">y_sample</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="n">y_sample</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="o">/</span><span class="p">(</span><span class="n">x_sample</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="n">x_sample</span><span class="p">[</span><span class="n">i</span><span class="p">])</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">x_sample</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">)]</span>
+        <span class="c1">#grad.insert(0, 0) #adding first slope</span>
+        <span class="n">grad</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="c1">#adding last slope</span>
+
+        <span class="k">if</span> <span class="n">normalise</span><span class="p">:</span>
+            <span class="n">x_sample</span> <span class="o">=</span> <span class="n">x_sample</span><span class="o">*</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">x</span><span class="p">))</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+            <span class="n">y_sample</span> <span class="o">=</span> <span class="n">y_sample</span><span class="o">*</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">y</span><span class="p">)</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">y</span><span class="p">))</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">grad</span><span class="p">,</span> <span class="n">x_sample</span><span class="p">,</span> <span class="n">y_sample</span>
+
+    <span class="k">return</span> <span class="n">grad</span></div>
+
+<div class="viewcode-block" id="get_angle_diff"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.get_angle_diff">[docs]</a><span class="k">def</span> <span class="nf">get_angle_diff</span><span class="p">(</span><span class="n">x_values</span><span class="p">,</span> <span class="n">y_values</span><span class="p">):</span>
+
+    <span class="n">slope</span> <span class="o">=</span> <span class="n">get_grad</span><span class="p">(</span><span class="n">x_values</span><span class="p">,</span> <span class="n">y_values</span><span class="p">,</span> <span class="n">normalise</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span>
+    <span class="n">angle</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arctan</span><span class="p">(</span><span class="n">slope</span><span class="p">)</span>
+    <span class="n">diff_angle</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">angle</span><span class="p">[</span><span class="mi">0</span><span class="p">])]</span>
+    <span class="n">diff_angle</span> <span class="o">+=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">a_1</span><span class="o">-</span><span class="n">a_0</span><span class="p">)</span> <span class="k">for</span> <span class="p">(</span><span class="n">a_1</span><span class="p">,</span> <span class="n">a_0</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">angle</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">angle</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">])]</span>
+
+    <span class="k">return</span> <span class="n">diff_angle</span></div>
+
+<div class="viewcode-block" id="find_disc"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.find_disc">[docs]</a><span class="k">def</span> <span class="nf">find_disc</span><span class="p">(</span><span class="n">x_values</span><span class="p">,</span> <span class="n">grad</span><span class="p">):</span>
+    
+    <span class="n">diff_angle</span> <span class="o">=</span> <span class="n">get_angle_diff</span><span class="p">(</span><span class="n">x_values</span><span class="p">,</span> <span class="n">grad</span><span class="p">)</span>
+
+    <span class="n">is_disc</span> <span class="o">=</span> <span class="p">[</span><span class="kc">True</span> <span class="k">if</span> <span class="p">(</span><span class="n">angle</span> <span class="o">&lt;</span> <span class="mf">0.2</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">g</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">5</span><span class="p">)</span> <span class="k">else</span> <span class="kc">False</span> <span class="k">for</span> <span class="n">angle</span><span class="p">,</span> <span class="n">g</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">diff_angle</span><span class="p">,</span> <span class="n">grad</span><span class="p">)]</span>
+
+    <span class="n">disc</span> <span class="o">=</span> <span class="n">x_values</span><span class="p">[</span><span class="n">is_disc</span><span class="p">]</span>
+    <span class="n">disc_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nonzero</span><span class="p">(</span><span class="n">is_disc</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">num_disc</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">is_disc</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">disc</span><span class="p">,</span> <span class="n">disc_idx</span><span class="p">,</span> <span class="n">num_disc</span></div>
+
+<div class="viewcode-block" id="accuracy"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.accuracy">[docs]</a><span class="k">def</span> <span class="nf">accuracy</span><span class="p">(</span><span class="n">preds</span><span class="p">,</span> <span class="n">labels</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Compute accuracy of the model</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    preds: ndarray</span>
+<span class="sd">        Predictions for all data points and each classes from a softmax function. preds[i, j] correspond</span>
+<span class="sd">        to the prediction of data point i to belong to class j</span>
+<span class="sd">    labels: ndarray</span>
+<span class="sd">        The labels of the original dataset, as int</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    Accuracy: float</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">preds</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="o">==</span> <span class="n">labels</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="cross_entropy"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.cross_entropy">[docs]</a><span class="k">def</span> <span class="nf">cross_entropy</span><span class="p">(</span><span class="n">preds</span><span class="p">,</span> <span class="n">labels</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Compute negative cross entropy for given predictions and data</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    preds: ndarray</span>
+<span class="sd">        Predictions for all data points and each classes from a softmax function. preds[i, j] correspond</span>
+<span class="sd">        to the prediction of data point i to belong to class j</span>
+<span class="sd">    labels: ndarray</span>
+<span class="sd">        The labels of the original dataset, as int</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    Cross entropy : float</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">num_data</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">labels</span><span class="p">)</span>
+    <span class="n">data_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">num_data</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">preds</span><span class="p">[</span><span class="n">data_idx</span><span class="p">,</span> <span class="n">labels</span><span class="p">]))</span></div>
+
+<span class="c1"># def get_weights(model):</span>
+<span class="c1">#     &quot;&quot;&quot;</span>
+<span class="c1">#     get leaf values from a RUMBoost model</span>
+
+<span class="c1">#     Parameters</span>
+<span class="c1">#     ----------</span>
+<span class="c1">#     model: lightGBM model</span>
+
+<span class="c1">#     Returns</span>
+<span class="c1">#     -------</span>
+<span class="c1">#     weights_df: DataFrame</span>
+<span class="c1">#         DataFrame containing all split points and their corresponding left and right leaves value, </span>
+<span class="c1">#         for all features</span>
+<span class="c1">#     &quot;&quot;&quot;</span>
+<span class="c1">#     #using self object or a given model</span>
+<span class="c1">#     model_json = [model.dump_model()]</span>
+
+<span class="c1">#     weights = []</span>
+
+<span class="c1">#     for i, b in enumerate(model_json):</span>
+<span class="c1">#         feature_names = b[&#39;feature_names&#39;]</span>
+<span class="c1">#         for trees in b[&#39;tree_info&#39;]:</span>
+<span class="c1">#             feature = feature_names[trees[&#39;tree_structure&#39;][&#39;split_feature&#39;]]</span>
+<span class="c1">#             split_point = trees[&#39;tree_structure&#39;][&#39;threshold&#39;]</span>
+<span class="c1">#             left_leaf_value = trees[&#39;tree_structure&#39;][&#39;left_child&#39;][&#39;leaf_value&#39;]</span>
+<span class="c1">#             right_leaf_value = trees[&#39;tree_structure&#39;][&#39;right_child&#39;][&#39;leaf_value&#39;]</span>
+<span class="c1">#             weights.append([feature, split_point, left_leaf_value, right_leaf_value, i])</span>
+
+<span class="c1">#     weights_df = pd.DataFrame(weights, columns= [&#39;Feature&#39;, &#39;Split point&#39;, &#39;Left leaf value&#39;, &#39;Right leaf value&#39;, &#39;Utility&#39;])</span>
+<span class="c1">#     return weights_df</span>
+
+<div class="viewcode-block" id="create_name"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.create_name">[docs]</a><span class="k">def</span> <span class="nf">create_name</span><span class="p">(</span><span class="n">features</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create new feature names from a list of feature names&quot;&quot;&quot;</span>
+    <span class="n">new_name</span> <span class="o">=</span> <span class="n">features</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">f_name</span> <span class="ow">in</span> <span class="n">features</span><span class="p">[</span><span class="mi">1</span><span class="p">:]:</span>
+        <span class="n">new_name</span> <span class="o">+=</span> <span class="s1">&#39;-&#39;</span><span class="o">+</span><span class="n">f_name</span>
+    <span class="k">return</span> <span class="n">new_name</span></div>
+
+<div class="viewcode-block" id="get_child"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.get_child">[docs]</a><span class="k">def</span> <span class="nf">get_child</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">weights</span><span class="p">,</span> <span class="n">weights_2d</span><span class="p">,</span> <span class="n">weights_market</span><span class="p">,</span> <span class="n">tree</span><span class="p">,</span> <span class="n">split_points</span><span class="p">,</span> <span class="n">features</span><span class="p">,</span> <span class="n">feature_names</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">market_segm</span><span class="p">,</span> <span class="n">direction</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Dig into the tree to get splitting points, features, left and right leaves values&quot;&quot;&quot;</span>
+    <span class="n">min_r</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">max_r</span> <span class="o">=</span> <span class="mi">10000</span>
+
+    <span class="k">if</span> <span class="n">feature_names</span><span class="p">[</span><span class="n">tree</span><span class="p">[</span><span class="s1">&#39;split_feature&#39;</span><span class="p">]]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">features</span><span class="p">:</span>
+        <span class="n">features</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">feature_names</span><span class="p">[</span><span class="n">tree</span><span class="p">[</span><span class="s1">&#39;split_feature&#39;</span><span class="p">]])</span>
+
+    <span class="n">split_points</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">tree</span><span class="p">[</span><span class="s1">&#39;threshold&#39;</span><span class="p">])</span>
+
+    <span class="k">if</span> <span class="s1">&#39;leaf_value&#39;</span> <span class="ow">in</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;left_child&#39;</span><span class="p">]</span> <span class="ow">and</span> <span class="s1">&#39;leaf_value&#39;</span> <span class="ow">in</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;right_child&#39;</span><span class="p">]:</span>
+        <span class="k">if</span> <span class="n">direction</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">feature_names</span><span class="p">[</span><span class="n">tree</span><span class="p">[</span><span class="s1">&#39;split_feature&#39;</span><span class="p">]],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;threshold&#39;</span><span class="p">],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;left_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;right_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">i</span><span class="p">])</span>
+        <span class="k">elif</span> <span class="n">direction</span> <span class="o">==</span> <span class="s1">&#39;left&#39;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">features</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">feature_names</span><span class="p">[</span><span class="n">tree</span><span class="p">[</span><span class="s1">&#39;split_feature&#39;</span><span class="p">]],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;threshold&#39;</span><span class="p">],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;left_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;right_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">i</span><span class="p">])</span>
+                <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">feature_names</span><span class="p">[</span><span class="n">tree</span><span class="p">[</span><span class="s1">&#39;split_feature&#39;</span><span class="p">]],</span> <span class="n">split_points</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="n">tree</span><span class="p">[</span><span class="s1">&#39;right_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">i</span><span class="p">])</span>
+            <span class="k">elif</span> <span class="n">market_segm</span><span class="p">:</span>
+                <span class="n">feature_name</span> <span class="o">=</span> <span class="n">create_name</span><span class="p">(</span><span class="n">features</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">features</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">rum_structure</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="s1">&#39;categorical_feature&#39;</span><span class="p">]:</span>
+                    <span class="n">weights_market</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">features</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">+</span><span class="s1">&#39;-0&#39;</span><span class="p">,</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;threshold&#39;</span><span class="p">],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;left_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;right_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">i</span><span class="p">])</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">weights_market</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">features</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">+</span><span class="s1">&#39;-0&#39;</span><span class="p">,</span> <span class="n">split_points</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;left_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="mi">0</span><span class="p">,</span> <span class="n">i</span><span class="p">])</span>
+                    <span class="n">weights_market</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">features</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">+</span><span class="s1">&#39;-1&#39;</span><span class="p">,</span> <span class="n">split_points</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;right_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="mi">0</span><span class="p">,</span> <span class="n">i</span><span class="p">])</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">feature_name</span> <span class="o">=</span> <span class="n">create_name</span><span class="p">(</span><span class="n">features</span><span class="p">)</span>
+                <span class="n">weights_2d</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">feature_name</span><span class="p">,</span> <span class="p">(</span><span class="n">min_r</span><span class="p">,</span> <span class="n">split_points</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span> <span class="p">(</span><span class="n">min_r</span><span class="p">,</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;threshold&#39;</span><span class="p">]),</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;left_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">i</span><span class="p">])</span>
+                <span class="n">weights_2d</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">feature_name</span><span class="p">,</span> <span class="p">(</span><span class="n">min_r</span><span class="p">,</span> <span class="n">split_points</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span> <span class="p">(</span><span class="n">tree</span><span class="p">[</span><span class="s1">&#39;threshold&#39;</span><span class="p">],</span> <span class="n">max_r</span><span class="p">),</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;right_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">i</span><span class="p">])</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">features</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="n">features</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+                    <span class="n">split_points</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">direction</span> <span class="o">==</span> <span class="s1">&#39;right&#39;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">features</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">feature_names</span><span class="p">[</span><span class="n">tree</span><span class="p">[</span><span class="s1">&#39;split_feature&#39;</span><span class="p">]],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;threshold&#39;</span><span class="p">],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;left_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;right_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">i</span><span class="p">])</span>
+                <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">feature_names</span><span class="p">[</span><span class="n">tree</span><span class="p">[</span><span class="s1">&#39;split_feature&#39;</span><span class="p">]],</span> <span class="n">split_points</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="o">-</span><span class="n">tree</span><span class="p">[</span><span class="s1">&#39;left_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="mi">0</span><span class="p">,</span> <span class="n">i</span><span class="p">])</span>
+            <span class="k">elif</span> <span class="n">market_segm</span><span class="p">:</span>
+                <span class="n">feature_name</span> <span class="o">=</span> <span class="n">create_name</span><span class="p">(</span><span class="n">features</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">features</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">rum_structure</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="s1">&#39;categorical_feature&#39;</span><span class="p">]:</span>
+                    <span class="n">weights_market</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">features</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">+</span><span class="s1">&#39;-1&#39;</span><span class="p">,</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;threshold&#39;</span><span class="p">],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;left_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;right_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">i</span><span class="p">])</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">weights_market</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">features</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">+</span><span class="s1">&#39;-0&#39;</span><span class="p">,</span> <span class="n">split_points</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">0</span><span class="p">,</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;left_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">i</span><span class="p">])</span>
+                    <span class="n">weights_market</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">features</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">+</span><span class="s1">&#39;-1&#39;</span><span class="p">,</span> <span class="n">split_points</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">0</span><span class="p">,</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;right_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">i</span><span class="p">])</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">feature_name</span> <span class="o">=</span> <span class="n">create_name</span><span class="p">(</span><span class="n">features</span><span class="p">)</span>
+                <span class="n">weights_2d</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">feature_name</span><span class="p">,</span> <span class="p">(</span><span class="n">split_points</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">max_r</span><span class="p">),</span> <span class="p">(</span><span class="n">min_r</span><span class="p">,</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;threshold&#39;</span><span class="p">]),</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;left_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">i</span><span class="p">])</span>
+                <span class="n">weights_2d</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">feature_name</span><span class="p">,</span> <span class="p">(</span><span class="n">split_points</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">max_r</span><span class="p">),</span> <span class="p">(</span><span class="n">tree</span><span class="p">[</span><span class="s1">&#39;threshold&#39;</span><span class="p">],</span> <span class="n">max_r</span><span class="p">),</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;right_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">i</span><span class="p">])</span>
+    <span class="k">elif</span> <span class="s1">&#39;leaf_value&#39;</span> <span class="ow">in</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;left_child&#39;</span><span class="p">]:</span>
+        <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">feature_names</span><span class="p">[</span><span class="n">tree</span><span class="p">[</span><span class="s1">&#39;split_feature&#39;</span><span class="p">]],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;threshold&#39;</span><span class="p">],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;left_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="mi">0</span><span class="p">,</span> <span class="n">i</span><span class="p">])</span>
+        <span class="n">get_child</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">weights</span><span class="p">,</span> <span class="n">weights_2d</span><span class="p">,</span> <span class="n">weights_market</span><span class="p">,</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;right_child&#39;</span><span class="p">],</span> <span class="n">split_points</span><span class="p">,</span> <span class="n">features</span><span class="p">,</span> <span class="n">feature_names</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">market_segm</span><span class="p">,</span> <span class="n">direction</span><span class="o">=</span><span class="s1">&#39;right&#39;</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="s1">&#39;leaf_value&#39;</span> <span class="ow">in</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;right_child&#39;</span><span class="p">]:</span>
+        <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">feature_names</span><span class="p">[</span><span class="n">tree</span><span class="p">[</span><span class="s1">&#39;split_feature&#39;</span><span class="p">]],</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;threshold&#39;</span><span class="p">],</span> <span class="mi">0</span><span class="p">,</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;right_child&#39;</span><span class="p">][</span><span class="s1">&#39;leaf_value&#39;</span><span class="p">],</span> <span class="n">i</span><span class="p">])</span>
+        <span class="n">get_child</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">weights</span><span class="p">,</span> <span class="n">weights_2d</span><span class="p">,</span> <span class="n">weights_market</span><span class="p">,</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;left_child&#39;</span><span class="p">],</span> <span class="n">split_points</span><span class="p">,</span> <span class="n">features</span><span class="p">,</span> <span class="n">feature_names</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">market_segm</span><span class="p">,</span> <span class="n">direction</span><span class="o">=</span><span class="s1">&#39;left&#39;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">get_child</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">weights</span><span class="p">,</span> <span class="n">weights_2d</span><span class="p">,</span> <span class="n">weights_market</span><span class="p">,</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;left_child&#39;</span><span class="p">],</span> <span class="n">split_points</span><span class="p">,</span> <span class="n">features</span><span class="p">,</span> <span class="n">feature_names</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">market_segm</span><span class="p">,</span> <span class="n">direction</span><span class="o">=</span><span class="s1">&#39;left&#39;</span><span class="p">)</span>
+        <span class="n">get_child</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">weights</span><span class="p">,</span> <span class="n">weights_2d</span><span class="p">,</span> <span class="n">weights_market</span><span class="p">,</span> <span class="n">tree</span><span class="p">[</span><span class="s1">&#39;right_child&#39;</span><span class="p">],</span> <span class="n">split_points</span><span class="p">,</span> <span class="n">features</span><span class="p">,</span> <span class="n">feature_names</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">market_segm</span><span class="p">,</span> <span class="n">direction</span><span class="o">=</span><span class="s1">&#39;right&#39;</span><span class="p">)</span> </div>
+
+<div class="viewcode-block" id="get_weights"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.get_weights">[docs]</a><span class="k">def</span> <span class="nf">get_weights</span><span class="p">(</span><span class="n">model</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    get leaf values from a RUMBoost model</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    model: RUMBoost</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    weights_df: pandas.DataFrame</span>
+<span class="sd">        DataFrame containing all split points and their corresponding left and right leaves value, </span>
+<span class="sd">        for all features</span>
+<span class="sd">    weights_2d_df: pandas.DataFrame</span>
+<span class="sd">        Dataframe with weights arranged for a 2d plot, used in the case of 2d feature interaction.</span>
+<span class="sd">    weights_market: pandas.DataFrame</span>
+<span class="sd">        Dataframe with weights arranged for market segmentation, used in the case of market segmentation.</span>
+<span class="sd">    </span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1">#using self object or a given model</span>
+    <span class="n">model_json</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">dump_model</span><span class="p">()</span>
+
+    <span class="n">weights</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">weights_2d</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">weights_market</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">model_json</span><span class="p">):</span>
+        <span class="n">feature_names</span> <span class="o">=</span> <span class="n">b</span><span class="p">[</span><span class="s1">&#39;feature_names&#39;</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">trees</span> <span class="ow">in</span> <span class="n">b</span><span class="p">[</span><span class="s1">&#39;tree_info&#39;</span><span class="p">]:</span>
+            <span class="n">features</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">split_points</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">market_segm</span> <span class="o">=</span> <span class="kc">False</span>
+
+            <span class="n">get_child</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">weights</span><span class="p">,</span> <span class="n">weights_2d</span><span class="p">,</span> <span class="n">weights_market</span><span class="p">,</span> <span class="n">trees</span><span class="p">[</span><span class="s1">&#39;tree_structure&#39;</span><span class="p">],</span> <span class="n">split_points</span><span class="p">,</span> <span class="n">features</span><span class="p">,</span> <span class="n">feature_names</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">market_segm</span><span class="p">)</span>
+
+    <span class="n">weights_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">weights</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span> <span class="p">[</span><span class="s1">&#39;Feature&#39;</span><span class="p">,</span> <span class="s1">&#39;Split point&#39;</span><span class="p">,</span> <span class="s1">&#39;Left leaf value&#39;</span><span class="p">,</span> <span class="s1">&#39;Right leaf value&#39;</span><span class="p">,</span> <span class="s1">&#39;Utility&#39;</span><span class="p">])</span>
+    <span class="n">weights_2d_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">weights_2d</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;Feature&#39;</span><span class="p">,</span> <span class="s1">&#39;higher_lvl_range&#39;</span><span class="p">,</span> <span class="s1">&#39;lower_lvl_range&#39;</span><span class="p">,</span> <span class="s1">&#39;area_value&#39;</span><span class="p">,</span> <span class="s1">&#39;Utility&#39;</span><span class="p">])</span>
+    <span class="n">weights_market_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">weights_market</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span> <span class="p">[</span><span class="s1">&#39;Feature&#39;</span><span class="p">,</span> <span class="s1">&#39;Cat value&#39;</span><span class="p">,</span> <span class="s1">&#39;Split point&#39;</span><span class="p">,</span> <span class="s1">&#39;Left leaf value&#39;</span><span class="p">,</span> <span class="s1">&#39;Right leaf value&#39;</span><span class="p">,</span> <span class="s1">&#39;Utility&#39;</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">weights_df</span><span class="p">,</span> <span class="n">weights_2d_df</span><span class="p">,</span> <span class="n">weights_market_df</span></div>
+
+<div class="viewcode-block" id="weights_to_plot_v2"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.weights_to_plot_v2">[docs]</a><span class="k">def</span> <span class="nf">weights_to_plot_v2</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">market_segm</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Arrange weights by ascending splitting points and cumulative sum of weights</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    model: lightGBM model</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    weights_for_plot: dict</span>
+<span class="sd">        Dictionary containing splitting points and corresponding cumulative weights value for all features</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1">#get raw weights</span>
+    <span class="k">if</span> <span class="n">market_segm</span><span class="p">:</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">weights</span><span class="o">=</span> <span class="n">get_weights</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">weights</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">get_weights</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+
+    <span class="n">weights_for_plot</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="c1">#for all features</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">weights</span><span class="o">.</span><span class="n">Utility</span><span class="o">.</span><span class="n">unique</span><span class="p">():</span>
+        <span class="n">weights_for_plot</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)]</span> <span class="o">=</span> <span class="p">{}</span>
+        
+        <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">weights</span><span class="p">[</span><span class="n">weights</span><span class="o">.</span><span class="n">Utility</span> <span class="o">==</span> <span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">Feature</span><span class="o">.</span><span class="n">unique</span><span class="p">():</span>
+            
+            <span class="n">split_points</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">function_value</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+            <span class="c1">#getting values related to the corresponding utility</span>
+            <span class="n">weights_util</span> <span class="o">=</span> <span class="n">weights</span><span class="p">[</span><span class="n">weights</span><span class="o">.</span><span class="n">Utility</span> <span class="o">==</span> <span class="n">i</span><span class="p">]</span>
+            
+            <span class="c1">#sort by ascending order</span>
+            <span class="n">feature_data</span> <span class="o">=</span> <span class="n">weights_util</span><span class="p">[</span><span class="n">weights_util</span><span class="o">.</span><span class="n">Feature</span> <span class="o">==</span> <span class="n">f</span><span class="p">]</span>
+            <span class="n">ordered_data</span> <span class="o">=</span> <span class="n">feature_data</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">by</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;Split point&#39;</span><span class="p">],</span> <span class="n">ignore_index</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">j</span><span class="p">,</span> <span class="n">s</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">ordered_data</span><span class="p">[</span><span class="s1">&#39;Split point&#39;</span><span class="p">]):</span>
+                <span class="c1">#new split point</span>
+                <span class="k">if</span> <span class="n">s</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">split_points</span><span class="p">:</span>
+                    <span class="n">split_points</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+                    <span class="c1">#add a new right leaf value to the current right side value</span>
+                    <span class="n">function_value</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">function_value</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="nb">float</span><span class="p">(</span><span class="n">ordered_data</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="s1">&#39;Right leaf value&#39;</span><span class="p">]))</span>
+                    <span class="c1">#add left leaf value to all other current left leaf values</span>
+                    <span class="n">function_value</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">h</span> <span class="o">+</span> <span class="nb">float</span><span class="p">(</span><span class="n">ordered_data</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="s1">&#39;Left leaf value&#39;</span><span class="p">])</span> <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="n">function_value</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="c1">#add right leaf value to the current right side value</span>
+                    <span class="n">function_value</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="nb">float</span><span class="p">(</span><span class="n">ordered_data</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="s1">&#39;Right leaf value&#39;</span><span class="p">])</span>
+                    <span class="c1">#add left leaf value to all other current left leaf values</span>
+                    <span class="n">function_value</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">h</span> <span class="o">+</span> <span class="nb">float</span><span class="p">(</span><span class="n">ordered_data</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="s1">&#39;Left leaf value&#39;</span><span class="p">])</span> <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="n">function_value</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]]</span>
+                    
+            <span class="n">weights_for_plot</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)][</span><span class="n">f</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">:</span> <span class="n">split_points</span><span class="p">,</span>
+                                           <span class="s1">&#39;Histogram values&#39;</span><span class="p">:</span> <span class="n">function_value</span><span class="p">}</span>
+                
+    <span class="k">return</span> <span class="n">weights_for_plot</span></div>
+
+<span class="c1"># def weights_to_plot(self, model = None):</span>
+<span class="c1">#     &quot;&quot;&quot;</span>
+<span class="c1">#     Arrange weights by ascending splitting points and cumulative sum of weights</span>
+
+<span class="c1">#     Parameters</span>
+<span class="c1">#     ----------</span>
+<span class="c1">#     model: lightGBM model</span>
+
+<span class="c1">#     Returns</span>
+<span class="c1">#     -------</span>
+<span class="c1">#     weights_for_plot: dict</span>
+<span class="c1">#         Dictionary containing splitting points and corresponding cumulative weights value for all features</span>
+<span class="c1">#     &quot;&quot;&quot;</span>
+
+<span class="c1">#     #get raw weights</span>
+<span class="c1">#     if model is None:</span>
+<span class="c1">#         weights = self.getweights()</span>
+<span class="c1">#     else:</span>
+<span class="c1">#         weights = self.getweights(model=model)</span>
+
+<span class="c1">#     weights_for_plot = {}</span>
+<span class="c1">#     weights_for_plot_double = {}</span>
+<span class="c1">#     #for all features</span>
+<span class="c1">#     for i in weights.Utility.unique():</span>
+<span class="c1">#         weights_for_plot[str(i)] = {}</span>
+<span class="c1">#         weights_for_plot_double[str(i)] = {}</span>
+        
+<span class="c1">#         for f in weights[weights.Utility == i].Feature.unique():</span>
+            
+<span class="c1">#             split_points = []</span>
+<span class="c1">#             function_value = [0]</span>
+
+<span class="c1">#             #getting values related to the corresponding utility</span>
+<span class="c1">#             weights_util = weights[weights.Utility == i]</span>
+            
+<span class="c1">#             #sort by ascending order</span>
+<span class="c1">#             feature_data = weights_util[weights_util.Feature == f]</span>
+<span class="c1">#             ordered_data = feature_data.sort_values(by = [&#39;Split point&#39;], ignore_index = True)</span>
+<span class="c1">#             for j, s in enumerate(ordered_data[&#39;Split point&#39;]):</span>
+<span class="c1">#                 #new split point</span>
+<span class="c1">#                 if s not in split_points:</span>
+<span class="c1">#                     split_points.append(s)</span>
+<span class="c1">#                     #add a new right leaf value to the current right side value</span>
+<span class="c1">#                     function_value.append(function_value[-1] + float(ordered_data.loc[j, &#39;Right leaf value&#39;]))</span>
+<span class="c1">#                     #add left leaf value to all other current left leaf values</span>
+<span class="c1">#                     function_value[:-1] = [h + float(ordered_data.loc[j, &#39;Left leaf value&#39;]) for h in function_value[:-1]]</span>
+<span class="c1">#                 else:</span>
+<span class="c1">#                     #add right leaf value to the current right side value</span>
+<span class="c1">#                     function_value[-1] += float(ordered_data.loc[j, &#39;Right leaf value&#39;])</span>
+<span class="c1">#                     #add left leaf value to all other current left leaf values</span>
+<span class="c1">#                     function_value[:-1] = [h + float(ordered_data.loc[j, &#39;Left leaf value&#39;]) for h in function_value[:-1]]</span>
+                    
+<span class="c1">#             weights_for_plot[str(i)][f] = {&#39;Splitting points&#39;: split_points,</span>
+<span class="c1">#                                             &#39;Histogram values&#39;: function_value}</span>
+                
+<span class="c1">#     return weights_for_plot</span>
+
+<div class="viewcode-block" id="non_lin_function"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.non_lin_function">[docs]</a><span class="k">def</span> <span class="nf">non_lin_function</span><span class="p">(</span><span class="n">weights_ordered</span><span class="p">,</span> <span class="n">x_min</span><span class="p">,</span> <span class="n">x_max</span><span class="p">,</span> <span class="n">num_points</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Create the nonlinear function for parameters, from weights ordered by ascending splitting points</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    weights_ordered : dict</span>
+<span class="sd">        Dictionary containing splitting points and corresponding cumulative weights value for a specific </span>
+<span class="sd">        feature&#39;s parameter</span>
+<span class="sd">    x_min : float, int</span>
+<span class="sd">        Minimum x value for which the nonlinear function is computed</span>
+<span class="sd">    x_max : float, int</span>
+<span class="sd">        Maximum x value for which the nonlinear function is computed</span>
+<span class="sd">    num_points: int</span>
+<span class="sd">        Number of points used to draw the nonlinear function line</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    x_values: list</span>
+<span class="sd">        X values for which the function will be plotted</span>
+<span class="sd">    nonlin_function: list</span>
+<span class="sd">        Values of the function at the corresponding x points</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1">#create x points</span>
+    <span class="n">x_values</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">x_min</span><span class="p">,</span> <span class="n">x_max</span><span class="p">,</span> <span class="n">num_points</span><span class="p">)</span>
+    <span class="n">nonlin_function</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">max_i</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">weights_ordered</span><span class="p">[</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">])</span> <span class="c1">#all splitting points</span>
+
+    <span class="c1">#handling no split points</span>
+    <span class="k">if</span> <span class="n">max_i</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">x_values</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">weights_ordered</span><span class="p">[</span><span class="s1">&#39;Histogram values&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">])</span><span class="o">*</span><span class="n">x_values</span>
+
+    <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">x_values</span><span class="p">:</span>
+        <span class="c1">#compute the value of the function at x according to the weights value in between splitting points</span>
+        <span class="k">if</span> <span class="n">x</span> <span class="o">&lt;</span> <span class="nb">float</span><span class="p">(</span><span class="n">weights_ordered</span><span class="p">[</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">]):</span>
+            <span class="n">nonlin_function</span> <span class="o">+=</span> <span class="p">[</span><span class="nb">float</span><span class="p">(</span><span class="n">weights_ordered</span><span class="p">[</span><span class="s1">&#39;Histogram values&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">])]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">nonlin_function</span> <span class="o">+=</span> <span class="p">[</span><span class="nb">float</span><span class="p">(</span><span class="n">weights_ordered</span><span class="p">[</span><span class="s1">&#39;Histogram values&#39;</span><span class="p">][</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">])]</span>
+            <span class="c1">#go to next splitting points</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">max_i</span><span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+                <span class="n">i</span><span class="o">+=</span><span class="mi">1</span>
+    
+    <span class="k">return</span> <span class="n">x_values</span><span class="p">,</span> <span class="n">nonlin_function</span></div>
+
+<div class="viewcode-block" id="get_asc"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.get_asc">[docs]</a><span class="k">def</span> <span class="nf">get_asc</span><span class="p">(</span><span class="n">weights</span><span class="p">,</span> <span class="n">alt_to_normalise</span> <span class="o">=</span> <span class="s1">&#39;Driving&#39;</span><span class="p">,</span> <span class="n">alternatives</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;Walking&#39;</span><span class="p">:</span><span class="s1">&#39;0&#39;</span><span class="p">,</span> <span class="s1">&#39;Cycling&#39;</span><span class="p">:</span><span class="s1">&#39;1&#39;</span><span class="p">,</span> <span class="s1">&#39;Public Transport&#39;</span><span class="p">:</span><span class="s1">&#39;2&#39;</span><span class="p">,</span> <span class="s1">&#39;Driving&#39;</span><span class="p">:</span><span class="s1">&#39;3&#39;</span><span class="p">}):</span>
+<span class="w">    </span><span class="sd">&#39;&#39;&#39;Retrieve ASCs from a dictionary of all values from a dictionary of leaves values per alternative per feature&#39;&#39;&#39;</span>
+    <span class="n">ASCs</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">alt</span> <span class="ow">in</span> <span class="n">alternatives</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="n">asc_temp</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">feat</span> <span class="ow">in</span> <span class="n">weights</span><span class="p">[</span><span class="n">alt</span><span class="p">]:</span>
+            <span class="n">asc_temp</span> <span class="o">+=</span> <span class="n">weights</span><span class="p">[</span><span class="n">alt</span><span class="p">][</span><span class="n">feat</span><span class="p">][</span><span class="s1">&#39;Histogram values&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">ASCs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">asc_temp</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="p">[</span><span class="n">a</span> <span class="o">-</span> <span class="n">ASCs</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">alternatives</span><span class="p">[</span><span class="n">alt_to_normalise</span><span class="p">])]</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">ASCs</span><span class="p">]</span></div>
+
+<div class="viewcode-block" id="function_2d"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.function_2d">[docs]</a><span class="k">def</span> <span class="nf">function_2d</span><span class="p">(</span><span class="n">weights_2d</span><span class="p">,</span> <span class="n">x_vect</span><span class="p">,</span> <span class="n">y_vect</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Create the nonlinear contour plot for parameters, from weights gathered in getweights_v2</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    weights_2d : dict</span>
+<span class="sd">        Pandas DataFrame containing all possible rectangles with their corresponding area values, for the given feature and utility</span>
+<span class="sd">    x_vect : np.linspace</span>
+<span class="sd">        Vector of higher level feature</span>
+<span class="sd">    y_vect : np.linspace</span>
+<span class="sd">        Vector of lower level feature</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    contour_plot_values: np.darray</span>
+<span class="sd">        Array with values at (x,y) points</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">contour_plot_values</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x_vect</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">y_vect</span><span class="p">)))</span>
+
+    <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">weights_2d</span><span class="o">.</span><span class="n">index</span><span class="p">)):</span>
+        <span class="n">y_check</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x_vect</span><span class="p">)):</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">x_vect</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">weights_2d</span><span class="p">[</span><span class="s1">&#39;higher_lvl_range&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">k</span><span class="p">][</span><span class="mi">1</span><span class="p">])</span> <span class="o">|</span> <span class="p">(</span><span class="ow">not</span> <span class="n">y_check</span><span class="p">):</span>
+                <span class="k">break</span>
+
+            <span class="k">if</span> <span class="n">x_vect</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">weights_2d</span><span class="p">[</span><span class="s1">&#39;higher_lvl_range&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">k</span><span class="p">][</span><span class="mi">0</span><span class="p">]:</span>
+                <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">y_vect</span><span class="p">)):</span>
+                    <span class="k">if</span> <span class="n">y_vect</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">weights_2d</span><span class="p">[</span><span class="s1">&#39;lower_lvl_range&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">k</span><span class="p">][</span><span class="mi">1</span><span class="p">]:</span>
+                        <span class="n">y_check</span> <span class="o">=</span> <span class="kc">False</span>
+                        <span class="k">break</span>
+                    <span class="k">if</span> <span class="n">y_vect</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">weights_2d</span><span class="p">[</span><span class="s1">&#39;lower_lvl_range&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">k</span><span class="p">][</span><span class="mi">0</span><span class="p">]:</span>
+                        <span class="k">if</span> <span class="p">(</span><span class="n">weights_2d</span><span class="p">[</span><span class="s1">&#39;lower_lvl_range&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">k</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">10000</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">weights_2d</span><span class="p">[</span><span class="s1">&#39;higher_lvl_range&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">k</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">10000</span><span class="p">):</span>
+                            <span class="n">contour_plot_values</span><span class="p">[</span><span class="n">i</span><span class="p">:,</span> <span class="n">j</span><span class="p">:]</span> <span class="o">+=</span> <span class="n">weights_2d</span><span class="p">[</span><span class="s1">&#39;area_value&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
+                            <span class="n">y_check</span> <span class="o">=</span> <span class="kc">False</span>
+                            <span class="k">break</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">contour_plot_values</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">+=</span> <span class="n">weights_2d</span><span class="p">[</span><span class="s1">&#39;area_value&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
+
+    <span class="k">return</span> <span class="n">contour_plot_values</span></div>
+
+<span class="c1"># Sample a dataset grouped by `groups` and stratified by `y`</span>
+<span class="c1"># Source: https://www.kaggle.com/jakubwasikowski/stratified-group-k-fold-cross-validation</span>
+<div class="viewcode-block" id="stratified_group_k_fold"><a class="viewcode-back" href="../../rumboost.html#rumboost.utils.stratified_group_k_fold">[docs]</a><span class="k">def</span> <span class="nf">stratified_group_k_fold</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">groups</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="n">labels_num</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">y</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+    <span class="n">y_counts_per_group</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">labels_num</span><span class="p">))</span>
+    <span class="n">y_distr</span> <span class="o">=</span> <span class="n">Counter</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">label</span><span class="p">,</span> <span class="n">g</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">groups</span><span class="p">):</span>
+        <span class="n">y_counts_per_group</span><span class="p">[</span><span class="n">g</span><span class="p">][</span><span class="n">label</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="n">y_distr</span><span class="p">[</span><span class="n">label</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+
+    <span class="n">y_counts_per_fold</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">labels_num</span><span class="p">))</span>
+    <span class="n">groups_per_fold</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">set</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">eval_y_counts_per_fold</span><span class="p">(</span><span class="n">y_counts</span><span class="p">,</span> <span class="n">fold</span><span class="p">):</span>
+        <span class="n">y_counts_per_fold</span><span class="p">[</span><span class="n">fold</span><span class="p">]</span> <span class="o">+=</span> <span class="n">y_counts</span>
+        <span class="n">std_per_label</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">labels_num</span><span class="p">):</span>
+            <span class="n">label_std</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">([</span><span class="n">y_counts_per_fold</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">label</span><span class="p">]</span> <span class="o">/</span> <span class="n">y_distr</span><span class="p">[</span><span class="n">label</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">k</span><span class="p">)])</span>
+            <span class="n">std_per_label</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">label_std</span><span class="p">)</span>
+        <span class="n">y_counts_per_fold</span><span class="p">[</span><span class="n">fold</span><span class="p">]</span> <span class="o">-=</span> <span class="n">y_counts</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">std_per_label</span><span class="p">)</span>
+    
+    <span class="n">groups_and_y_counts</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">y_counts_per_group</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+    <span class="n">random</span><span class="o">.</span><span class="n">Random</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span><span class="o">.</span><span class="n">shuffle</span><span class="p">(</span><span class="n">groups_and_y_counts</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">g</span><span class="p">,</span> <span class="n">y_counts</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">groups_and_y_counts</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">])):</span>
+        <span class="n">best_fold</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">min_eval</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">k</span><span class="p">):</span>
+            <span class="n">fold_eval</span> <span class="o">=</span> <span class="n">eval_y_counts_per_fold</span><span class="p">(</span><span class="n">y_counts</span><span class="p">,</span> <span class="n">i</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">min_eval</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">fold_eval</span> <span class="o">&lt;</span> <span class="n">min_eval</span><span class="p">:</span>
+                <span class="n">min_eval</span> <span class="o">=</span> <span class="n">fold_eval</span>
+                <span class="n">best_fold</span> <span class="o">=</span> <span class="n">i</span>
+        <span class="n">y_counts_per_fold</span><span class="p">[</span><span class="n">best_fold</span><span class="p">]</span> <span class="o">+=</span> <span class="n">y_counts</span>
+        <span class="n">groups_per_fold</span><span class="p">[</span><span class="n">best_fold</span><span class="p">]</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">g</span><span class="p">)</span>
+
+    <span class="n">all_groups</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">groups</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">k</span><span class="p">):</span>
+        <span class="n">train_groups</span> <span class="o">=</span> <span class="n">all_groups</span> <span class="o">-</span> <span class="n">groups_per_fold</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">test_groups</span> <span class="o">=</span> <span class="n">groups_per_fold</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+
+        <span class="n">train_indices</span> <span class="o">=</span> <span class="p">[</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">g</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">groups</span><span class="p">)</span> <span class="k">if</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">train_groups</span><span class="p">]</span>
+        <span class="n">test_indices</span> <span class="o">=</span> <span class="p">[</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">g</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">groups</span><span class="p">)</span> <span class="k">if</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">test_groups</span><span class="p">]</span>
+
+        <span class="k">yield</span> <span class="n">train_indices</span><span class="p">,</span> <span class="n">test_indices</span></div>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2023, Nicolas Salvadé, Tim Hillel.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

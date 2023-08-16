@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>rumboost.dataset &mdash; rumboost 0.0.1 documentation</title>
+      <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="../../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="../../_static/jquery.js"></script>
+        <script src="../../_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script data-url_root="../../" id="documentation_options" src="../../_static/documentation_options.js"></script>
+        <script src="../../_static/doctools.js"></script>
+        <script src="../../_static/sphinx_highlight.js"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            rumboost
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">rumboost</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">rumboost</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">rumboost.dataset</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for rumboost.dataset</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">pickle</span>
+<span class="kn">from</span> <span class="nn">sklearn.model_selection</span> <span class="kn">import</span> <span class="n">train_test_split</span>
+<span class="kn">from</span> <span class="nn">rumboost.utils</span> <span class="kn">import</span> <span class="n">stratified_group_k_fold</span>
+
+
+<div class="viewcode-block" id="load_preprocess_LPMC"><a class="viewcode-back" href="../../rumboost.html#rumboost.dataset.load_preprocess_LPMC">[docs]</a><span class="k">def</span> <span class="nf">load_preprocess_LPMC</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Load and preprocess the LPMC dataset.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    dataset_train : pandas Dataframe</span>
+<span class="sd">        The training dataset ready to use.</span>
+<span class="sd">    dataset_test : pandas Dataframe</span>
+<span class="sd">        The training dataset ready to use.</span>
+<span class="sd">    folds : zip(list, list)</span>
+<span class="sd">        5 folds of indices grouped by household for CV.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="c1">#source: https://github.com/JoseAngelMartinB/prediction-behavioural-analysis-ml-travel-mode-choice</span>
+    <span class="n">data_train</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="s1">&#39;Data/LTDS_train.csv&#39;</span><span class="p">)</span>
+    <span class="n">data_test</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="s1">&#39;Data/LTDS_test.csv&#39;</span><span class="p">)</span>
+
+    <span class="c1">#distance in km</span>
+    <span class="n">data_train</span><span class="p">[</span><span class="s1">&#39;distance&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">data_train</span><span class="p">[</span><span class="s1">&#39;distance&#39;</span><span class="p">]</span><span class="o">/</span><span class="mi">1000</span>
+    <span class="n">data_test</span><span class="p">[</span><span class="s1">&#39;distance&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">data_test</span><span class="p">[</span><span class="s1">&#39;distance&#39;</span><span class="p">]</span><span class="o">/</span><span class="mi">1000</span>
+    
+    <span class="c1">#cost of driving only for people having a car</span>
+    <span class="n">data_train</span><span class="p">[</span><span class="s1">&#39;cost_driving_total&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">data_train</span><span class="p">[</span><span class="s1">&#39;cost_driving_total&#39;</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">data_train</span><span class="p">[</span><span class="s1">&#39;car_ownership&#39;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span> 
+    <span class="n">data_test</span><span class="p">[</span><span class="s1">&#39;cost_driving_total&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">data_test</span><span class="p">[</span><span class="s1">&#39;cost_driving_total&#39;</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">data_test</span><span class="p">[</span><span class="s1">&#39;car_ownership&#39;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
+
+    <span class="c1">#for market segmentation</span>
+    <span class="c1"># data_train[&#39;weekend&#39;] = (data_train[&#39;day_of_week&#39;] &gt; 5).apply(int)  </span>
+    <span class="c1"># data_test[&#39;weekend&#39;] = (data_test[&#39;day_of_week&#39;] &gt; 5).apply(int)  </span>
+
+    <span class="c1">#rename label</span>
+    <span class="n">label_name</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;travel_mode&#39;</span><span class="p">:</span> <span class="s1">&#39;choice&#39;</span><span class="p">}</span>
+    <span class="n">dataset_train</span> <span class="o">=</span> <span class="n">data_train</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span> <span class="o">=</span> <span class="n">label_name</span><span class="p">)</span>
+    <span class="n">dataset_test</span> <span class="o">=</span> <span class="n">data_test</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span> <span class="o">=</span> <span class="n">label_name</span><span class="p">)</span>
+
+    <span class="c1">#get all features</span>
+    <span class="n">target</span> <span class="o">=</span> <span class="s1">&#39;choice&#39;</span>
+    <span class="n">features</span> <span class="o">=</span> <span class="p">[</span><span class="n">f</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">dataset_test</span><span class="o">.</span><span class="n">columns</span> <span class="k">if</span> <span class="n">f</span> <span class="o">!=</span> <span class="n">target</span><span class="p">]</span>
+
+    <span class="c1">#get household ids</span>
+    <span class="n">hh_id</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">data_train</span><span class="p">[</span><span class="s1">&#39;household_id&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+
+    <span class="c1">#k folds sampled by households for cross validation</span>
+    <span class="n">train_idx</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">test_idx</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">train_idx</span><span class="p">,</span> <span class="n">test_idx</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="nb">open</span><span class="p">(</span><span class="s1">&#39;strat_group_k_fold.pickle&#39;</span><span class="p">,</span> <span class="s2">&quot;rb&quot;</span><span class="p">))</span>
+    <span class="k">except</span> <span class="ne">FileNotFoundError</span><span class="p">:</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">train_i</span><span class="p">,</span> <span class="n">test_i</span><span class="p">)</span> <span class="ow">in</span> <span class="n">stratified_group_k_fold</span><span class="p">(</span><span class="n">data_train</span><span class="p">[</span><span class="n">features</span><span class="p">],</span> <span class="n">data_train</span><span class="p">[</span><span class="s1">&#39;travel_mode&#39;</span><span class="p">],</span> <span class="n">hh_id</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">5</span><span class="p">):</span>
+            <span class="n">train_idx</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">train_i</span><span class="p">)</span>
+            <span class="n">test_idx</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">test_i</span><span class="p">)</span>
+        <span class="n">pickle</span><span class="o">.</span><span class="n">dump</span><span class="p">([</span><span class="n">train_idx</span><span class="p">,</span> <span class="n">test_idx</span><span class="p">],</span> <span class="nb">open</span><span class="p">(</span><span class="s1">&#39;strat_group_k_fold.pickle&#39;</span><span class="p">,</span> <span class="s2">&quot;wb&quot;</span><span class="p">))</span>
+
+    <span class="n">folds</span> <span class="o">=</span> <span class="nb">zip</span><span class="p">(</span><span class="n">train_idx</span><span class="p">,</span> <span class="n">test_idx</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">dataset_train</span><span class="p">,</span> <span class="n">dataset_test</span><span class="p">,</span> <span class="n">folds</span></div>
+
+<div class="viewcode-block" id="load_preprocess_SwissMetro"><a class="viewcode-back" href="../../rumboost.html#rumboost.dataset.load_preprocess_SwissMetro">[docs]</a><span class="k">def</span> <span class="nf">load_preprocess_SwissMetro</span><span class="p">(</span><span class="n">test_size</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.3</span><span class="p">,</span> <span class="n">random_state</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Load and preprocess the SwissMetro dataset.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    test_size : float, optional (default = 0.3)</span>
+<span class="sd">        The proportion of data used for test set.</span>
+<span class="sd">    random_state : int, optional (default = 42)</span>
+<span class="sd">        For reproducibility in the train-test split</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    dataset_train : pandas Dataframe</span>
+<span class="sd">        The training dataset ready to use.</span>
+<span class="sd">    dataset_test : pandas Dataframe</span>
+<span class="sd">        The training dataset ready to use.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="s1">&#39;Data/swissmetro.dat&#39;</span><span class="p">,</span> <span class="n">sep</span><span class="o">=</span><span class="s1">&#39;</span><span class="se">\t</span><span class="s1">&#39;</span><span class="p">)</span>
+
+    <span class="c1">#remove irrelevant choices and purposes</span>
+    <span class="n">keep</span> <span class="o">=</span> <span class="p">((</span><span class="n">df</span><span class="p">[</span><span class="s1">&#39;PURPOSE&#39;</span><span class="p">]</span><span class="o">!=</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s1">&#39;PURPOSE&#39;</span><span class="p">]</span><span class="o">!=</span><span class="mi">3</span><span class="p">)</span><span class="o">+</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s1">&#39;CHOICE&#39;</span><span class="p">]</span><span class="o">==</span><span class="mi">0</span><span class="p">))</span> <span class="o">==</span> <span class="mi">0</span>
+    <span class="n">df</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">keep</span><span class="p">]</span>
+
+    <span class="c1">#apply cost to people without GA</span>
+    <span class="n">df</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="s1">&#39;TRAIN_COST&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s1">&#39;TRAIN_CO&#39;</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s1">&#39;GA&#39;</span><span class="p">]</span><span class="o">==</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">df</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="s1">&#39;SM_COST&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s1">&#39;SM_CO&#39;</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s1">&#39;GA&#39;</span><span class="p">]</span><span class="o">==</span><span class="mi">0</span><span class="p">)</span>
+
+    <span class="c1">#final dataset</span>
+    <span class="n">df_final</span> <span class="o">=</span> <span class="n">df</span><span class="p">[[</span><span class="s1">&#39;TRAIN_TT&#39;</span><span class="p">,</span> <span class="s1">&#39;TRAIN_COST&#39;</span><span class="p">,</span> <span class="s1">&#39;TRAIN_HE&#39;</span><span class="p">,</span> <span class="s1">&#39;SM_TT&#39;</span><span class="p">,</span> <span class="s1">&#39;SM_COST&#39;</span><span class="p">,</span> <span class="s1">&#39;SM_HE&#39;</span><span class="p">,</span> <span class="s1">&#39;CAR_TT&#39;</span><span class="p">,</span> <span class="s1">&#39;CAR_CO&#39;</span><span class="p">,</span> <span class="s1">&#39;CHOICE&#39;</span><span class="p">]]</span>
+
+    <span class="c1">#split dataset</span>
+    <span class="n">df_train</span><span class="p">,</span> <span class="n">df_test</span>  <span class="o">=</span> <span class="n">train_test_split</span><span class="p">(</span><span class="n">df_final</span><span class="p">,</span> <span class="n">test_size</span><span class="o">=</span><span class="n">test_size</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="n">random_state</span><span class="p">)</span>
+    
+    <span class="k">return</span> <span class="n">df_train</span><span class="p">,</span> <span class="n">df_test</span></div>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2023, Nicolas Salvadé, Tim Hillel.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

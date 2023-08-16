@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>rumboost.utility_smoothing &mdash; rumboost 0.0.1 documentation</title>
+      <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="../../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="../../_static/jquery.js"></script>
+        <script src="../../_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script data-url_root="../../" id="documentation_options" src="../../_static/documentation_options.js"></script>
+        <script src="../../_static/doctools.js"></script>
+        <script src="../../_static/sphinx_highlight.js"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            rumboost
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">rumboost</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">rumboost</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">rumboost.utility_smoothing</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for rumboost.utility_smoothing</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">plt</span>
+<span class="kn">import</span> <span class="nn">seaborn</span> <span class="k">as</span> <span class="nn">sns</span>
+
+<span class="kn">from</span> <span class="nn">scipy.optimize</span> <span class="kn">import</span> <span class="n">curve_fit</span>
+<span class="kn">from</span> <span class="nn">scipy.interpolate</span> <span class="kn">import</span> <span class="n">interp1d</span><span class="p">,</span> <span class="n">PchipInterpolator</span>
+<span class="kn">from</span> <span class="nn">scipy.special</span> <span class="kn">import</span> <span class="n">softmax</span>
+
+<span class="kn">from</span> <span class="nn">rumboost.utils</span> <span class="kn">import</span> <span class="n">data_leaf_value</span><span class="p">,</span> <span class="n">get_grad</span><span class="p">,</span> <span class="n">find_disc</span><span class="p">,</span> <span class="n">get_mid_pos</span>
+<span class="kn">from</span> <span class="nn">rumboost.basic_functions</span> <span class="kn">import</span> <span class="n">func_wrapper</span><span class="p">,</span> <span class="n">logistic</span>
+
+<div class="viewcode-block" id="fit_func"><a class="viewcode-back" href="../../rumboost.html#rumboost.utility_smoothing.fit_func">[docs]</a><span class="k">def</span> <span class="nf">fit_func</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">technique</span><span class="o">=</span><span class="s1">&#39;weighted_data&#39;</span><span class="p">):</span>
+
+    <span class="n">data_ordered</span><span class="p">,</span> <span class="n">data_values</span> <span class="o">=</span> <span class="n">data_leaf_value</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">technique</span><span class="p">)</span>
+
+    <span class="n">best_fit</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span>
+    <span class="n">func_fitted</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">fit_score</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="n">func_for_fit</span> <span class="o">=</span> <span class="n">func_wrapper</span><span class="p">()</span>
+
+    <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">func_for_fit</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">param_opt</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">info</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">curve_fit</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">data_ordered</span><span class="p">,</span> <span class="n">data_values</span><span class="p">,</span> <span class="n">full_output</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="n">func_fitted</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">=</span> <span class="n">param_opt</span>
+        <span class="n">fit_score</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s1">&#39;fvec&#39;</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s1">&#39;fvec&#39;</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">best_fit</span><span class="p">:</span>
+            <span class="n">best_fit</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s1">&#39;fvec&#39;</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+            <span class="n">best_func</span> <span class="o">=</span> <span class="n">n</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;Fitting residuals for the function </span><span class="si">{}</span><span class="s1"> is: </span><span class="si">{}</span><span class="s1">&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s1">&#39;fvec&#39;</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span><span class="p">)))</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;Best fit (</span><span class="si">{}</span><span class="s1">) for function </span><span class="si">{}</span><span class="s1">&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">best_fit</span><span class="p">,</span> <span class="n">best_func</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="n">func_fitted</span><span class="p">,</span> <span class="n">fit_score</span></div>
+
+<div class="viewcode-block" id="find_feat_best_fit"><a class="viewcode-back" href="../../rumboost.html#rumboost.utility_smoothing.find_feat_best_fit">[docs]</a><span class="k">def</span> <span class="nf">find_feat_best_fit</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">technique</span><span class="o">=</span><span class="s1">&#39;weighted_data&#39;</span><span class="p">):</span>
+    
+    <span class="n">weights</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">weights_to_plot_v2</span><span class="p">()</span>
+    <span class="n">best_fit</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">weights</span><span class="p">:</span>
+        <span class="n">best_fit</span><span class="p">[</span><span class="n">u</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">weights</span><span class="p">[</span><span class="n">u</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="n">model</span><span class="o">.</span><span class="n">rum_structure</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">u</span><span class="p">)][</span><span class="s1">&#39;columns&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">f</span><span class="p">)</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">rum_structure</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">u</span><span class="p">)][</span><span class="s1">&#39;categorical_feature&#39;</span><span class="p">]:</span>
+                <span class="k">continue</span> <span class="c1">#add a function that is basic tree</span>
+            <span class="n">func_fitted</span><span class="p">,</span> <span class="n">fit_score</span> <span class="o">=</span> <span class="n">fit_func</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">f</span><span class="p">],</span> <span class="n">weights</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">f</span><span class="p">],</span> <span class="n">technique</span><span class="o">=</span><span class="n">technique</span><span class="p">)</span>
+            <span class="n">best_fit</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">f</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;best_func&#39;</span><span class="p">:</span> <span class="nb">min</span><span class="p">(</span><span class="n">fit_score</span><span class="p">,</span> <span class="n">key</span> <span class="o">=</span> <span class="n">fit_score</span><span class="o">.</span><span class="n">get</span><span class="p">),</span> <span class="s1">&#39;best_params&#39;</span><span class="p">:</span> <span class="n">func_fitted</span><span class="p">[</span><span class="nb">min</span><span class="p">(</span><span class="n">fit_score</span><span class="p">,</span> <span class="n">key</span> <span class="o">=</span> <span class="n">fit_score</span><span class="o">.</span><span class="n">get</span><span class="p">)],</span> <span class="s1">&#39;best_score&#39;</span><span class="p">:</span> <span class="nb">min</span><span class="p">(</span><span class="n">fit_score</span><span class="p">)}</span>
+
+    <span class="k">return</span> <span class="n">best_fit</span></div>
+
+<div class="viewcode-block" id="monotone_spline"><a class="viewcode-back" href="../../rumboost.html#rumboost.utility_smoothing.monotone_spline">[docs]</a><span class="k">def</span> <span class="nf">monotone_spline</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">num_knots</span><span class="o">=</span><span class="mi">15</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    x: data from the interpolated feature</span>
+<span class="sd">    y: V(x_value)</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+
+    <span class="c1"># x_knots = np.array(x.iloc[::2000])</span>
+    <span class="c1"># x_knots = np.append(x_knots, x.iloc[-1])</span>
+
+    <span class="n">x_knots</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">num_knots</span><span class="p">)</span>
+
+    <span class="n">f</span> <span class="o">=</span> <span class="n">interp1d</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s1">&#39;previous&#39;</span><span class="p">)</span>
+    <span class="n">y_knots</span> <span class="o">=</span> <span class="n">f</span><span class="p">(</span><span class="n">x_knots</span><span class="p">)</span>
+
+    <span class="n">pchip</span> <span class="o">=</span> <span class="n">PchipInterpolator</span><span class="p">(</span><span class="n">x_knots</span><span class="p">,</span> <span class="n">y_knots</span><span class="p">,</span> <span class="n">extrapolate</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="n">x_spline</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">*</span><span class="mf">1.05</span><span class="p">,</span> <span class="mi">10000</span><span class="p">)</span>
+    <span class="n">y_spline</span> <span class="o">=</span> <span class="n">pchip</span><span class="p">(</span><span class="n">x_spline</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">x_spline</span><span class="p">,</span> <span class="n">y_spline</span><span class="p">,</span> <span class="n">pchip</span></div>
+
+<div class="viewcode-block" id="updated_utility_collection"><a class="viewcode-back" href="../../rumboost.html#rumboost.utility_smoothing.updated_utility_collection">[docs]</a><span class="k">def</span> <span class="nf">updated_utility_collection</span><span class="p">(</span><span class="n">weights</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">spline_utilities</span><span class="p">,</span> <span class="n">num_knots</span><span class="o">=</span><span class="mi">40</span><span class="p">):</span>
+
+    <span class="n">util_collection</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">weights</span><span class="p">:</span>
+        <span class="n">util_collection</span><span class="p">[</span><span class="n">u</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">weights</span><span class="p">[</span><span class="n">u</span><span class="p">]:</span>
+            <span class="n">x_dat</span><span class="p">,</span> <span class="n">y_dat</span> <span class="o">=</span> <span class="n">data_leaf_value</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">f</span><span class="p">],</span> <span class="n">weights</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">f</span><span class="p">],</span> <span class="n">technique</span><span class="o">=</span><span class="s1">&#39;data_weighted&#39;</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">spline_utilities</span><span class="p">:</span>
+                <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">func</span> <span class="o">=</span> <span class="n">monotone_spline</span><span class="p">(</span><span class="n">x_dat</span><span class="p">,</span> <span class="n">y_dat</span><span class="p">,</span> <span class="n">num_knots</span><span class="o">=</span><span class="n">num_knots</span><span class="p">)</span>
+                <span class="n">util_collection</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">f</span><span class="p">]</span> <span class="o">=</span> <span class="n">func</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">func</span> <span class="o">=</span> <span class="n">interp1d</span><span class="p">(</span><span class="n">x_dat</span><span class="p">,</span> <span class="n">y_dat</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s1">&#39;previous&#39;</span><span class="p">)</span>
+                <span class="n">util_collection</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">f</span><span class="p">]</span> <span class="o">=</span> <span class="n">func</span>
+
+    <span class="k">return</span> <span class="n">util_collection</span></div>
+
+<div class="viewcode-block" id="smooth_predict"><a class="viewcode-back" href="../../rumboost.html#rumboost.utility_smoothing.smooth_predict">[docs]</a><span class="k">def</span> <span class="nf">smooth_predict</span><span class="p">(</span><span class="n">data_test</span><span class="p">,</span> <span class="n">util_collection</span><span class="p">,</span> <span class="n">utilities</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="n">U</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">data_test</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="nb">len</span><span class="p">(</span><span class="n">util_collection</span><span class="p">))))</span>
+    <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">util_collection</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">util_collection</span><span class="p">[</span><span class="n">u</span><span class="p">]:</span>
+            <span class="n">U</span><span class="p">[:,</span> <span class="nb">int</span><span class="p">(</span><span class="n">u</span><span class="p">)]</span> <span class="o">+=</span> <span class="n">util_collection</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">f</span><span class="p">](</span><span class="n">data_test</span><span class="p">[</span><span class="n">f</span><span class="p">])</span>
+
+        <span class="c1">#softmax</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">utilities</span><span class="p">:</span>
+        <span class="n">U</span> <span class="o">=</span> <span class="n">softmax</span><span class="p">(</span><span class="n">U</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">U</span></div>
+
+
+<span class="c1"># def all_func(x, a, b, c, d, e, f, g, h, i, j):</span>
+<span class="c1">#     return a*x**3 + b*x**2 + c*x + d*np.exp(-e*x) + f*np.log(g*x) + h/(x + i) + j</span>
+
+<span class="c1"># def penalty_neg(x, a, b, c, d, e, f, g, h, i, j):</span>
+<span class="c1">#     return (np.sign(np.grad(all_func(x, a, b, c, d, e, f, g, h, i, j))) + 1)*1000000</span>
+
+<span class="c1"># def penalty_pos(x, a, b, c, d, e, f, g, h, i, j):</span>
+<span class="c1">#     return (np.sign(np.grad(all_func(x, a, b, c, d, e, f, g, h, i, j))) - 1)*1000000</span>
+
+<span class="c1"># def all_func_neg(x, a, b, c, d, e, f, g, h, i, j):</span>
+<span class="c1">#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + penalty_neg(x, a, b, c, d, e, f, g, h, i, j)</span>
+
+<span class="c1"># def all_func_pos(x, a, b, c, d, e, f, g, h, i, j):</span>
+<span class="c1">#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + penalty_pos(x, a, b, c, d, e, f, g, h, i, j)</span>
+
+<span class="c1"># def all_func_1step(x, a, b, c, d, e, f, g, h, i, j, k, l, m):</span>
+<span class="c1">#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m)</span>
+
+<span class="c1"># def all_func_neg_1step(x, a, b, c, d, e, f, g, h, i, j, k, l, m):</span>
+<span class="c1">#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + penalty_neg(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m)</span>
+
+<span class="c1"># def all_func_pos_1step(x, a, b, c, d, e, f, g, h, i, j, k, l, m):</span>
+<span class="c1">#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + penalty_pos(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m)</span>
+
+<span class="c1"># def all_func_2step(x, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p):</span>
+<span class="c1">#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m) + logistic(x, n, o, p)</span>
+
+<span class="c1"># def all_func_neg_2step(x, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p):</span>
+<span class="c1">#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + penalty_neg(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m) + logistic(x, n, o, p)</span>
+
+<span class="c1"># def all_func_pos_2step(x, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p):</span>
+<span class="c1">#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + penalty_pos(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m) + logistic(x, n, o, p)</span>
+
+<span class="c1"># def all_func_3step(x, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s):</span>
+<span class="c1">#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m) + logistic(x, n, o, p) + logistic(x, q, r, s)</span>
+
+<span class="c1"># def all_func_neg_3step(x, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s):</span>
+<span class="c1">#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + penalty_neg(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m) + logistic(x, n, o, p) + logistic(x, q, r, s)</span>
+
+<span class="c1"># def all_func_pos_3step(x, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s):</span>
+<span class="c1">#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + penalty_pos(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m) + logistic(x, n, o, p) + logistic(x, q, r, s)</span>
+
+<div class="viewcode-block" id="cub"><a class="viewcode-back" href="../../rumboost.html#rumboost.utility_smoothing.cub">[docs]</a><span class="k">def</span> <span class="nf">cub</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">d</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">a</span><span class="o">*</span><span class="n">x</span><span class="o">**</span><span class="mi">3</span> <span class="o">+</span> <span class="n">b</span><span class="o">*</span><span class="n">x</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="n">c</span><span class="o">*</span><span class="n">x</span> <span class="o">+</span> <span class="n">d</span> </div>
+
+<div class="viewcode-block" id="cub_step"><a class="viewcode-back" href="../../rumboost.html#rumboost.utility_smoothing.cub_step">[docs]</a><span class="k">def</span> <span class="nf">cub_step</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">e</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">cub</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span> <span class="o">+</span> <span class="n">logistic</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">e</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">g</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="penalty_neg"><a class="viewcode-back" href="../../rumboost.html#rumboost.utility_smoothing.penalty_neg">[docs]</a><span class="k">def</span> <span class="nf">penalty_neg</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">e</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sign</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">cub_step</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">e</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">g</span><span class="p">)))</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="mi">1000000</span></div>
+
+<div class="viewcode-block" id="cub_step_neg"><a class="viewcode-back" href="../../rumboost.html#rumboost.utility_smoothing.cub_step_neg">[docs]</a><span class="k">def</span> <span class="nf">cub_step_neg</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">e</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">cub</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span> <span class="o">+</span> <span class="n">logistic</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">e</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">g</span><span class="p">)</span> <span class="o">+</span> <span class="n">penalty_neg</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">e</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">g</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="parametric_output"><a class="viewcode-back" href="../../rumboost.html#rumboost.utility_smoothing.parametric_output">[docs]</a><span class="k">def</span> <span class="nf">parametric_output</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">monotonic_constraint</span><span class="p">):</span>
+
+    <span class="n">data_ordered</span><span class="p">,</span> <span class="n">data_values</span> <span class="o">=</span> <span class="n">data_leaf_value</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">technique</span> <span class="o">=</span> <span class="s1">&#39;weighted_data&#39;</span><span class="p">)</span>
+
+    <span class="n">grad</span><span class="p">,</span> <span class="n">x_sample</span><span class="p">,</span> <span class="n">y_sample</span> <span class="o">=</span> <span class="n">get_grad</span><span class="p">(</span><span class="n">data_ordered</span><span class="p">,</span> <span class="n">data_values</span><span class="p">,</span> <span class="n">technique</span><span class="o">=</span><span class="s1">&#39;sample_data&#39;</span><span class="p">,</span> <span class="n">normalise</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="n">disc</span><span class="p">,</span> <span class="n">disc_idx</span><span class="p">,</span> <span class="n">num_disc</span> <span class="o">=</span> <span class="n">find_disc</span><span class="p">(</span><span class="n">x_sample</span><span class="p">,</span> <span class="n">grad</span><span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">popt</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">info</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">curve_fit</span><span class="p">(</span><span class="n">cub_step_neg</span><span class="p">,</span> <span class="n">data_ordered</span><span class="p">,</span> <span class="n">data_values</span><span class="p">,</span> <span class="n">full_output</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">except</span><span class="p">:</span>
+        <span class="k">return</span>
+    <span class="n">best_score</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s1">&#39;fvec&#39;</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;Best fit: </span><span class="si">{}</span><span class="s1"> with monotonic </span><span class="si">{}</span><span class="s1"> and </span><span class="si">{}</span><span class="s1"> step(s)&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">best_score</span><span class="p">,</span> <span class="n">monotonic_constraint</span><span class="p">,</span> <span class="n">num_disc</span><span class="p">))</span>
+    <span class="n">func_used</span> <span class="o">=</span> <span class="n">cub_step_neg</span>
+
+    <span class="c1"># if monotonic_constraint == 0:</span>
+    <span class="c1">#     if num_disc == 0:</span>
+    <span class="c1">#         try:</span>
+    <span class="c1">#             popt, _, info, _, _ = curve_fit(all_func, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1], full_output=True)</span>
+    <span class="c1">#         except:</span>
+    <span class="c1">#             return</span>
+    <span class="c1">#         best_score = np.sum(info[&#39;fvec&#39;]**2)</span>
+    <span class="c1">#         print(&#39;Best fit: {} with monotonic {} and {} step(s)&#39;.format(best_score, monotonic_constraint, num_disc))</span>
+    <span class="c1">#         func_used = all_func</span>
+    <span class="c1">#     elif num_disc == 1:</span>
+    <span class="c1">#         try:</span>
+    <span class="c1">#             popt, _, info, _, _ = curve_fit(all_func_1step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1], full_output=True)</span>
+    <span class="c1">#         except:</span>
+    <span class="c1">#             return</span>
+    <span class="c1">#         best_score = np.sum(info[&#39;fvec&#39;]**2)</span>
+    <span class="c1">#         print(&#39;Best fit: {} with monotonic {} and {} step(s)&#39;.format(best_score, monotonic_constraint, num_disc))</span>
+    <span class="c1">#         func_used = all_func_1step</span>
+    <span class="c1">#     elif num_disc == 2:</span>
+    <span class="c1">#         try:</span>
+    <span class="c1">#             popt, _, info, _, _ = curve_fit(all_func_2step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1, 1, 1, 1], full_output=True)</span>
+    <span class="c1">#         except:</span>
+    <span class="c1">#             return</span>
+    <span class="c1">#         best_score = np.sum(info[&#39;fvec&#39;]**2)</span>
+    <span class="c1">#         print(&#39;Best fit: {} with monotonic {} and {} step(s)&#39;.format(best_score, monotonic_constraint, num_disc))</span>
+    <span class="c1">#         func_used = all_func_2step</span>
+    <span class="c1">#     else:</span>
+    <span class="c1">#         try:</span>
+    <span class="c1">#             popt, _, info, _, _ = curve_fit(all_func_3step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1, 1, 1, 1, 1, 1, 1], full_output=True)</span>
+    <span class="c1">#         except:</span>
+    <span class="c1">#             return</span>
+    <span class="c1">#         best_score = np.sum(info[&#39;fvec&#39;]**2)</span>
+    <span class="c1">#         print(&#39;Best fit: {} with monotonic {} and {} step(s)&#39;.format(best_score, monotonic_constraint, num_disc))</span>
+    <span class="c1">#         func_used = all_func_3step</span>
+    <span class="c1"># elif monotonic_constraint == -1:</span>
+    <span class="c1">#     if num_disc == 0:</span>
+    <span class="c1">#         try:</span>
+    <span class="c1">#             popt, _, info, _, _ = curve_fit(all_func_neg, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1], full_output=True)</span>
+    <span class="c1">#         except:</span>
+    <span class="c1">#             return</span>
+    <span class="c1">#         best_score = np.sum(info[&#39;fvec&#39;]**2)</span>
+    <span class="c1">#         print(&#39;Best fit: {} with monotonic {} and {} step(s)&#39;.format(best_score, monotonic_constraint, num_disc))</span>
+    <span class="c1">#         func_used = all_func_neg</span>
+    <span class="c1">#     elif num_disc == 1:</span>
+    <span class="c1">#         try:</span>
+    <span class="c1">#             popt, _, info, _, _ = curve_fit(all_func_neg_1step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1], full_output=True)</span>
+    <span class="c1">#         except:</span>
+    <span class="c1">#             return</span>
+    <span class="c1">#         best_score = np.sum(info[&#39;fvec&#39;]**2)</span>
+    <span class="c1">#         print(&#39;Best fit: {} with monotonic {} and {} step(s)&#39;.format(best_score, monotonic_constraint, num_disc))</span>
+    <span class="c1">#         func_used = all_func_neg_1step</span>
+    <span class="c1">#     elif num_disc == 2:</span>
+    <span class="c1">#         try:</span>
+    <span class="c1">#             popt, _, info, _, _ = curve_fit(all_func_neg_2step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1, 1, 1, 1], full_output=True)</span>
+    <span class="c1">#         except:</span>
+    <span class="c1">#             return</span>
+    <span class="c1">#         best_score = np.sum(info[&#39;fvec&#39;]**2)</span>
+    <span class="c1">#         print(&#39;Best fit: {} with monotonic {} and {} step(s)&#39;.format(best_score, monotonic_constraint, num_disc))</span>
+    <span class="c1">#         func_used = all_func_neg_2step</span>
+    <span class="c1">#     else:</span>
+    <span class="c1">#         try:</span>
+    <span class="c1">#             popt, _, info, _, _ = curve_fit(all_func_neg_3step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1, 1, 1, 1, 1, 1, 1], full_output=True)</span>
+    <span class="c1">#         except:</span>
+    <span class="c1">#             return</span>
+    <span class="c1">#         best_score = np.sum(info[&#39;fvec&#39;]**2)</span>
+    <span class="c1">#         print(&#39;Best fit: {} with monotonic {} and {} step(s)&#39;.format(best_score, monotonic_constraint, num_disc))</span>
+    <span class="c1">#         func_used = all_func_neg_3step</span>
+    <span class="c1"># elif monotonic_constraint == 1:</span>
+    <span class="c1">#     if num_disc == 0:</span>
+    <span class="c1">#         try:</span>
+    <span class="c1">#             popt, _, info, _, _ = curve_fit(all_func_pos, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1], full_output=True)</span>
+    <span class="c1">#         except:</span>
+    <span class="c1">#             return</span>
+    <span class="c1">#         best_score = np.sum(info[&#39;fvec&#39;]**2)</span>
+    <span class="c1">#         print(&#39;Best fit: {} with monotonic {} and {} step(s)&#39;.format(best_score, monotonic_constraint, num_disc))</span>
+    <span class="c1">#         func_used = all_func_pos</span>
+    <span class="c1">#     elif num_disc == 1:</span>
+    <span class="c1">#         try:</span>
+    <span class="c1">#             popt, _, info, _, _ = curve_fit(all_func_pos_1step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1], full_output=True)</span>
+    <span class="c1">#         except:</span>
+    <span class="c1">#             return</span>
+    <span class="c1">#         best_score = np.sum(info[&#39;fvec&#39;]**2)</span>
+    <span class="c1">#         print(&#39;Best fit: {} with monotonic {} and {} step(s)&#39;.format(best_score, monotonic_constraint, num_disc))</span>
+    <span class="c1">#         func_used = all_func_pos_1step</span>
+    <span class="c1">#     elif num_disc == 2:</span>
+    <span class="c1">#         try:</span>
+    <span class="c1">#             popt, _, info, _, _ = curve_fit(all_func_pos_2step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1, 1, 1, 1], full_output=True)</span>
+    <span class="c1">#         except:</span>
+    <span class="c1">#             return</span>
+    <span class="c1">#         best_score = np.sum(info[&#39;fvec&#39;]**2)</span>
+    <span class="c1">#         print(&#39;Best fit: {} with monotonic {} and {} step(s)&#39;.format(best_score, monotonic_constraint, num_disc))</span>
+    <span class="c1">#         func_used = all_func_pos_2step</span>
+    <span class="c1">#     else:</span>
+    <span class="c1">#         try:</span>
+    <span class="c1">#             popt, _, info, _, _ = curve_fit(all_func_pos_3step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1, 1, 1, 1, 1, 1, 1], full_output=True)</span>
+    <span class="c1">#         except:</span>
+    <span class="c1">#             return</span>
+    <span class="c1">#         best_score = np.sum(info[&#39;fvec&#39;]**2)</span>
+    <span class="c1">#         print(&#39;Best fit: {} with monotonic {} and {} step(s)&#39;.format(best_score, monotonic_constraint, num_disc))</span>
+    <span class="c1">#         func_used = all_func_pos_3step</span>
+
+    <span class="k">return</span> <span class="n">popt</span><span class="p">,</span> <span class="n">best_score</span><span class="p">,</span> <span class="n">func_used</span></div>
+                
+<div class="viewcode-block" id="features_param_output"><a class="viewcode-back" href="../../rumboost.html#rumboost.utility_smoothing.features_param_output">[docs]</a><span class="k">def</span> <span class="nf">features_param_output</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+    
+    <span class="n">weights</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">rumb_model</span><span class="o">.</span><span class="n">weights_to_plot_v2</span><span class="p">()</span>
+    <span class="n">best_fit</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">weights</span><span class="p">:</span>
+        <span class="n">best_fit</span><span class="p">[</span><span class="n">u</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">f</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">weights</span><span class="p">[</span><span class="n">u</span><span class="p">]):</span>
+            <span class="k">if</span> <span class="n">model</span><span class="o">.</span><span class="n">rumb_model</span><span class="o">.</span><span class="n">rum_structure</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">u</span><span class="p">)][</span><span class="s1">&#39;columns&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">f</span><span class="p">)</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">rumb_model</span><span class="o">.</span><span class="n">rum_structure</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">u</span><span class="p">)][</span><span class="s1">&#39;categorical_feature&#39;</span><span class="p">]:</span>
+                <span class="k">continue</span> 
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">params</span><span class="p">,</span> <span class="n">fit_score</span><span class="p">,</span> <span class="n">func_used</span> <span class="o">=</span> <span class="n">parametric_output</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">f</span><span class="p">],</span> <span class="n">weights</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">f</span><span class="p">],</span> <span class="n">model</span><span class="o">.</span><span class="n">rumb_model</span><span class="o">.</span><span class="n">rum_structure</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">u</span><span class="p">)][</span><span class="s1">&#39;monotone_constraints&#39;</span><span class="p">][</span><span class="n">model</span><span class="o">.</span><span class="n">rumb_model</span><span class="o">.</span><span class="n">rum_structure</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">u</span><span class="p">)][</span><span class="s1">&#39;columns&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">f</span><span class="p">)])</span>
+            <span class="k">except</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">best_fit</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">f</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;best_func&#39;</span><span class="p">:</span> <span class="n">func_used</span><span class="p">,</span> <span class="s1">&#39;best_params&#39;</span><span class="p">:</span> <span class="n">params</span><span class="p">,</span> <span class="s1">&#39;best_score&#39;</span><span class="p">:</span> <span class="n">fit_score</span><span class="p">}</span>
+
+    <span class="k">return</span> <span class="n">best_fit</span></div>
+
+<div class="viewcode-block" id="plot_fit"><a class="viewcode-back" href="../../rumboost.html#rumboost.utility_smoothing.plot_fit">[docs]</a><span class="k">def</span> <span class="nf">plot_fit</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+
+    <span class="n">best_fit</span> <span class="o">=</span> <span class="n">features_param_output</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+    <span class="n">weights</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">rumb_model</span><span class="o">.</span><span class="n">weights_to_plot_v2</span><span class="p">()</span>
+
+    <span class="n">sns</span><span class="o">.</span><span class="n">set_theme</span><span class="p">()</span>
+
+    <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">best_fit</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">best_fit</span><span class="p">[</span><span class="n">u</span><span class="p">]:</span>
+            <span class="n">x_dat</span><span class="p">,</span> <span class="n">y_dat</span> <span class="o">=</span> <span class="n">data_leaf_value</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">dataset_train</span><span class="p">[</span><span class="n">f</span><span class="p">],</span> <span class="n">weights</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">f</span><span class="p">],</span> <span class="n">technique</span><span class="o">=</span><span class="s1">&#39;data_weighted&#39;</span><span class="p">)</span>
+
+            <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">7</span><span class="p">))</span>
+
+            <span class="n">plt</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">x_dat</span><span class="p">,</span> <span class="n">y_dat</span><span class="p">)</span>
+
+            <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">x_dat</span><span class="p">,</span> <span class="n">best_fit</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">f</span><span class="p">][</span><span class="s1">&#39;best_func&#39;</span><span class="p">](</span><span class="n">x_dat</span><span class="p">,</span> <span class="o">*</span><span class="n">best_fit</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">f</span><span class="p">][</span><span class="s1">&#39;best_params&#39;</span><span class="p">]))</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></div>
+
+<div class="viewcode-block" id="data_split_to_fit"><a class="viewcode-back" href="../../rumboost.html#rumboost.utility_smoothing.data_split_to_fit">[docs]</a><span class="k">def</span> <span class="nf">data_split_to_fit</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">weights_feat</span><span class="p">,</span> <span class="n">weight_w_data</span> <span class="o">=</span> <span class="kc">False</span><span class="p">):</span>
+    <span class="n">split_points</span> <span class="o">=</span> <span class="n">weights_feat</span><span class="p">[</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">]</span>
+    <span class="n">leaves_values</span> <span class="o">=</span> <span class="n">weights_feat</span><span class="p">[</span><span class="s1">&#39;Histogram values&#39;</span><span class="p">]</span>
+    <span class="n">mid_points</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">_get_mid_pos</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">weights_feat</span><span class="p">[</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">],</span> <span class="n">end</span> <span class="o">=</span><span class="s1">&#39;split point&#39;</span><span class="p">)</span>
+
+    <span class="n">split_range</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">split_points</span><span class="p">)</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">split_points</span><span class="p">)</span>
+    <span class="n">leaves_range</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">leaves_values</span><span class="p">)</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">leaves_values</span><span class="p">)</span>
+
+    <span class="n">new_func_idx</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">start</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">s_1</span><span class="p">,</span> <span class="n">s_2</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">mid_points</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">mid_points</span><span class="p">[</span><span class="mi">1</span><span class="p">:])):</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">s_2</span><span class="o">-</span><span class="n">s_1</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mf">0.2</span><span class="o">*</span><span class="n">split_range</span><span class="p">:</span>
+            <span class="n">stop</span> <span class="o">=</span> <span class="n">i</span>
+            <span class="n">new_func_idx</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">start</span><span class="p">,</span> <span class="n">stop</span><span class="p">))</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="n">i</span><span class="o">+</span><span class="mi">1</span>
+        <span class="k">elif</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">leaves_values</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-</span> <span class="n">leaves_values</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">])</span> <span class="o">&gt;</span> <span class="mf">0.2</span><span class="o">*</span><span class="n">leaves_range</span><span class="p">:</span>
+            <span class="n">stop</span> <span class="o">=</span> <span class="n">i</span>
+            <span class="n">new_func_idx</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">start</span><span class="p">,</span> <span class="n">stop</span><span class="p">))</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="n">i</span><span class="o">+</span><span class="mi">1</span>
+
+    <span class="k">return</span> <span class="p">[{</span><span class="s1">&#39;Mid points&#39;</span><span class="p">:</span><span class="n">mid_points</span><span class="p">[</span><span class="n">i</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span><span class="n">i</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">+</span><span class="mi">1</span><span class="p">],</span> <span class="s1">&#39;Histogram values&#39;</span><span class="p">:</span><span class="n">leaves_values</span><span class="p">[</span><span class="n">i</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span><span class="n">i</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">+</span><span class="mi">1</span><span class="p">]}</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">new_func_idx</span><span class="p">]</span></div>
+
+<div class="viewcode-block" id="fit_sev_functions"><a class="viewcode-back" href="../../rumboost.html#rumboost.utility_smoothing.fit_sev_functions">[docs]</a><span class="k">def</span> <span class="nf">fit_sev_functions</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">technique</span><span class="o">=</span><span class="s1">&#39;mid_point&#39;</span><span class="p">):</span>
+
+    <span class="n">func_for_fit</span> <span class="o">=</span> <span class="n">func_wrapper</span><span class="p">()</span>
+    
+    <span class="n">data_list</span> <span class="o">=</span> <span class="n">data_split_to_fit</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">weight</span><span class="p">,</span> <span class="n">technique</span><span class="p">)</span>
+    <span class="n">best_funcs</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">x_range</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">data_list</span><span class="p">:</span>
+        <span class="n">best_fit</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span>
+        <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">func_for_fit</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">param_opt</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">info</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">curve_fit</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">d</span><span class="p">[</span><span class="s1">&#39;Mid points&#39;</span><span class="p">],</span> <span class="n">d</span><span class="p">[</span><span class="s1">&#39;Histogram values&#39;</span><span class="p">],</span> <span class="n">full_output</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="k">except</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s1">&#39;fvec&#39;</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">best_fit</span><span class="p">:</span>
+                <span class="n">best_fit</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s1">&#39;fvec&#39;</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+                <span class="n">best_func</span> <span class="o">=</span> <span class="n">n</span>
+                <span class="n">best_params</span> <span class="o">=</span> <span class="n">param_opt</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;Fitting residuals for the function </span><span class="si">{}</span><span class="s1"> is: </span><span class="si">{}</span><span class="s1">&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s1">&#39;fvec&#39;</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span><span class="p">)))</span>
+
+        <span class="k">if</span> <span class="n">best_fit</span> <span class="o">==</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;Best fit (</span><span class="si">{}</span><span class="s1">) for function </span><span class="si">{}</span><span class="s1">&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">best_fit</span><span class="p">,</span> <span class="n">best_func</span><span class="p">))</span>
+        <span class="n">best_funcs</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="n">best_func</span><span class="p">:</span><span class="n">best_params</span><span class="p">})</span>
+        <span class="n">x_range</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">d</span><span class="p">[</span><span class="s1">&#39;Mid points&#39;</span><span class="p">]),</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">d</span><span class="p">[</span><span class="s1">&#39;Mid points&#39;</span><span class="p">]),</span> <span class="mi">10000</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="n">best_funcs</span><span class="p">,</span> <span class="n">x_range</span></div>
+
+<div class="viewcode-block" id="stairs_to_pw"><a class="viewcode-back" href="../../rumboost.html#rumboost.utility_smoothing.stairs_to_pw">[docs]</a><span class="k">def</span> <span class="nf">stairs_to_pw</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">train_data</span><span class="p">,</span> <span class="n">data_to_transform</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">util_for_plot</span> <span class="o">=</span> <span class="kc">False</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Transform a stair output to a piecewise linear prediction</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">train_data</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">list</span><span class="p">:</span>
+        <span class="n">new_train_data</span> <span class="o">=</span> <span class="n">train_data</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">get_data</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">data</span> <span class="ow">in</span> <span class="n">train_data</span><span class="p">[</span><span class="mi">1</span><span class="p">:]:</span>
+            <span class="n">new_train_data</span> <span class="o">=</span> <span class="n">new_train_data</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">get_data</span><span class="p">(),</span> <span class="n">lsuffix</span><span class="o">=</span><span class="s1">&#39;DROP&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">regex</span><span class="o">=</span><span class="s2">&quot;^(?!.*DROP)&quot;</span><span class="p">)</span>
+
+        <span class="n">train_data</span> <span class="o">=</span> <span class="n">new_train_data</span>
+
+    <span class="k">if</span> <span class="n">data_to_transform</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">data_to_transform</span> <span class="o">=</span> <span class="n">train_data</span>
+    <span class="n">weights</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">weights_to_plot</span><span class="p">()</span>
+    <span class="n">pw_utility</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">weights</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">util_for_plot</span><span class="p">:</span>
+            <span class="n">pw_util</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">pw_util</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">data_to_transform</span><span class="o">.</span><span class="n">iloc</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">weights</span><span class="p">[</span><span class="n">u</span><span class="p">]:</span>
+            <span class="n">leaf_values</span> <span class="o">=</span> <span class="n">weights</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">f</span><span class="p">][</span><span class="s1">&#39;Histogram values&#39;</span><span class="p">]</span>
+            <span class="n">split_points</span> <span class="o">=</span>  <span class="n">weights</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">f</span><span class="p">][</span><span class="s1">&#39;Splitting points&#39;</span><span class="p">]</span>
+            <span class="n">transf_data_arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">data_to_transform</span><span class="p">[</span><span class="n">f</span><span class="p">])</span>
+
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">split_points</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="k">break</span>
+            
+            <span class="k">if</span> <span class="n">model</span><span class="o">.</span><span class="n">rum_structure</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">u</span><span class="p">)][</span><span class="s1">&#39;columns&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">f</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">rum_structure</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">u</span><span class="p">)][</span><span class="s1">&#39;categorical_feature&#39;</span><span class="p">]:</span>
+
+                <span class="n">mid_pos</span> <span class="o">=</span> <span class="n">get_mid_pos</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">train_set</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">u</span><span class="p">)]</span><span class="o">.</span><span class="n">get_data</span><span class="p">()[</span><span class="n">f</span><span class="p">],</span><span class="n">split_points</span><span class="p">)</span>
+                
+                <span class="n">slope</span> <span class="o">=</span> <span class="n">get_grad</span><span class="p">(</span><span class="n">mid_pos</span><span class="p">,</span> <span class="n">leaf_values</span><span class="p">,</span> <span class="n">technique</span><span class="o">=</span><span class="s1">&#39;slope&#39;</span><span class="p">)</span>
+
+                <span class="n">conds</span> <span class="o">=</span> <span class="p">[(</span><span class="n">mp1</span> <span class="o">&lt;=</span> <span class="n">transf_data_arr</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">transf_data_arr</span> <span class="o">&lt;</span> <span class="n">mp2</span><span class="p">)</span> <span class="k">for</span> <span class="n">mp1</span><span class="p">,</span> <span class="n">mp2</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">mid_pos</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">mid_pos</span><span class="p">[</span><span class="mi">1</span><span class="p">:])]</span>
+                <span class="n">conds</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">transf_data_arr</span><span class="o">&lt;</span><span class="n">mid_pos</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+                <span class="n">conds</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">transf_data_arr</span> <span class="o">&gt;=</span> <span class="n">mid_pos</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+
+                <span class="n">values</span> <span class="o">=</span> <span class="p">[</span><span class="k">lambda</span> <span class="n">x</span><span class="p">,</span> <span class="n">j</span><span class="o">=</span><span class="n">j</span><span class="p">:</span> <span class="n">leaf_values</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">+</span> <span class="n">slope</span><span class="p">[</span><span class="n">j</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="n">mid_pos</span><span class="p">[</span><span class="n">j</span><span class="p">])</span> <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">leaf_values</span><span class="p">))]</span>
+                <span class="n">values</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">leaf_values</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">conds</span> <span class="o">=</span> <span class="p">[(</span><span class="n">sp1</span> <span class="o">&lt;=</span> <span class="n">transf_data_arr</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">transf_data_arr</span> <span class="o">&lt;</span> <span class="n">sp2</span><span class="p">)</span> <span class="k">for</span> <span class="n">sp1</span><span class="p">,</span> <span class="n">sp2</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">split_points</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">split_points</span><span class="p">[</span><span class="mi">1</span><span class="p">:])]</span>
+                <span class="n">conds</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">transf_data_arr</span> <span class="o">&lt;</span> <span class="n">split_points</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+                <span class="n">conds</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">transf_data_arr</span> <span class="o">&gt;=</span> <span class="n">split_points</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+                <span class="n">values</span> <span class="o">=</span> <span class="n">leaf_values</span>
+            
+            <span class="k">if</span> <span class="n">util_for_plot</span><span class="p">:</span>
+                <span class="n">pw_util</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">piecewise</span><span class="p">(</span><span class="n">transf_data_arr</span><span class="p">,</span> <span class="n">conds</span><span class="p">,</span> <span class="n">values</span><span class="p">))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">pw_util</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">pw_util</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">piecewise</span><span class="p">(</span><span class="n">transf_data_arr</span><span class="p">,</span> <span class="n">conds</span><span class="p">,</span> <span class="n">values</span><span class="p">))</span>
+        <span class="n">pw_utility</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">pw_util</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">pw_utility</span></div>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2023, Nicolas Salvadé, Tim Hillel.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
