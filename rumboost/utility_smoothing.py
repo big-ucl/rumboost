@@ -1,11 +1,13 @@
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d, PchipInterpolator
 from scipy.special import softmax
-from fit_functions import func_wrapper, logistic
-import matplotlib.pyplot as plt
-import seaborn as sns
-from utils import data_leaf_value, get_grad, find_disc, get_mid_pos
+
+from rumboost.utils import data_leaf_value, get_grad, find_disc, get_mid_pos
+from rumboost.basic_functions import func_wrapper, logistic
 
 def fit_func(data, weight, technique='weighted_data'):
 

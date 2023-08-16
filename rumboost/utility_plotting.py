@@ -2,9 +2,10 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from utils import function_2d, get_weights, weights_to_plot_v2, get_asc, non_lin_function
-from basic_functions import func_wrapper
-from utility_smoothing import stairs_to_pw, find_feat_best_fit, fit_func, fit_sev_functions
+
+from rumboost.utils import function_2d, get_weights, weights_to_plot_v2, get_asc, non_lin_function
+from rumboost.basic_functions import func_wrapper
+from rumboost.utility_smoothing import stairs_to_pw, find_feat_best_fit, fit_func, fit_sev_functions
 
 def plot_2d(model, feature1: str, feature2: str, max1: int, max2: int, save_figure: bool = False, utility_names: list[str] = ['Walking', 'Cycling', 'Public Transport', 'Driving']):
     '''
@@ -12,19 +13,21 @@ def plot_2d(model, feature1: str, feature2: str, max1: int, max2: int, save_figu
 
     Parameters
     ----------
-    model: RUMBoost
-    feature1: str
+    model : RUMBoost
+        A RUMBoost object.
+    feature1 : str
         Name of feature 1.
-    feature2: str
+    feature2 : str
         Name of feature 2.
-    max1: int
+    max1 : int
         Maximum value of feature 1.
-    max2: int
+    max2 : int
         Maximum value of feature 2.
-    save_figure: bool, optional (defalut = False)
+    save_figure : bool, optional (defalut = False)
         If true, save the figure as a png file
-    utility_names: list[str]
+    utility_names : list[str]
         List of the alternative names
+
     '''
     #get the good weights
     _, weights_2d, _ = get_weights(model)
@@ -77,6 +80,7 @@ def plot_parameters(model, X, utility_names, Betas = None,  model_unconstrained 
     Parameters
     ----------
     model : RUMBoost
+        A RUMBoost object.
     X : pandas dataframe
         Features used to train the model, in a pandas dataframe.
     utility_name : dict
@@ -108,6 +112,7 @@ def plot_parameters(model, X, utility_names, Betas = None,  model_unconstrained 
         The technique for data sampling in the function fitting.
     data_sep : bool, optional (default = False)
         If True, split the data to fit subsets of data
+
     """
 
     #get and prepare weights
@@ -357,11 +362,14 @@ def plot_market_segm(model, X, asc_normalised: bool = True, utility_names: list[
     Parameters
     ----------
     model : RUMBoost
-        The RUMBoost object used for market segmentation
+        A RUMBoost object.
     X : pandas DataFrame
+        Training data.
     asc_normalised : bool, optional (default = False)
         If True, scale down utilities to be zero at the y axis.
     utility_names : list[str], optional (default = ['Walking', 'Cycling', 'Public Transport', 'Driving'])
+        Names of utilities.
+    
     '''
     
     sns.set_theme()
@@ -392,7 +400,7 @@ def plot_market_segm(model, X, asc_normalised: bool = True, utility_names: list[
 
 def plot_util(model, data_train, points=10000):
     '''
-    plot the raw utility functions of all features
+    Plot the raw utility functions of all features
     '''
     sns.set_theme()
     for j, struct in enumerate(model.rum_structure):
@@ -408,7 +416,7 @@ def plot_util(model, data_train, points=10000):
 
 def plot_util_pw(model, data_train, points = 10000):
     '''
-    plot the piece-wise utility function
+    Plot the piece-wise utility function
     '''
     features = data_train.columns
     data_to_transform = {}

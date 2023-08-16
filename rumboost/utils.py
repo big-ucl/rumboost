@@ -1,15 +1,9 @@
 import numpy as np
 import pandas as pd
-
 import random
-from collections import Counter, defaultdict
 
-# from scipy.optimize import curve_fit
+from collections import Counter, defaultdict
 from scipy.interpolate import interp1d
-# from scipy.special import softmax
-# from fit_functions import func_wrapper, logistic
-# import matplotlib.pyplot as plt
-# import seaborn as sns
 
 def process_parent(parent, pairs):
     '''
