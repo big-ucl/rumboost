@@ -1,0 +1,35 @@
+.wy-breadcrumbs
+  +clearfix
+
+.wy-breadcrumbs > li
+  display: inline-block
+  padding-top: 5px
+  &.wy-breadcrumbs-aside
+    float: right
+  /* Style literals as links */
+  code
+    all: inherit
+    color: inherit
+
+.breadcrumb-item::before
+  content: "/"
+  color: #bbb
+  font-size: 13px
+  padding: 0 6px 0 3px
+
+.wy-breadcrumbs-extra
+  margin-bottom: 0
+  color: $text-light
+  font-size: 80%
+  display: inline-block
+
+
++media($mobile)
+  .wy-breadcrumbs-extra
+    display: none
+  .wy-breadcrumbs li.wy-breadcrumbs-aside
+    display: none
+
+@media print
+  .wy-breadcrumbs li.wy-breadcrumbs-aside
+    display: none
