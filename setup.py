@@ -20,7 +20,7 @@ setup(
     install_requires=['lightgbm', 'matplotlib', 'seaborn', 'numpy', 
                       'pandas', 'pickle', 'sklearn', 'random', 'collections', 
                       'scipy', 'copy', 'json', 'operator', 'pathlib', 
-                      'typing', 'biogeme'],
+                      'typing', 'biogeme', 'sphinx_rtd_theme'],
     keywords=['python', 'gbdt', 'rum', 'ml'],
     classifiers=[
         "Development Status :: 1 - Planning",
