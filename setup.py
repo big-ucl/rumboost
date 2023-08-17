@@ -16,7 +16,8 @@ setup(
     packages=find_packages(),
     url="https://github.com/NicoSlvd/rumboost",
     install_requires=['lightgbm', 'matplotlib', 'seaborn', 'numpy', 
-                      'pandas', 'scikit-learn', 'scipy', 'biogeme'],
+                      'pandas', 'scikit-learn', 'scipy', 'biogeme',
+                      'sphinx_rtd_theme'],
     keywords=['python', 'gbdt', 'rum', 'ml'],
     classifiers=[
         "Development Status :: 1 - Planning",
