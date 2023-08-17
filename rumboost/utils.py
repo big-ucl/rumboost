@@ -7,7 +7,7 @@ from scipy.interpolate import interp1d
 
 def process_parent(parent, pairs):
     '''
-    dig into the biogeme expression to retrieve name of variable and beta parameter. Work only with simple utility specification (beta * variable)
+    Dig into the biogeme expression to retrieve name of variable and beta parameter. Work only with simple utility specification (beta * variable).
     '''
     # final expression to be stored
     if parent.getClassName() == 'Times':
@@ -25,7 +25,7 @@ def process_parent(parent, pairs):
 
 def get_pair(parent):
     '''
-    return beta and variable names on a tupple from a parent expression
+    Return beta and variable names on a tupple from a parent expression.
     '''
     left = parent.left
     right = parent.right
@@ -43,7 +43,26 @@ def get_pair(parent):
     
 def bio_to_rumboost(model, all_columns = False, monotonic_constraints = True, interaction_contraints = True, max_depth=1):
     '''
-    Converts a biogeme model to a rumboost dict
+    Converts a biogeme model to a rumboost dict.
+
+    Parameters
+    ----------
+    model : a BIOGEME object
+        The model used to create the rumboost structure dictionary.
+    all_columns : bool, optional (default = False)
+        If True, do not consider alternative-specific features.
+    monotonic_constraints : bool, optional (default = True)
+        If False, do not consider monotonic constraints.
+    interaction_contraints : bool, optional (default = True)
+        If False, do not consider feature interactions constraints.
+    max_depth : int, optional (default = 1)
+        The maximum depth allowed in the RUMBoost object for decision trees.
+
+    Returns
+    -------
+    rum_structure : dict
+        A dictionary specifying the structure of a RUMBoost object.
+
     '''
     utilities = model.loglike.util #biogeme expression
     rum_structure = []
@@ -82,15 +101,15 @@ def bio_to_rumboost(model, all_columns = False, monotonic_constraints = True, in
     
 def get_mid_pos(data, split_points, end='data'):
     '''
-    Return the mid point in-between two split points for a specific feature (used in pw linear predict)
+    Return the mid point in-between two split points for a specific feature (used in pw linear predict).
 
     Parameters
     ----------
-    data: pandas.Series
-        The column of the dataframe associated with the feature
-    split_points: list
-        The list of split points for that feature
-    end: str
+    data: pandas Series
+        The column of the dataframe associated with the feature.
+    split_points : list
+        The list of split points for that feature.
+    end : str
         How to compute the mid position of the first and last point, it can be:
             -'data': add min and max values of data
             -'split point': add first and last split points
@@ -99,8 +118,8 @@ def get_mid_pos(data, split_points, end='data'):
     Returns
     -------
 
-    mid_pos: list
-        A list of points in the middle of every consecutive split points
+    mid_pos : list
+        A list of points in the middle of every consecutive split points.
     '''
     #getting position in the middle of splitting points intervals
     if len(split_points) > 1:
@@ -127,16 +146,16 @@ def get_mean_pos(data, split_points):
 
     Parameters
     ----------
-    data: pandas.Series
-        The column of the dataframe associated with the feature
-    split_points: list
-        The list of split points for that feature
+    data : pandas.Series
+        The column of the dataframe associated with the feature.
+    split_points : list
+        The list of split points for that feature.
 
     Returns
     -------
 
-    mid_pos: list
-        A list of points in the middle of every consecutive split points
+    mean_data : list
+        A list of points in the mean of every consecutive split points.
     '''
     #getting the mean of data of splitting points intervals
     mean_data = [np.mean(data[(data < s_ii) & (data > s_i)]) for s_i, s_ii in zip(split_points[:-1], split_points[1:])]
@@ -146,7 +165,32 @@ def get_mean_pos(data, split_points):
     return mean_data
 
 def data_leaf_value(data, weights_feature, technique='weighted_data'):
+    '''
+    Computes the utility values of given data, according to the prespecified technique.
 
+    Parameters
+    ----------
+    data : pandas.Series
+        The column of the dataframe associated with the feature.
+    weight_feature : dict
+        The dictionary corresponding to the feature leaf values.
+    technique : str, optional (default = weight_data)
+        The technique used to compute data values. It can be:
+
+            weighted_data : feature data and its utility values.
+            mid_point : the mid point in between all splitting points.
+            mean_data : the mean of data in between all splitting points.
+            mid_point_weighted : the mid points in between all splitting points, weighted by the number of data points in the interval.
+            mean_data_weighted : the mean of data in between all splitting points, weighted by the number of data points in the interval.
+
+    Returns
+    -------
+    data_ordered : numpy array
+        X coordinates of the data, or feature data point values.
+    data_values : numpy array
+        Y coordinates of the data, or utility values
+
+    '''
     if technique == 'mid_point':
         mid_points = np.array(get_mid_pos(data, weights_feature['Splitting points']))
         return mid_points, weights_feature['Histogram values']
@@ -182,6 +226,31 @@ def data_leaf_value(data, weights_feature, technique='weighted_data'):
     return data_ordered, data_values
 
 def get_grad(x, y, technique='slope', sample_points=30, normalise = False):
+    '''
+    Computes the arc gradient according to the prespecified technique.
+
+    Parameters
+    ----------
+    x : numpy array
+        X coordinates of the point to compute the gradient.
+    y : numpy array
+        Y coordinates of the point to compute the gradient.
+    technique : str, optional (default = slope)
+        The technique used to compute data values. It can be:
+
+            slope : compute the slope as gradient between each point.
+            sample_data : compute the slope between uniformly distributed sampled data.
+
+    Returns
+    -------
+    grad : numpy array
+        A vector with gradient values at each given points.
+    x_sample : numpy array
+        The x coordinates of the sampled points if the technique is sample_data.
+    y_sample : numpy array
+        The y coordinates of the sampled points if the technique is sample_data.
+
+    '''
 
     if len(y) <= 1:
         return 0
@@ -214,7 +283,22 @@ def get_grad(x, y, technique='slope', sample_points=30, normalise = False):
     return grad
 
 def get_angle_diff(x_values, y_values):
+    '''
+    Computes the angle between three given points.
 
+    Parameters
+    ----------
+    x_values : numpy array
+        X coordinates of the point to compute the angle.
+    y_values : numpy array
+        Y coordinates of the point to compute the angle.
+
+    Returns
+    -------
+    diff_angle : list
+        A list containing all vectors for each subsequent three points.
+
+    '''
     slope = get_grad(x_values, y_values, normalise = True)
     angle = np.arctan(slope)
     diff_angle = [np.pi - np.abs(angle[0])]
@@ -223,7 +307,26 @@ def get_angle_diff(x_values, y_values):
     return diff_angle
 
 def find_disc(x_values, grad):
-    
+    '''
+    Find discontinuities for a given feature values. The angle must be smaller than 0.2 radian and the slope bigger than 5. Values are normalised.
+
+    Parameters
+    ----------
+    x_values : numpy array
+        X coordinates of the point to find discontinuities.
+    grad : numpy array
+        A vector with gradient values at each given points.
+
+    Returns
+    -------
+    disc : numpy array
+        The coordinates of discontinuities.
+    disc_idx : numpy array
+        The index of discontinuities.
+    num_disc : int
+        The number of discontinuities.
+
+    '''
     diff_angle = get_angle_diff(x_values, grad)
 
     is_disc = [True if (angle < 0.2) and (np.abs(g) > 5) else False for angle, g in zip(diff_angle, grad)]
@@ -236,73 +339,44 @@ def find_disc(x_values, grad):
 
 def accuracy(preds, labels):
     """
-    Compute accuracy of the model
+    Compute accuracy of the model.
 
     Parameters
     ----------
-    preds: ndarray
+    preds : numpy array
         Predictions for all data points and each classes from a softmax function. preds[i, j] correspond
-        to the prediction of data point i to belong to class j
-    labels: ndarray
-        The labels of the original dataset, as int
+        to the prediction of data point i to belong to class j.
+    labels : numpy array
+        The labels of the original dataset, as int.
 
     Returns
     -------
     Accuracy: float
+        The computed accuracy, as a float.
     """
     return np.mean(np.argmax(preds, axis=1) == labels)
 
 def cross_entropy(preds, labels):
     """
-    Compute negative cross entropy for given predictions and data
+    Compute negative cross entropy for given predictions and data.
     
     Parameters
     ----------
-    preds: ndarray
+    preds: numpy array
         Predictions for all data points and each classes from a softmax function. preds[i, j] correspond
-        to the prediction of data point i to belong to class j
-    labels: ndarray
-        The labels of the original dataset, as int
+        to the prediction of data point i to belong to class j.
+    labels: numpy array
+        The labels of the original dataset, as int.
 
     Returns
     -------
     Cross entropy : float
+        The negative cross-entropy, as float.
     """
     num_data = len(labels)
     data_idx = np.arange(num_data)
 
     return - np.mean(np.log(preds[data_idx, labels]))
-
-# def get_weights(model):
-#     """
-#     get leaf values from a RUMBoost model
-
-#     Parameters
-#     ----------
-#     model: lightGBM model
-
-#     Returns
-#     -------
-#     weights_df: DataFrame
-#         DataFrame containing all split points and their corresponding left and right leaves value, 
-#         for all features
-#     """
-#     #using self object or a given model
-#     model_json = [model.dump_model()]
-
-#     weights = []
-
-#     for i, b in enumerate(model_json):
-#         feature_names = b['feature_names']
-#         for trees in b['tree_info']:
-#             feature = feature_names[trees['tree_structure']['split_feature']]
-#             split_point = trees['tree_structure']['threshold']
-#             left_leaf_value = trees['tree_structure']['left_child']['leaf_value']
-#             right_leaf_value = trees['tree_structure']['right_child']['leaf_value']
-#             weights.append([feature, split_point, left_leaf_value, right_leaf_value, i])
-
-#     weights_df = pd.DataFrame(weights, columns= ['Feature', 'Split point', 'Left leaf value', 'Right leaf value', 'Utility'])
-#     return weights_df
 
 def create_name(features):
     """Create new feature names from a list of feature names"""
@@ -369,20 +443,21 @@ def get_child(model, weights, weights_2d, weights_market, tree, split_points, fe
 
 def get_weights(model):
     """
-    get leaf values from a RUMBoost model
+    Get leaf values from a RUMBoost model.
 
     Parameters
     ----------
-    model: RUMBoost
+    model : RUMBoost
+        A trained RUMBoost object.
 
     Returns
     -------
-    weights_df: pandas.DataFrame
+    weights_df : pandas DataFrame
         DataFrame containing all split points and their corresponding left and right leaves value, 
-        for all features
-    weights_2d_df: pandas.DataFrame
+        for all features.
+    weights_2d_df : pandas DataFrame
         Dataframe with weights arranged for a 2d plot, used in the case of 2d feature interaction.
-    weights_market: pandas.DataFrame
+    weights_market : pandas DataFrame
         Dataframe with weights arranged for market segmentation, used in the case of market segmentation.
     
     """
@@ -409,16 +484,18 @@ def get_weights(model):
 
 def weights_to_plot_v2(model, market_segm=False):
     """
-    Arrange weights by ascending splitting points and cumulative sum of weights
+    Arrange weights by ascending splitting points and cumulative sum of weights.
 
     Parameters
     ----------
-    model: lightGBM model
+    model : RUMBoost
+        A trained RUMBoost object.
 
     Returns
     -------
-    weights_for_plot: dict
-        Dictionary containing splitting points and corresponding cumulative weights value for all features
+    weights_for_plot : dict
+        Dictionary containing splitting points and corresponding cumulative weights value for all features.
+
     """
 
     #get raw weights
@@ -462,85 +539,28 @@ def weights_to_plot_v2(model, market_segm=False):
                 
     return weights_for_plot
 
-# def weights_to_plot(self, model = None):
-#     """
-#     Arrange weights by ascending splitting points and cumulative sum of weights
-
-#     Parameters
-#     ----------
-#     model: lightGBM model
-
-#     Returns
-#     -------
-#     weights_for_plot: dict
-#         Dictionary containing splitting points and corresponding cumulative weights value for all features
-#     """
-
-#     #get raw weights
-#     if model is None:
-#         weights = self.getweights()
-#     else:
-#         weights = self.getweights(model=model)
-
-#     weights_for_plot = {}
-#     weights_for_plot_double = {}
-#     #for all features
-#     for i in weights.Utility.unique():
-#         weights_for_plot[str(i)] = {}
-#         weights_for_plot_double[str(i)] = {}
-        
-#         for f in weights[weights.Utility == i].Feature.unique():
-            
-#             split_points = []
-#             function_value = [0]
-
-#             #getting values related to the corresponding utility
-#             weights_util = weights[weights.Utility == i]
-            
-#             #sort by ascending order
-#             feature_data = weights_util[weights_util.Feature == f]
-#             ordered_data = feature_data.sort_values(by = ['Split point'], ignore_index = True)
-#             for j, s in enumerate(ordered_data['Split point']):
-#                 #new split point
-#                 if s not in split_points:
-#                     split_points.append(s)
-#                     #add a new right leaf value to the current right side value
-#                     function_value.append(function_value[-1] + float(ordered_data.loc[j, 'Right leaf value']))
-#                     #add left leaf value to all other current left leaf values
-#                     function_value[:-1] = [h + float(ordered_data.loc[j, 'Left leaf value']) for h in function_value[:-1]]
-#                 else:
-#                     #add right leaf value to the current right side value
-#                     function_value[-1] += float(ordered_data.loc[j, 'Right leaf value'])
-#                     #add left leaf value to all other current left leaf values
-#                     function_value[:-1] = [h + float(ordered_data.loc[j, 'Left leaf value']) for h in function_value[:-1]]
-                    
-#             weights_for_plot[str(i)][f] = {'Splitting points': split_points,
-#                                             'Histogram values': function_value}
-                
-#     return weights_for_plot
-
 def non_lin_function(weights_ordered, x_min, x_max, num_points):
     """
-    Create the nonlinear function for parameters, from weights ordered by ascending splitting points
+    Create the nonlinear function for parameters, from weights ordered by ascending splitting points.
 
     Parameters
     ----------
     weights_ordered : dict
         Dictionary containing splitting points and corresponding cumulative weights value for a specific 
-        feature's parameter
+        feature's parameter.
     x_min : float, int
-        Minimum x value for which the nonlinear function is computed
+        Minimum x value for which the nonlinear function is computed.
     x_max : float, int
-        Maximum x value for which the nonlinear function is computed
-    num_points: int
-        Number of points used to draw the nonlinear function line
+        Maximum x value for which the nonlinear function is computed.
+    num_points : int
+        Number of points used to draw the nonlinear function line.
 
     Returns
     -------
-    x_values: list
-        X values for which the function will be plotted
-    nonlin_function: list
-        Values of the function at the corresponding x points
+    x_values : list
+        X values for which the function will be plotted.
+    nonlin_function : list
+        Values of the function at the corresponding x points.
     """
     #create x points
     x_values = np.linspace(x_min, x_max, num_points)
@@ -582,16 +602,16 @@ def function_2d(weights_2d, x_vect, y_vect):
     Parameters
     ----------
     weights_2d : dict
-        Pandas DataFrame containing all possible rectangles with their corresponding area values, for the given feature and utility
-    x_vect : np.linspace
-        Vector of higher level feature
-    y_vect : np.linspace
-        Vector of lower level feature
+        Pandas DataFrame containing all possible rectangles with their corresponding area values, for the given feature and utility.
+    x_vect : numpy array
+        Vector of higher level feature.
+    y_vect : numpy array
+        Vector of lower level feature.
 
     Returns
     -------
-    contour_plot_values: np.darray
-        Array with values at (x,y) points
+    contour_plot_values : numpy array
+        Array with values at (x,y) points.
     """
     contour_plot_values = np.zeros(shape=(len(x_vect), len(y_vect)))
 

@@ -6,10 +6,31 @@ from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d, PchipInterpolator
 from scipy.special import softmax
 
-from rumboost.utils import data_leaf_value, get_grad, find_disc, get_mid_pos
-from rumboost.basic_functions import func_wrapper, logistic
+# from rumboost.utils import data_leaf_value, get_grad, find_disc, get_mid_pos
+# from rumboost.basic_functions import func_wrapper, logistic
+from utils import data_leaf_value, get_grad, find_disc, get_mid_pos
+from basic_functions import func_wrapper, logistic
 
 def fit_func(data, weight, technique='weighted_data'):
+    '''
+    Fit a function that minimises the least-squares.
+
+    Parameter
+    ---------
+    data : pandas Series
+        The pandas Series containing data about the feature that is being fitted.
+    weight : dict
+        The dictionary containing weights ordered for the feature being fitted.
+    technique : str, optional (default = 'weighted_data)
+        The technique used to approximate the stair utility in data_leaf_values.
+
+    Returns
+    -------
+    func_fitted : dict
+        A dictionary with the name of the fitted function as key and its parameters as value.
+    fit_score : int
+        The corresponding sum of least squares of the fit.
+    '''
 
     data_ordered, data_values = data_leaf_value(data, weight, technique)
 
@@ -36,6 +57,29 @@ def fit_func(data, weight, technique='weighted_data'):
     return func_fitted, fit_score
 
 def find_feat_best_fit(model, data, technique='weighted_data'):
+    '''
+    Find the best fit among several functions according to the least-squares for all features.
+
+    Parameter
+    ---------
+    model : RUMBoost
+        A RUMBoost object.
+    data : pandas DataFrame
+        The pandas DataFrame used for training.
+    technique : str, optional (default = 'weighted_data)
+        The technique used to approximate the stair utility in data_leaf_values.
+
+    Returns
+    -------
+    best_fit : dict
+        A dictionary used to store the best fitting functions for all utilities and all features.
+        For each utility and feature, the dictionary contains three keys:
+
+            best_func : the name of the best function
+            best_params : the parameters associated with the best function
+            best_score : the sum of the least squares score
+
+    '''
     
     weights = model.weights_to_plot_v2()
     best_fit = {}
@@ -49,16 +93,30 @@ def find_feat_best_fit(model, data, technique='weighted_data'):
 
     return best_fit
 
-def monotone_spline(x, y, num_knots=15):
+def monotone_spline(x, y, num_splines=15):
     '''
-    x: data from the interpolated feature
-    y: V(x_value)
+    A function that apply monotonic spline interpolation on a given feature.
+
+    Parameters
+    ----------
+    x : numpy array
+        Data from the interpolated feature.
+    y : numpy array
+        V(x_value), the values of the utility at x.
+    num_splines : int, optional (default = 15)
+        The number of splines used for interpolation.
+
+    Returns
+    -------
+    x_spline : numpy array
+        A vector of x values used to plot the splines.
+    y_spline : numpy array
+        A vector of the spline values at x_spline.
+    pchip : scipy.interpolate.PchipInterpolator
+        The scipy interpolator object from the monotonic splines.
     '''
 
-    # x_knots = np.array(x.iloc[::2000])
-    # x_knots = np.append(x_knots, x.iloc[-1])
-
-    x_knots = np.linspace(np.min(x), np.max(x), num_knots)
+    x_knots = np.linspace(np.min(x), np.max(x), num_splines+1)
 
     f = interp1d(x, y, kind='previous')
     y_knots = f(x_knots)
@@ -70,16 +128,113 @@ def monotone_spline(x, y, num_knots=15):
 
     return x_spline, y_spline, pchip
 
-def updated_utility_collection(weights, data, spline_utilities, num_knots=40):
+def mean_monotone_spline(x_data, x_mean, y_data, y_mean, num_splines=15):
+    '''
+    A function that apply monotonic spline interpolation on a given feature.
+    The difference with monotone_spline, is that the knots are on the closest stairs mean.
+
+    Parameters
+    ----------
+    x_data : numpy array
+        Data from the interpolated feature.
+    x_mean : numpy array
+        The x coordinate of the vector of mean points at each stairs
+    y_data : numpy array
+        V(x_value), the values of the utility at x.
+    y_mean : numpy array
+        The y coordinate of the vector of mean points at each stairs
+
+    Returns
+    -------
+    x_spline : numpy array
+        A vector of x values used to plot the splines.
+    y_spline : numpy array
+        A vector of the spline values at x_spline.
+    pchip : scipy.interpolate.PchipInterpolator
+        The scipy interpolator object from the monotonic splines.
+    '''
+    #case where there are more splines than mean data points
+    if num_splines + 1 >= len(x_mean):
+        x_knots = x_mean
+        y_knots = y_mean
+
+        #adding first and last point for extrapolation
+        if x_knots[0] != x_data[0]:
+            x_knots = np.insert(x_knots,0,x_data[0])
+            y_knots = np.insert(y_knots,0,y_data[0])
+
+        if x_knots[-1] != x_data[-1]:
+            x_knots = np.append(x_knots,x_data[-1])
+            y_knots = np.append(y_knots,y_data[-1])
+
+        #create interpolator
+        pchip = PchipInterpolator(x_knots, y_knots, extrapolate=True)
+
+        #for plot
+        x_spline = np.linspace(0, np.max(x_data)*1.05, 10000)
+        y_spline = pchip(x_spline)
+
+        return x_spline, y_spline, pchip
+
+    #candidate for knots
+    x_candidates = np.linspace(np.min(x_mean)+1e-10, np.max(x_mean)+1e-10, num_splines+1)
+
+    #find closest mean point
+    idx = np.unique(np.searchsorted(x_mean, x_candidates, side='left') - 1)
+
+    x_knots = x_mean[idx]
+    y_knots = y_mean[idx]
+
+    #adding first and last point for extrapolation
+    if x_knots[0] != x_data[0]:
+        x_knots = np.insert(x_knots,0,x_data[0])
+        y_knots = np.insert(y_knots,0,y_data[0])
+
+    if x_knots[-1] != x_data[-1]:
+        x_knots = np.append(x_knots,x_data[-1])
+        y_knots = np.append(y_knots,y_data[-1])
+
+    #create interpolator
+    pchip = PchipInterpolator(x_knots, y_knots, extrapolate=True)
+
+    #for plot
+    x_spline = np.linspace(0, np.max(x_data)*1.05, 10000)
+    y_spline = pchip(x_spline)
+
+    return x_spline, y_spline, pchip
+
+def updated_utility_collection(weights, data, spline_utilities, num_splines=15):
+    '''
+    Create a dictionary that stores what type of utility (smoothed or not) should be used for smooth_predict.
+
+    Parameters
+    ----------
+    weights : dict
+        A dictionary containing all leaf values for all utilities and all features.
+    data : pandas DataFrame
+        The pandas DataFrame used for training.
+    spline_utilities : list[str]
+        A list of features names that are interpolated with monotonic splines.
+    num_splines : int or dict, optional (default = 15)
+        The number of splines used for interpolation. If it is a dictionary, the key is a spline interpolated feature name, 
+        and the value is the number of splines used for interpolation as an int. There should be a key for all features.
+
+    Returns
+    -------
+    util_collection : dict
+        A dictionary containing the type of utility to use for all features in all utilities.
+    '''
 
     util_collection = {}
     for u in weights:
         util_collection[u] = {}
         for f in weights[u]:
             x_dat, y_dat = data_leaf_value(data[f], weights[u][f], technique='data_weighted')
-
             if f in spline_utilities:
-                _, _, func = monotone_spline(x_dat, y_dat, num_knots=num_knots)
+                if isinstance(num_splines, dict):
+                    _, _, func = monotone_spline(x_dat, y_dat, num_splines=num_splines[f])
+                else:
+                    _, _, func = monotone_spline(x_dat, y_dat, num_splines=num_splines)
                 util_collection[u][f] = func
             else:
                 func = interp1d(x_dat, y_dat, kind='previous')
@@ -88,6 +243,25 @@ def updated_utility_collection(weights, data, spline_utilities, num_knots=40):
     return util_collection
 
 def smooth_predict(data_test, util_collection, utilities=False):
+    '''
+    A prediction function that used monotonic spline interpolation on some features to predict their utilities.
+    The function should be used with a trained model only.
+
+    Parameters
+    ----------
+    data_test : pandas DataFrame
+        A pandas DataFrame containing the observations that will be predicted.
+    util_collection : dict
+        A dictionary containing the type of utility to use for all features in all utilities.
+    utilities : bool, optional (default = False)
+        if True, return the raw utilities.
+        
+    Returns
+    -------
+    U : numpy array
+        A numpy array containing the predictions for each class for each observation. Predictions are computed through the softmax function,
+        unless the raw utilities are requested. A prediction for class j for observation n will be U[n, j].
+    '''
     U = np.array(np.zeros((data_test.shape[0], len(util_collection))))
     for u in util_collection:
         for f in util_collection[u]:
@@ -99,268 +273,25 @@ def smooth_predict(data_test, util_collection, utilities=False):
 
     return U
 
-
-# def all_func(x, a, b, c, d, e, f, g, h, i, j):
-#     return a*x**3 + b*x**2 + c*x + d*np.exp(-e*x) + f*np.log(g*x) + h/(x + i) + j
-
-# def penalty_neg(x, a, b, c, d, e, f, g, h, i, j):
-#     return (np.sign(np.grad(all_func(x, a, b, c, d, e, f, g, h, i, j))) + 1)*1000000
-
-# def penalty_pos(x, a, b, c, d, e, f, g, h, i, j):
-#     return (np.sign(np.grad(all_func(x, a, b, c, d, e, f, g, h, i, j))) - 1)*1000000
-
-# def all_func_neg(x, a, b, c, d, e, f, g, h, i, j):
-#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + penalty_neg(x, a, b, c, d, e, f, g, h, i, j)
-
-# def all_func_pos(x, a, b, c, d, e, f, g, h, i, j):
-#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + penalty_pos(x, a, b, c, d, e, f, g, h, i, j)
-
-# def all_func_1step(x, a, b, c, d, e, f, g, h, i, j, k, l, m):
-#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m)
-
-# def all_func_neg_1step(x, a, b, c, d, e, f, g, h, i, j, k, l, m):
-#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + penalty_neg(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m)
-
-# def all_func_pos_1step(x, a, b, c, d, e, f, g, h, i, j, k, l, m):
-#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + penalty_pos(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m)
-
-# def all_func_2step(x, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p):
-#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m) + logistic(x, n, o, p)
-
-# def all_func_neg_2step(x, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p):
-#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + penalty_neg(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m) + logistic(x, n, o, p)
-
-# def all_func_pos_2step(x, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p):
-#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + penalty_pos(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m) + logistic(x, n, o, p)
-
-# def all_func_3step(x, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s):
-#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m) + logistic(x, n, o, p) + logistic(x, q, r, s)
-
-# def all_func_neg_3step(x, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s):
-#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + penalty_neg(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m) + logistic(x, n, o, p) + logistic(x, q, r, s)
-
-# def all_func_pos_3step(x, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s):
-#     return all_func(x, a, b, c, d, e, f, g, h, i, j) + penalty_pos(x, a, b, c, d, e, f, g, h, i, j) + logistic(x, k, l, m) + logistic(x, n, o, p) + logistic(x, q, r, s)
-
-def cub(x, a, b, c, d):
-    return a*x**3 + b*x**2 + c*x + d 
-
-def cub_step(x, a, b, c, d, e, f, g):
-    return cub(x, a, b, c, d) + logistic(x, e, f, g)
-
-def penalty_neg(x, a, b, c, d, e, f, g):
-    return (np.sign(np.grad(cub_step(x, a, b, c, d, e, f, g))) + 1)*1000000
-
-def cub_step_neg(x, a, b, c, d, e, f, g):
-    return cub(x, a, b, c, d) + logistic(x, e, f, g) + penalty_neg(x, a, b, c, d, e, f, g)
-
-def parametric_output(data, weight, monotonic_constraint):
-
-    data_ordered, data_values = data_leaf_value(data, weight, technique = 'weighted_data')
-
-    grad, x_sample, y_sample = get_grad(data_ordered, data_values, technique='sample_data', normalise=True)
-
-    disc, disc_idx, num_disc = find_disc(x_sample, grad)
-
-    try:
-        popt, _, info, _, _ = curve_fit(cub_step_neg, data_ordered, data_values, full_output=True)
-    except:
-        return
-    best_score = np.sum(info['fvec']**2)
-    print('Best fit: {} with monotonic {} and {} step(s)'.format(best_score, monotonic_constraint, num_disc))
-    func_used = cub_step_neg
-
-    # if monotonic_constraint == 0:
-    #     if num_disc == 0:
-    #         try:
-    #             popt, _, info, _, _ = curve_fit(all_func, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1], full_output=True)
-    #         except:
-    #             return
-    #         best_score = np.sum(info['fvec']**2)
-    #         print('Best fit: {} with monotonic {} and {} step(s)'.format(best_score, monotonic_constraint, num_disc))
-    #         func_used = all_func
-    #     elif num_disc == 1:
-    #         try:
-    #             popt, _, info, _, _ = curve_fit(all_func_1step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1], full_output=True)
-    #         except:
-    #             return
-    #         best_score = np.sum(info['fvec']**2)
-    #         print('Best fit: {} with monotonic {} and {} step(s)'.format(best_score, monotonic_constraint, num_disc))
-    #         func_used = all_func_1step
-    #     elif num_disc == 2:
-    #         try:
-    #             popt, _, info, _, _ = curve_fit(all_func_2step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1, 1, 1, 1], full_output=True)
-    #         except:
-    #             return
-    #         best_score = np.sum(info['fvec']**2)
-    #         print('Best fit: {} with monotonic {} and {} step(s)'.format(best_score, monotonic_constraint, num_disc))
-    #         func_used = all_func_2step
-    #     else:
-    #         try:
-    #             popt, _, info, _, _ = curve_fit(all_func_3step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1, 1, 1, 1, 1, 1, 1], full_output=True)
-    #         except:
-    #             return
-    #         best_score = np.sum(info['fvec']**2)
-    #         print('Best fit: {} with monotonic {} and {} step(s)'.format(best_score, monotonic_constraint, num_disc))
-    #         func_used = all_func_3step
-    # elif monotonic_constraint == -1:
-    #     if num_disc == 0:
-    #         try:
-    #             popt, _, info, _, _ = curve_fit(all_func_neg, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1], full_output=True)
-    #         except:
-    #             return
-    #         best_score = np.sum(info['fvec']**2)
-    #         print('Best fit: {} with monotonic {} and {} step(s)'.format(best_score, monotonic_constraint, num_disc))
-    #         func_used = all_func_neg
-    #     elif num_disc == 1:
-    #         try:
-    #             popt, _, info, _, _ = curve_fit(all_func_neg_1step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1], full_output=True)
-    #         except:
-    #             return
-    #         best_score = np.sum(info['fvec']**2)
-    #         print('Best fit: {} with monotonic {} and {} step(s)'.format(best_score, monotonic_constraint, num_disc))
-    #         func_used = all_func_neg_1step
-    #     elif num_disc == 2:
-    #         try:
-    #             popt, _, info, _, _ = curve_fit(all_func_neg_2step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1, 1, 1, 1], full_output=True)
-    #         except:
-    #             return
-    #         best_score = np.sum(info['fvec']**2)
-    #         print('Best fit: {} with monotonic {} and {} step(s)'.format(best_score, monotonic_constraint, num_disc))
-    #         func_used = all_func_neg_2step
-    #     else:
-    #         try:
-    #             popt, _, info, _, _ = curve_fit(all_func_neg_3step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1, 1, 1, 1, 1, 1, 1], full_output=True)
-    #         except:
-    #             return
-    #         best_score = np.sum(info['fvec']**2)
-    #         print('Best fit: {} with monotonic {} and {} step(s)'.format(best_score, monotonic_constraint, num_disc))
-    #         func_used = all_func_neg_3step
-    # elif monotonic_constraint == 1:
-    #     if num_disc == 0:
-    #         try:
-    #             popt, _, info, _, _ = curve_fit(all_func_pos, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1], full_output=True)
-    #         except:
-    #             return
-    #         best_score = np.sum(info['fvec']**2)
-    #         print('Best fit: {} with monotonic {} and {} step(s)'.format(best_score, monotonic_constraint, num_disc))
-    #         func_used = all_func_pos
-    #     elif num_disc == 1:
-    #         try:
-    #             popt, _, info, _, _ = curve_fit(all_func_pos_1step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1], full_output=True)
-    #         except:
-    #             return
-    #         best_score = np.sum(info['fvec']**2)
-    #         print('Best fit: {} with monotonic {} and {} step(s)'.format(best_score, monotonic_constraint, num_disc))
-    #         func_used = all_func_pos_1step
-    #     elif num_disc == 2:
-    #         try:
-    #             popt, _, info, _, _ = curve_fit(all_func_pos_2step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1, 1, 1, 1], full_output=True)
-    #         except:
-    #             return
-    #         best_score = np.sum(info['fvec']**2)
-    #         print('Best fit: {} with monotonic {} and {} step(s)'.format(best_score, monotonic_constraint, num_disc))
-    #         func_used = all_func_pos_2step
-    #     else:
-    #         try:
-    #             popt, _, info, _, _ = curve_fit(all_func_pos_3step, data_ordered, data_values, p0=[1, 1, 1, 1, 1, 1, 1, 1, 1 ,1, 1, 1, 1, 1, 1, 1, 1, 1, 1], full_output=True)
-    #         except:
-    #             return
-    #         best_score = np.sum(info['fvec']**2)
-    #         print('Best fit: {} with monotonic {} and {} step(s)'.format(best_score, monotonic_constraint, num_disc))
-    #         func_used = all_func_pos_3step
-
-    return popt, best_score, func_used
-                
-def features_param_output(model, data):
-    
-    weights = model.rumb_model.weights_to_plot_v2()
-    best_fit = {}
-    for u in weights:
-        best_fit[u] = {}
-        for i, f in enumerate(weights[u]):
-            if model.rumb_model.rum_structure[int(u)]['columns'].index(f) in model.rumb_model.rum_structure[int(u)]['categorical_feature']:
-                continue 
-            try:
-                params, fit_score, func_used = parametric_output(data[f], weights[u][f], model.rumb_model.rum_structure[int(u)]['monotone_constraints'][model.rumb_model.rum_structure[int(u)]['columns'].index(f)])
-            except:
-                continue
-            best_fit[u][f] = {'best_func': func_used, 'best_params': params, 'best_score': fit_score}
-
-    return best_fit
-
-def plot_fit(model, data):
-
-    best_fit = features_param_output(model, data)
-    weights = model.rumb_model.weights_to_plot_v2()
-
-    sns.set_theme()
-
-    for u in best_fit:
-        for f in best_fit[u]:
-            x_dat, y_dat = data_leaf_value(model.dataset_train[f], weights[u][f], technique='data_weighted')
-
-            plt.figure(figsize=(10, 7))
-
-            plt.scatter(x_dat, y_dat)
-
-            plt.plot(x_dat, best_fit[u][f]['best_func'](x_dat, *best_fit[u][f]['best_params']))
-            plt.show()
-
-def data_split_to_fit(model, data, weights_feat, weight_w_data = False):
-    split_points = weights_feat['Splitting points']
-    leaves_values = weights_feat['Histogram values']
-    mid_points = model._get_mid_pos(data, weights_feat['Splitting points'], end ='split point')
-
-    split_range = np.max(split_points) - np.min(split_points)
-    leaves_range = np.max(leaves_values) - np.min(leaves_values)
-
-    new_func_idx = []
-    start = 0
-
-    for i, (s_1, s_2) in enumerate(zip(mid_points[:-1], mid_points[1:])):
-        if (s_2-s_1) > 0.2*split_range:
-            stop = i
-            new_func_idx.append((start, stop))
-            start = i+1
-        elif np.abs(leaves_values[i] - leaves_values[i+1]) > 0.2*leaves_range:
-            stop = i
-            new_func_idx.append((start, stop))
-            start = i+1
-
-    return [{'Mid points':mid_points[i[0]:i[1]+1], 'Histogram values':leaves_values[i[0]:i[1]+1]} for i in new_func_idx]
-
-def fit_sev_functions(model, data, weight, technique='mid_point'):
-
-    func_for_fit = func_wrapper()
-    
-    data_list = data_split_to_fit(model, data, weight, technique)
-    best_funcs = []
-    x_range = []
-    for d in data_list:
-        best_fit = np.inf
-        for n, f in func_for_fit.items():
-            try:
-                param_opt, _, info, _, _ = curve_fit(f, d['Mid points'], d['Histogram values'], full_output=True)
-            except:
-                continue
-            if np.sum(info['fvec']**2) < best_fit:
-                best_fit = np.sum(info['fvec']**2)
-                best_func = n
-                best_params = param_opt
-            print('Fitting residuals for the function {} is: {}'.format(n, np.sum(info['fvec']**2)))
-
-        if best_fit == np.inf:
-            continue
-        print('Best fit ({}) for function {}'.format(best_fit, best_func))
-        best_funcs.append({best_func:best_params})
-        x_range.append(np.linspace(np.min(d['Mid points']), np.max(d['Mid points']), 10000))
-
-    return best_funcs, x_range
-
 def stairs_to_pw(model, train_data, data_to_transform = None, util_for_plot = False):
     '''
-    Transform a stair output to a piecewise linear prediction
+    Transform a stair output to a piecewise linear prediction.
+
+    Parameters
+    ----------
+    model : RUMBoost
+        A trained RUMBoost object.
+    train_data : pandas DataFrame
+        The full dataset used for training.
+    data_to_transform : pandas DataFrame, optional (default = None)
+        The data that need to be transform for prediction. If None, the training dataset is used.
+    util_for_plot : bool, optional (default = False)
+        If True, the output is formatted for plotting.
+
+    Returns
+    -------
+    pw_utility : numpy array or list
+        The piece-wise output. It is usually a numpy array, but can be a list if util_for_plot is True.
     '''
     if type(train_data) is list:
         new_train_data = train_data[0].get_data()

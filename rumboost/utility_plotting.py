@@ -3,9 +3,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from rumboost.utils import function_2d, get_weights, weights_to_plot_v2, get_asc, non_lin_function
-from rumboost.basic_functions import func_wrapper
-from rumboost.utility_smoothing import stairs_to_pw, find_feat_best_fit, fit_func, fit_sev_functions
+# from rumboost.utils import function_2d, get_weights, weights_to_plot_v2, get_asc, non_lin_function
+# from rumboost.basic_functions import func_wrapper
+# from rumboost.utility_smoothing import stairs_to_pw, find_feat_best_fit, fit_func, fit_sev_functions
+from utils import function_2d, get_weights, weights_to_plot_v2, get_asc, non_lin_function
+from basic_functions import func_wrapper
+from utility_smoothing import stairs_to_pw, find_feat_best_fit, fit_func, fit_sev_functions
 
 def plot_2d(model, feature1: str, feature2: str, max1: int, max2: int, save_figure: bool = False, utility_names: list[str] = ['Walking', 'Cycling', 'Public Transport', 'Driving']):
     '''
@@ -395,12 +398,21 @@ def plot_market_segm(model, X, asc_normalised: bool = True, utility_names: list[
         plt.title('Impact of travel time in weekdays and weekends on {} utility'.format(utility_names[u]), fontdict={'fontsize':  16})
         plt.ylabel('{} utility'.format(utility_names[u]))
         plt.xlabel('Travel time [h]')
-        plt.show()
-#               plt.savefig('Figures/rumbooster_vfinal_lr3e-1 {} utility, {} feature.png'.format(utility_names[u], f))          
+        plt.show()       
 
 def plot_util(model, data_train, points=10000):
     '''
-    Plot the raw utility functions of all features
+    Plot the raw utility functions of all features. This is done directly from the predict attribute of lightgbm.Boosters.
+
+    Parameters
+    ----------
+    model : RUMBoost
+        A RUMBoost object.
+    data_train : pandas Dataframe
+        The full training dataset.
+    points : int, optional (default = 10000)
+        The number of points used to draw the line plot.
+
     '''
     sns.set_theme()
     for j, struct in enumerate(model.rum_structure):
@@ -417,6 +429,16 @@ def plot_util(model, data_train, points=10000):
 def plot_util_pw(model, data_train, points = 10000):
     '''
     Plot the piece-wise utility function
+
+    Parameters
+    ----------
+    model : RUMBoost
+        A RUMBoost object.
+    data_train : pandas Dataframe
+        The full training dataset.
+    points : int, optional (default = 10000)
+        The number of points used to draw the line plot.
+        
     '''
     features = data_train.columns
     data_to_transform = {}

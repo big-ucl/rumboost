@@ -2,7 +2,8 @@ import pandas as pd
 import numpy as np
 import pickle
 from sklearn.model_selection import train_test_split
-from rumboost.utils import stratified_group_k_fold
+# from rumboost.utils import stratified_group_k_fold
+from utils import stratified_group_k_fold
 
 
 def load_preprocess_LPMC():
@@ -91,6 +92,7 @@ def load_preprocess_SwissMetro(test_size: float = 0.3, random_state: int = 42):
 
     #final dataset
     df_final = df[['TRAIN_TT', 'TRAIN_COST', 'TRAIN_HE', 'SM_TT', 'SM_COST', 'SM_HE', 'CAR_TT', 'CAR_CO', 'CHOICE']]
+    df_final['CHOICE'] = df_final['CHOICE'] - 1
 
     #split dataset
     df_train, df_test  = train_test_split(df_final, test_size=test_size, random_state=random_state)

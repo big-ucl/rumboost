@@ -16,8 +16,11 @@ from lightgbm import callback
 from lightgbm.basic import Booster, Dataset, LightGBMError, _ConfigAliases, _InnerPredictor, _choose_param_value, _log_warning
 from lightgbm.compat import SKLEARN_INSTALLED, _LGBMGroupKFold, _LGBMStratifiedKFold
 
-from rumboost.utils import bio_to_rumboost
-from rumboost.utility_smoothing import stairs_to_pw
+# from rumboost.utils import bio_to_rumboost
+# from rumboost.utility_smoothing import stairs_to_pw
+
+from utils import bio_to_rumboost
+from utility_smoothing import stairs_to_pw
 
 _LGBM_CustomObjectiveFunction = Callable[
     [Union[List, np.ndarray], Dataset],
