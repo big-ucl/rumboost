@@ -1,1 +1,9 @@
 sphinx_rtd_theme
+lightgbm
+matplotlib
+seaborn
+numpy
+pandas
+scikit-learn
+scipy
+biogeme
