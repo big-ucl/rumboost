@@ -3,14 +3,6 @@ matplotlib
 seaborn
 numpy
 pandas
-pickle
-sklearn
-random
-collections
+scikit-learn
 scipy
-copy
-json
-operator
-pathlib
-typing
 biogeme

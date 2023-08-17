@@ -5,18 +5,19 @@ import copy
 import json
 import numpy as np
 import pandas as pd
-from scipy.special import softmax
 
+from scipy.special import softmax
 from operator import attrgetter
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
+from biogeme.biogeme import BIOGEME
 
 from lightgbm import callback
 from lightgbm.basic import Booster, Dataset, LightGBMError, _ConfigAliases, _InnerPredictor, _choose_param_value, _log_warning
 from lightgbm.compat import SKLEARN_INSTALLED, _LGBMGroupKFold, _LGBMStratifiedKFold
 
-from utils import bio_to_rumboost
-from utility_smoothing import stairs_to_pw
+from rumboost.utils import bio_to_rumboost
+from rumboost.utility_smoothing import stairs_to_pw
 
 _LGBM_CustomObjectiveFunction = Callable[
     [Union[List, np.ndarray], Dataset],
@@ -575,7 +576,7 @@ def rum_train(
     params: Dict[str, Any],
     train_set: Dataset,
     rum_structure: List[Dict[str, Any]],
-    biogeme_model: biogeme.biogeme.BIOGEME = None,
+    biogeme_model: BIOGEME = None,
     num_boost_round: int = 100,
     valid_sets: Optional[List[Dataset]] = None,
     valid_names: Optional[List[str]] = None,
@@ -605,8 +606,8 @@ def rum_train(
         'monotone_constraints': list of monotonic constraints on parameters
         'interaction_constraints': list of interaction constraints on features
         if None, a biogeme_model must be specified
-    biogeme_model: biogeme.biogeme.BIOGEME, optional (default=None)
-        A biogeme.biogeme.BIOGEME object representing a biogeme model, used to create the rum_structure.
+    biogeme_model : BIOGEME, optional (default=None)
+        A BIOGEME object representing a biogeme model, used to create the rum_structure.
         A biogeme model is required if rum_structure is None, otherwise should be None.
     num_boost_round : int, optional (default=100)
         Number of boosting iterations.
@@ -1098,9 +1099,11 @@ def rum_cv(params, train_set, num_boost_round=100,
         The list must contain one dictionary for each class, which describes the 
         utility structure for that class. 
         Each dictionary has three allowed keys. 
-            'cols': list of columns included in that class
-            'monotone_constraints': list of monotonic constraints on parameters
-            'interaction_constraints': list of interaction constraints on features
+
+            cols : list of columns included in that class
+            monotone_constraints : list of monotonic constraints on parameters
+            interaction_constraints : list of interaction constraints on features
+            
         if None, a biogeme_model must be specified
     biogeme_model: biogeme.biogeme.BIOGEME, optional (default=None)
         A biogeme.biogeme.BIOGEME object representing a biogeme model, used to create the rum_structure.

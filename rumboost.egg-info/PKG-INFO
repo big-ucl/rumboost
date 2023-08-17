@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: rumboost
-Version: 0.0.1
+Version: 0.0.3
 Summary: Gradient Boosting Decision Trees for Random Utility Models
 Home-page: https://github.com/NicoSlvd/rumboost
 Author: Nicolas Salvadé, Tim Hillel

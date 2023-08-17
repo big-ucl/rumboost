@@ -1,8 +1,6 @@
 from setuptools import setup, find_packages
-import codecs
-import os
 
-VERSION = '0.0.1'
+VERSION = '0.0.3'
 DESCRIPTION = 'Gradient Boosting Decision Trees for Random Utility Models'
 LONG_DESCRIPTION = 'A package that allows to estimate some random utility models through gradient boosting decision trees'
 
@@ -18,7 +16,7 @@ setup(
     packages=find_packages(),
     url="https://github.com/NicoSlvd/rumboost",
     install_requires=['lightgbm', 'matplotlib', 'seaborn', 'numpy', 
-                      'pandas', 'sklearn', 'scipy', 'biogeme'],
+                      'pandas', 'scikit-learn', 'scipy', 'biogeme'],
     keywords=['python', 'gbdt', 'rum', 'ml'],
     classifiers=[
         "Development Status :: 1 - Planning",
