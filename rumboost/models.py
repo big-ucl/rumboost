@@ -1,7 +1,7 @@
 import biogeme.database as db
 import biogeme.biogeme as bio
 from biogeme.expressions import Beta
-from biogeme.models import loglogit, logit
+from biogeme.models import loglogit
 import biogeme.logging as blog
 import pandas as pd
 
@@ -37,8 +37,8 @@ def SwissMetro(dataset_train: pd.DataFrame):
     V_SM    = ASC_SM    + B_TIME * SM_TT    + B_COST * SM_COST    + B_HE * SM_HE
     V_CAR   = ASC_CAR   + B_TIME * CAR_TT   + B_COST * CAR_CO
 
-    V = {1: V_TRAIN, 2: V_SM, 3: V_CAR}
-    av = {1: 1, 2: 1, 3: 1}
+    V = {0: V_TRAIN, 1: V_SM, 2: V_CAR}
+    av = {0: 1, 1: 1, 2: 1}
 
     #choice model
     logprob = loglogit(V, av, CHOICE)

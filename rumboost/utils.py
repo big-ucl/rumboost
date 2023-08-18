@@ -97,7 +97,8 @@ def bio_to_rumboost(model, all_columns = False, monotonic_constraints = True, in
             rum_structure[-1]['columns'] = [col for col in model.database.data.drop(['household_id', 'choice', 'travel_month','driving_traffic_percent'], axis=1).columns.values.tolist()]
         if max_depth > 1:
             rum_structure[-1]['interaction_constraints'].append(interac_2d)
-        return rum_structure
+        
+    return rum_structure
     
 def get_mid_pos(data, split_points, end='data'):
     '''

@@ -7,9 +7,9 @@ from scipy.interpolate import interp1d, PchipInterpolator
 from scipy.special import softmax
 
 # from rumboost.utils import data_leaf_value, get_grad, find_disc, get_mid_pos
-# from rumboost.basic_functions import func_wrapper, logistic
-from utils import data_leaf_value, get_grad, find_disc, get_mid_pos
-from basic_functions import func_wrapper, logistic
+# from rumboost.basic_functions import func_wrapper
+from utils import data_leaf_value, get_grad, get_mid_pos
+from basic_functions import func_wrapper
 
 def fit_func(data, weight, technique='weighted_data'):
     '''

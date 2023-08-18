@@ -90,9 +90,12 @@ def load_preprocess_SwissMetro(test_size: float = 0.3, random_state: int = 42):
     df.loc[:, 'TRAIN_COST'] = df['TRAIN_CO'] * (df['GA']==0)
     df.loc[:, 'SM_COST'] = df['SM_CO'] * (df['GA']==0)
 
+    #rescale choice from 0 to 2
+    df.loc[:,'CHOICE'] = df['CHOICE'] - 1
+
     #final dataset
     df_final = df[['TRAIN_TT', 'TRAIN_COST', 'TRAIN_HE', 'SM_TT', 'SM_COST', 'SM_HE', 'CAR_TT', 'CAR_CO', 'CHOICE']]
-    df_final['CHOICE'] = df_final['CHOICE'] - 1
+
 
     #split dataset
     df_train, df_test  = train_test_split(df_final, test_size=test_size, random_state=random_state)

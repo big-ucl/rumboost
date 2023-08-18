@@ -5,10 +5,10 @@ import seaborn as sns
 
 # from rumboost.utils import function_2d, get_weights, weights_to_plot_v2, get_asc, non_lin_function
 # from rumboost.basic_functions import func_wrapper
-# from rumboost.utility_smoothing import stairs_to_pw, find_feat_best_fit, fit_func, fit_sev_functions
+# from rumboost.utility_smoothing import stairs_to_pw, find_feat_best_fit, fit_func
 from utils import function_2d, get_weights, weights_to_plot_v2, get_asc, non_lin_function
 from basic_functions import func_wrapper
-from utility_smoothing import stairs_to_pw, find_feat_best_fit, fit_func, fit_sev_functions
+from utility_smoothing import stairs_to_pw, find_feat_best_fit, fit_func
 
 def plot_2d(model, feature1: str, feature2: str, max1: int, max2: int, save_figure: bool = False, utility_names: list[str] = ['Walking', 'Cycling', 'Public Transport', 'Driving']):
     '''

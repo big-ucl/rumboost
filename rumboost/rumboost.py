@@ -9,7 +9,7 @@ import pandas as pd
 from scipy.special import softmax
 from operator import attrgetter
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from biogeme.biogeme import BIOGEME
 
 from lightgbm import callback
@@ -19,7 +19,7 @@ from lightgbm.compat import SKLEARN_INSTALLED, _LGBMGroupKFold, _LGBMStratifiedK
 # from rumboost.utils import bio_to_rumboost
 # from rumboost.utility_smoothing import stairs_to_pw
 
-from utils import bio_to_rumboost
+from utils import bio_to_rumboost, cross_entropy
 from utility_smoothing import stairs_to_pw
 
 _LGBM_CustomObjectiveFunction = Callable[
@@ -272,6 +272,7 @@ class RUMBoost:
         ----------
         data : Dataset
             The full training dataset (i.e. the union of the socio-economic features with the alternative-specific features).
+            Note, the argument free_raw_data shall be set to False when creating the dataset.
         reduced_valid_set : Dataset or list of Dataset, optional (default = None)
             The full dataset used for validation. There can be several datasets.
         return_data : bool, optional (default = False)
@@ -390,9 +391,6 @@ class RUMBoost:
         train_data_name: str
             Name of training dataset : 'training'.
         """
-        #construct training set to access data
-        train_set.construct()
-
         #initialise variables
         is_valid_contain_train = False
         train_data_name = "training"
@@ -576,19 +574,19 @@ class RUMBoost:
         return self
 
 def rum_train(
-    params: Dict[str, Any],
+    params: dict[str, Any],
     train_set: Dataset,
-    rum_structure: List[Dict[str, Any]],
+    rum_structure: list[dict[str, Any]] = None,
     biogeme_model: BIOGEME = None,
     num_boost_round: int = 100,
-    valid_sets: Optional[List[Dataset]] = None,
-    valid_names: Optional[List[str]] = None,
-    feval: Optional[Union[_LGBM_CustomMetricFunction, List[_LGBM_CustomMetricFunction]]] = None,
+    valid_sets: Optional[list[Dataset]] = None,
+    valid_names: Optional[list[str]] = None,
+    feval: Optional[Union[_LGBM_CustomMetricFunction, list[_LGBM_CustomMetricFunction]]] = None,
     init_model: Optional[Union[str, Path, Booster]] = None,
-    feature_name: Union[List[str], str] = 'auto',
-    categorical_feature: Union[List[str], List[int], str] = 'auto',
+    feature_name: Union[list[str], str] = 'auto',
+    categorical_feature: Union[list[str], list[int], str] = 'auto',
     keep_training_booster: bool = False,
-    callbacks: Optional[List[Callable]] = None,
+    callbacks: Optional[list[Callable]] = None,
     pw_utility: bool = False
 ) -> RUMBoost:
     """Perform the RUM training with given parameters.
@@ -597,10 +595,10 @@ def rum_train(
     ----------
     params : dict
         Parameters for training. Values passed through ``params`` take precedence over those
-        supplied via arguments.
+        supplied via arguments. If num_classes > 2, please specify params['objective'] = 'multiclass'.
     train_set : Dataset
-        Data to be trained on.
-    rum_structure : dict, optional (default=None)
+        Data to be trained on. Set free_raw_data=False when creating the dataset.
+    rum_structure : list[dict[str, Any]], optional (default = None)
         List of dictionaries specifying the RUM structure. 
         The list must contain one dictionary for each class, which describes the 
         utility structure for that class. 
@@ -609,16 +607,16 @@ def rum_train(
         'monotone_constraints': list of monotonic constraints on parameters
         'interaction_constraints': list of interaction constraints on features
         if None, a biogeme_model must be specified
-    biogeme_model : BIOGEME, optional (default=None)
+    biogeme_model : BIOGEME, optional (default = None)
         A BIOGEME object representing a biogeme model, used to create the rum_structure.
         A biogeme model is required if rum_structure is None, otherwise should be None.
-    num_boost_round : int, optional (default=100)
+    num_boost_round : int, optional (default = 100)
         Number of boosting iterations.
-    valid_sets : list of Dataset, or None, optional (default=None)
+    valid_sets : list of Dataset, or None, optional (default = None)
         List of data to be evaluated on during training.
-    valid_names : list of str, or None, optional (default=None)
+    valid_names : list of str, or None, optional (default = None)
         Names of ``valid_sets``.
-    feval : callable, list of callable, or None, optional (default=None)
+    feval : callable, list of callable, or None, optional (default = None)
         Customized evaluation function.
         Each evaluation function should accept two parameters: preds, eval_data,
         and return (eval_name, eval_result, is_higher_better) or list of such tuples.
@@ -639,12 +637,12 @@ def rum_train(
 
         To ignore the default metric corresponding to the used objective,
         set the ``metric`` parameter to the string ``"None"`` in ``params``.
-    init_model : str, pathlib.Path, Booster or None, optional (default=None)
+    init_model : str, pathlib.Path, Booster or None, optional (default = None)
         Filename of LightGBM model or Booster instance used for continue training.
-    feature_name : list of str, or 'auto', optional (default="auto")
+    feature_name : list of str, or 'auto', optional (default = "auto")
         Feature names.
         If 'auto' and data is pandas DataFrame, data columns names are used.
-    categorical_feature : list of str or int, or 'auto', optional (default="auto")
+    categorical_feature : list of str or int, or 'auto', optional (default = "auto")
         Categorical features.
         If list of int, interpreted as indices.
         If list of str, interpreted as feature names (need to specify ``feature_name`` as well).
@@ -654,17 +652,17 @@ def rum_train(
         All negative values in categorical features will be treated as missing values.
         The output cannot be monotonically constrained with respect to a categorical feature.
         Floating point numbers in categorical features will be rounded towards 0.
-    keep_training_booster : bool, optional (default=False)
+    keep_training_booster : bool, optional (default = False)
         Whether the returned Booster will be used to keep training.
         If False, the returned value will be converted into _InnerPredictor before returning.
         This means you won't be able to use ``eval``, ``eval_train`` or ``eval_valid`` methods of the returned Booster.
         When your model is very large and cause the memory error,
         you can try to set this param to ``True`` to avoid the model conversion performed during the internal call of ``model_to_string``.
         You can still use _InnerPredictor as ``init_model`` for future continue training.
-    callbacks : list of callable, or None, optional (default=None)
+    callbacks : list of callable, or None, optional (default = None)
         List of callback functions that are applied at each iteration.
         See Callbacks in Python API for more information.
-    pw_utility: bool, optional (default=False)
+    pw_utility: bool, optional (default = False)
         If true, compute continuous feature utility in a piece-wise linear way.
         
 
@@ -694,6 +692,12 @@ def rum_train(
     rum_booster : RUMBoost
         The trained RUMBoost model.
     """
+    #check that either rum_structure or biogeme_model are specified
+    if (type(biogeme_model) == BIOGEME) + (type(rum_structure) == list) == 0:
+        raise ValueError('A biogeme_model (a biogeme.biogeme.BIOGEME object) or a rum_structure (list) must be specified.')
+    elif (type(biogeme_model) == BIOGEME) + (type(rum_structure) == list) == 2:
+        raise ValueError('Only one of biogeme_model (a biogeme.biogeme.BIOGEME object) or rum_structure (list) can be specified.')
+
     #create predictor first
     params = copy.deepcopy(params)
     params = _choose_param_value(
@@ -745,18 +749,18 @@ def rum_train(
             cb.__dict__.setdefault('order', i - len(callbacks))
         callbacks_set = set(callbacks)
 
-    if "early_stopping_round" in params:
-       callbacks_set.add(
-           callback.early_stopping(
-               stopping_rounds=params["early_stopping_round"],
-               first_metric_only=first_metric_only,
-               verbose=_choose_param_value(
-                   main_param_name="verbosity",
-                   params=params,
-                   default_value=1
-               ).pop("verbosity") > 0
-           )
-       )
+    # if "early_stopping_round" in params:
+    #    callbacks_set.add(
+    #        callback.early_stopping(
+    #            stopping_rounds=params["early_stopping_round"],
+    #            first_metric_only=first_metric_only,
+    #            verbose=_choose_param_value(
+    #                main_param_name="verbosity",
+    #                params=params,
+    #                default_value=1
+    #            ).pop("verbosity") > 0
+    #        )
+    #    )
 
     callbacks_before_iter_set = {cb for cb in callbacks_set if getattr(cb, 'before_iteration', False)}
     callbacks_after_iter_set = callbacks_set - callbacks_before_iter_set
@@ -819,27 +823,25 @@ def rum_train(
         #make predictions after boosting round to compute new cross entropy and for next iteration grad and hess
         rum_booster._preds = rum_booster._inner_predict(piece_wise=pw_utility)
         #compute cross validation on training or validation test
-        if valid_sets is not None:
-            if is_valid_contain_train:
-                cross_entropy = rum_booster.cross_entropy(rum_booster._preds, train_set.get_label().astype(int))
-            else:
-                for valid_set_J in rum_booster.valid_sets:
-                    preds_valid = rum_booster._inner_predict(valid_set_J, piece_wise=pw_utility)
-                    cross_entropy_train = rum_booster.cross_entropy(rum_booster._preds, train_set.get_label().astype(int))
-                    cross_entropy = rum_booster.cross_entropy(preds_valid, valid_set_J[0].get_label().astype(int))
+        CE = cross_entropy(rum_booster._preds, train_set.get_label().astype(int))
+        if (valid_sets is not None) and (not is_valid_contain_train):
+            for valid_set_J in rum_booster.valid_sets:
+                preds_valid = rum_booster._inner_predict(valid_set_J, piece_wise=pw_utility)
+                CE_train = cross_entropy(rum_booster._preds, train_set.get_label().astype(int))
+                CE = cross_entropy(preds_valid, valid_set_J[0].get_label().astype(int))
         
-            if cross_entropy < rum_booster.best_score:
-                rum_booster.best_score = cross_entropy
+            if CE < rum_booster.best_score:
+                rum_booster.best_score = CE
                 rum_booster.best_iteration = i+1
         
             if (params['verbosity'] >= 1) and (i % 10 == 0):
                 if is_valid_contain_train:
-                    print('[{}] -- NCE value on train set: {}'.format(i + 1, cross_entropy))
+                    print('[{}] -- NCE value on train set: {}'.format(i + 1, CE))
                 else:
-                    print('[{}] -- NCE value on train set: {} \n     --  NCE value on test set: {}'.format(i + 1, cross_entropy_train, cross_entropy))
+                    print('[{}] -- NCE value on train set: {} \n     --  NCE value on test set: {}'.format(i + 1, CE_train, CE))
         
         #early stopping if early stopping criterion in all boosters
-        if (params["early_stopping_round"] != 0) and (rum_booster.best_iteration + params["early_stopping_round"] < i + 1):
+        if (params.get("early_stopping_round", 0) != 0) and (rum_booster.best_iteration + params.get("early_stopping_round", 0) < i + 1):
             print('Early stopping at iteration {}, with a best score of {}'.format(rum_booster.best_iteration, rum_booster.best_score))
             break
 
@@ -848,7 +850,7 @@ def rum_train(
         for dataset_name, eval_name, score, _ in evaluation_result_list:
             booster.best_score[dataset_name][eval_name] = score
         if not keep_training_booster:
-            booster.model_from_string(booster.model_to_string(), verbose='_silent_false').free_dataset()
+            booster.model_from_string(booster.model_to_string()).free_dataset()
     return rum_booster
 
 class CVRUMBoost:
@@ -959,6 +961,9 @@ def _make_n_folds(full_data, folds, nfold, params, seed, fpreproc=None, stratifi
                                       name_valid_sets=name_valid_sets)
 
         ret._append(cvbooster)
+
+        ret.best_iteration = 0
+        ret.best_score = 100000
 
     return ret
 
@@ -1213,18 +1218,18 @@ def rum_cv(params, train_set, num_boost_round=100,
             for valid_set in valid_sets:
                 preds_valid = RUMBoost._inner_predict(data = valid_set)
                 raw_results.append(preds_valid)
-                cross_ent.append(RUMBoost.cross_entropy(preds_valid, valid_set[0].get_label().astype(int)))
+                cross_ent.append(cross_entropy(preds_valid, valid_set[0].get_label().astype(int)))
 
         results[f'Cross entropy --- mean'].append(np.mean(cross_ent))
         results[f'Cross entropy --- stdv'].append(np.std(cross_ent))
-        if verbose_eval and i % 10 == 0:
+        if verbose_eval:
             print('[{}] -- Cross entropy mean: {}, with std: {}'.format(i + 1, np.mean(cross_ent), np.std(cross_ent)))
         
         if np.mean(cross_ent) < cvfolds.best_score:
             cvfolds.best_score = np.mean(cross_ent)
             cvfolds.best_iteration = i + 1 
 
-        if early_stopping_rounds is not None and cvfolds.best_iteration + early_stopping_rounds < i+1:
+        if (int(params.get("early_stopping_round", 0) or 0) > 0) and (cvfolds.best_iteration + params.get("early_stopping_round", 0) < i + 1):
             print('Early stopping at iteration {} with a cross entropy best score of {}'.format(cvfolds.best_iteration,cvfolds.best_score))
             for k in results:
                 results[k] = results[k][:cvfolds.best_iteration]
