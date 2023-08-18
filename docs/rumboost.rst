@@ -4,6 +4,30 @@ rumboost package
 Submodules
 ----------
 
+rumboost.basic\_functions module
+--------------------------------
+
+.. automodule:: rumboost.basic_functions
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+rumboost.dataset module
+-----------------------
+
+.. automodule:: rumboost.dataset
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+rumboost.models module
+----------------------
+
+.. automodule:: rumboost.models
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 rumboost.rumboost module
 ------------------------
 
@@ -28,34 +52,10 @@ rumboost.utility\_smoothing module
    :undoc-members:
    :show-inheritance:
 
-rumboost.dataset module
------------------------
-
-.. automodule:: rumboost.dataset
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-rumboost.models module
-----------------------
-
-.. automodule:: rumboost.models
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 rumboost.utils module
 ---------------------
 
 .. automodule:: rumboost.utils
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-rumboost.basic\_functions module
---------------------------------
-
-.. automodule:: rumboost.basic_functions
    :members:
    :undoc-members:
    :show-inheritance:

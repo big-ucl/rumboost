@@ -16,11 +16,11 @@ from lightgbm import callback
 from lightgbm.basic import Booster, Dataset, LightGBMError, _ConfigAliases, _InnerPredictor, _choose_param_value, _log_warning
 from lightgbm.compat import SKLEARN_INSTALLED, _LGBMGroupKFold, _LGBMStratifiedKFold
 
-# from rumboost.utils import bio_to_rumboost
-# from rumboost.utility_smoothing import stairs_to_pw
+from rumboost.utils import bio_to_rumboost
+from rumboost.utility_smoothing import stairs_to_pw
 
-from utils import bio_to_rumboost, cross_entropy
-from utility_smoothing import stairs_to_pw
+# from utils import bio_to_rumboost, cross_entropy
+# from utility_smoothing import stairs_to_pw
 
 _LGBM_CustomObjectiveFunction = Callable[
     [Union[List, np.ndarray], Dataset],
@@ -823,22 +823,23 @@ def rum_train(
         #make predictions after boosting round to compute new cross entropy and for next iteration grad and hess
         rum_booster._preds = rum_booster._inner_predict(piece_wise=pw_utility)
         #compute cross validation on training or validation test
-        CE = cross_entropy(rum_booster._preds, train_set.get_label().astype(int))
         if (valid_sets is not None) and (not is_valid_contain_train):
             for valid_set_J in rum_booster.valid_sets:
                 preds_valid = rum_booster._inner_predict(valid_set_J, piece_wise=pw_utility)
                 CE_train = cross_entropy(rum_booster._preds, train_set.get_label().astype(int))
                 CE = cross_entropy(preds_valid, valid_set_J[0].get_label().astype(int))
+        else:
+            CE = cross_entropy(rum_booster._preds, train_set.get_label().astype(int))
         
-            if CE < rum_booster.best_score:
-                rum_booster.best_score = CE
-                rum_booster.best_iteration = i+1
-        
-            if (params['verbosity'] >= 1) and (i % 10 == 0):
-                if is_valid_contain_train:
-                    print('[{}] -- NCE value on train set: {}'.format(i + 1, CE))
-                else:
-                    print('[{}] -- NCE value on train set: {} \n     --  NCE value on test set: {}'.format(i + 1, CE_train, CE))
+        if CE < rum_booster.best_score:
+            rum_booster.best_score = CE
+            rum_booster.best_iteration = i+1
+    
+        if (params['verbosity'] >= 1) and (i % 10 == 0):
+            if is_valid_contain_train:
+                print('[{}] -- NCE value on train set: {}'.format(i + 1, CE))
+            else:
+                print('[{}] -- NCE value -- on train set: {} -- on test set: {}'.format(i + 1, CE_train, CE))
         
         #early stopping if early stopping criterion in all boosters
         if (params.get("early_stopping_round", 0) != 0) and (rum_booster.best_iteration + params.get("early_stopping_round", 0) < i + 1):
