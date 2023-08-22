@@ -189,3 +189,65 @@ def LPMC(dataset_train):
     biogeme.generate_pickle = False
 
     return biogeme
+
+def Optima(dataset_train):
+    '''
+    Create a MNL on the OPTIMA dataset.
+    The model is a slightly modified version from teh code that can be found here: https://github.com/JoseAngelMartinB/prediction-behavioural-analysis-ml-travel-mode-choice.
+
+    Parameters
+    ----------
+    dataset_train : pandas DataFrame
+        The training dataset.
+
+    Returns
+    -------
+    biogeme : bio.BIOGEME
+        The BIOGEME object containing the model.
+
+    '''
+    database_train = db.Database('OP', dataset_train)
+
+    logger = blog.get_screen_logger(level=blog.DEBUG)
+    logger.info('Model Optima.py')
+
+    globals().update(database_train.variables)
+
+    #model
+    MNL_beta_params_negative = ['B_TimePT_PT', 'B_MarginalCostPT_PT', 'B_distance_km_PT', 'B_TimeCar_PM', 'B_CostCarCHF_PM', 'B_distance_km_PM', 'B_distance_km_SM']
+    MNL_beta_params_neutral = ['ASC_PM', 'ASC_SM', 'B_age_PT', 'B_age_PM', 'B_age_SM', 'B_NbChild_PT', 'B_NbChild_PM', 'B_NbChild_SM', 'B_NbCar_PT', 'B_NbCar_PM', 'B_NbCar_SM', 'B_NbMoto_PT', 'B_NbMoto_PM', 'B_NbMoto_SM', 'B_NbBicy_PT', 'B_NbBicy_PM', 'B_NbBicy_SM', 'B_OccupStat_fulltime_PT', 'B_OccupStat_fulltime_PM', 'B_OccupStat_fulltime_SM', 'B_Gender_man_PT', 'B_Gender_man_PM', 'B_Gender_man_SM', 'B_Gender_woman_PT', 'B_Gender_woman_PM', 'B_Gender_woman_SM', 'B_Gender_unreported_PT', 'B_Gender_unreported_PM', 'B_Gender_unreported_SM']
+    MNL_utilities = {0: 'B_age_PT*age + B_NbChild_PT*NbChild + B_NbCar_PT*NbCar + B_NbMoto_PT*NbMoto + B_NbBicy_PT*NbBicy + B_OccupStat_fulltime_PT*OccupStat_fulltime + B_Gender_man_PT*Gender_man + B_Gender_woman_PT*Gender_woman + B_Gender_unreported_PT*Gender_unreported + B_TimePT_PT*TimePT + B_MarginalCostPT_PT*MarginalCostPT + B_distance_km_PT*distance_km',
+                     1: 'ASC_PM + B_age_PM*age + B_NbChild_PM*NbChild + B_NbCar_PM*NbCar + B_NbMoto_PM*NbMoto + B_NbBicy_PM*NbBicy + B_OccupStat_fulltime_PM*OccupStat_fulltime + B_Gender_man_PM*Gender_man + B_Gender_woman_PM*Gender_woman + B_Gender_unreported_PM*Gender_unreported + B_TimeCar_PM*TimeCar + B_CostCarCHF_PM*CostCarCHF + B_distance_km_PM*distance_km',
+                     2: 'ASC_SM + B_age_SM*age + B_NbChild_SM*NbChild + B_NbCar_SM*NbCar + B_NbMoto_SM*NbMoto + B_NbBicy_SM*NbBicy + B_OccupStat_fulltime_SM*OccupStat_fulltime + B_Gender_man_SM*Gender_man + B_Gender_woman_SM*Gender_woman + B_Gender_unreported_SM*Gender_unreported + B_distance_km_SM*distance_km'}
+
+    #construct the model parameters
+    for beta in MNL_beta_params_negative:
+        exec("{} = Beta('{}', 0, None, 0, 0)".format(beta, beta), globals())
+    for beta in MNL_beta_params_neutral:
+        exec("{} = Beta('{}', 0, None, None, 0)".format(beta, beta), globals())
+
+    #define utility functions
+    for utility_idx in MNL_utilities.keys():
+        exec("V_{} = {}".format(utility_idx, MNL_utilities[utility_idx]), globals())
+
+    #assign utility functions to utility indices
+    exec("V_dict = {}", globals())
+    for utility_idx in MNL_utilities.keys():
+        exec("V_dict[{}] = V_{}".format(utility_idx, utility_idx), globals())
+
+    #associate the availability conditions with the alternatives
+    exec("av = {}", globals())
+    for utility_idx in MNL_utilities.keys():
+        exec("av[{}] = 1".format(utility_idx), globals())
+    
+    #definition of the model
+    logprob = loglogit(V_dict, av, choice)
+
+    #create the Biogeme object
+    biogeme = bio.BIOGEME(database_train, logprob)
+    biogeme.modelName = 'Biogeme-model'
+
+    biogeme.generate_html = False
+    biogeme.generate_pickle = False
+
+    return biogeme

@@ -75,10 +75,11 @@ def bio_to_rumboost(model, all_columns = False, monotonic_constraints = True, in
             rum_structure[-1]['columns'].append(pair[1]) #append variable name
             rum_structure[-1]['betas'].append(pair[0]) #append beta name
             if interaction_contraints:
-                if (max_depth > 1) and (('weekend'in pair[0])|('dur_driving' in pair[0])|('dur_walking' in pair[0])|('dur_cycling' in pair[0])|('dur_pt_rail' in pair[0])): #('distance' in pair[0])): |('dur_pt_bus' in pair[0]))
-                    interac_2d.append(i) #in the case of interaction constraint, append only the relevant continous features to be interacted
-                else:             
-                    rum_structure[-1]['interaction_constraints'].append([i]) #no interaction between features
+                # if (max_depth > 1) and (('weekend'in pair[0])|('dur_driving' in pair[0])|('dur_walking' in pair[0])|('dur_cycling' in pair[0])|('dur_pt_rail' in pair[0])): #('distance' in pair[0])): |('dur_pt_bus' in pair[0]))
+                #     interac_2d.append(i) #in the case of interaction constraint, append only the relevant continous features to be interacted
+                # else:             
+                #     rum_structure[-1]['interaction_constraints'].append([i]) #no interaction between features
+                rum_structure[-1]['interaction_constraints'].append([i]) #no interaction between features
             if ('fueltype' in pair[0]) | ('female' in pair[0]) | ('purpose' in pair[0]) | ('license' in pair[0]) | ('week' in pair[0]):
                 rum_structure[-1]['categorical_feature'].append(i) #register categorical features
             bounds = model.getBoundsOnBeta(pair[0]) #get bounds on beta parameter for monotonic constraint

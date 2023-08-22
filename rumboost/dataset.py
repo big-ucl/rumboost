@@ -2,8 +2,8 @@ import pandas as pd
 import numpy as np
 import pickle
 from sklearn.model_selection import train_test_split
-from rumboost.utils import stratified_group_k_fold
-#from utils import stratified_group_k_fold
+# from rumboost.utils import stratified_group_k_fold
+from utils import stratified_group_k_fold
 
 
 def load_preprocess_LPMC():
@@ -101,3 +101,49 @@ def load_preprocess_SwissMetro(test_size: float = 0.3, random_state: int = 42):
     df_train, df_test  = train_test_split(df_final, test_size=test_size, random_state=random_state)
     
     return df_train, df_test
+
+def load_preprocess_Optima():
+    '''
+    Load and preprocess the Optima dataset.
+
+    Returns
+    -------
+    dataset_train : pandas Dataframe
+        The training dataset ready to use.
+    dataset_test : pandas Dataframe
+        The training dataset ready to use.
+    folds : zip(list, list)
+        5 folds of indices grouped by household for CV.
+    '''
+    #source: https://github.com/JoseAngelMartinB/prediction-behavioural-analysis-ml-travel-mode-choice
+    data_train = pd.read_csv('Data/optima_ext_train.csv')
+    data_test = pd.read_csv('Data/optima_ext_test.csv')
+
+    #get household ids
+    hh_id = np.array(data_train['ID'].values)
+
+    #rename label and drop IDs
+    label_name = {'Choice': 'choice'}
+    data_train = data_train.rename(columns = label_name)
+    data_test = data_test.rename(columns = label_name)
+    dataset_train = data_train.drop('ID', axis=1)
+    dataset_test = data_test.drop('ID', axis=1)
+
+    #get all features
+    target = 'choice'
+    features = [f for f in dataset_train.columns if f != target]
+
+    #k folds sampled by households for cross validation
+    train_idx = []
+    test_idx = []
+    try:
+        train_idx, test_idx = pickle.load(open('strat_group_k_fold_optima.pickle', "rb"))
+    except FileNotFoundError:
+        for (train_i, test_i) in stratified_group_k_fold(dataset_train[features], dataset_train[target], hh_id, k=5):
+            train_idx.append(train_i)
+            test_idx.append(test_i)
+        pickle.dump([train_idx, test_idx], open('strat_group_k_fold_optima.pickle', "wb"))
+
+    folds = zip(train_idx, test_idx)
+
+    return dataset_train, dataset_test, folds

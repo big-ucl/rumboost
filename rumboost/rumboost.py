@@ -16,11 +16,11 @@ from lightgbm import callback
 from lightgbm.basic import Booster, Dataset, LightGBMError, _ConfigAliases, _InnerPredictor, _choose_param_value, _log_warning
 from lightgbm.compat import SKLEARN_INSTALLED, _LGBMGroupKFold, _LGBMStratifiedKFold
 
-from rumboost.utils import bio_to_rumboost
-from rumboost.utility_smoothing import stairs_to_pw
+# from rumboost.utils import bio_to_rumboost
+# from rumboost.utility_smoothing import stairs_to_pw
 
-# from utils import bio_to_rumboost, cross_entropy
-# from utility_smoothing import stairs_to_pw
+from utils import bio_to_rumboost, cross_entropy
+from utility_smoothing import stairs_to_pw
 
 _LGBM_CustomObjectiveFunction = Callable[
     [Union[List, np.ndarray], Dataset],
@@ -309,7 +309,7 @@ class RUMBoost:
                             #create and build validation sets
                             valid_set.construct()
                             valid_set_j_data = valid_set.get_data()[struct['columns']] #only relevant features for the j booster
-                            label_valid = valid_set.get_label()#new binary label
+                            label_valid = valid_set.get_label() #no need of new label for validation
                             valid_set_j = Dataset(valid_set_j_data, label=label_valid, reference= train_set_j, free_raw_data=False)
                             valid_set_j.construct()
                             reduced_valid_sets_j.append(valid_set_j)
@@ -354,7 +354,7 @@ class RUMBoost:
                     'objective': 'binary',
                     'num_classes':1,
                     'monotone_constraints': struct.get('monotone_constraints', []) if struct else [],
-                    'interaction_constraints': struct.get('monotone_constraints', []) if struct else [],
+                    'interaction_constraints': struct.get('interaction_constraints', []) if struct else [],
                     'categorical_feature': struct.get('categorical_feature', []) if struct else []
                     } for struct in self.rum_structure]
         
@@ -835,13 +835,19 @@ def rum_train(
             rum_booster.best_score = CE
             rum_booster.best_iteration = i+1
     
-        if (params['verbosity'] >= 1) and (i % 10 == 0):
+        #training communication
+        if (params['verbosity'] == 1) and (i % 10 == 0):
+            if is_valid_contain_train:
+                print('[{}] -- NCE value on train set: {}'.format(i + 1, CE))
+            else:
+                print('[{}] -- NCE value -- on train set: {} -- on test set: {}'.format(i + 1, CE_train, CE))
+        elif params['verbosity'] >= 2:
             if is_valid_contain_train:
                 print('[{}] -- NCE value on train set: {}'.format(i + 1, CE))
             else:
                 print('[{}] -- NCE value -- on train set: {} -- on test set: {}'.format(i + 1, CE_train, CE))
         
-        #early stopping if early stopping criterion in all boosters
+        #early stopping
         if (params.get("early_stopping_round", 0) != 0) and (rum_booster.best_iteration + params.get("early_stopping_round", 0) < i + 1):
             print('Early stopping at iteration {}, with a best score of {}'.format(rum_booster.best_iteration, rum_booster.best_score))
             break
@@ -985,14 +991,14 @@ def _agg_cv_result(raw_results, eval_train_metric=False):
 
 
 def rum_cv(params, train_set, num_boost_round=100,
-       folds=None, nfold=5, stratified=True, shuffle=True,
-       metrics=None, fobj=None, feval=None, init_model=None,
-       feature_name='auto', categorical_feature='auto',
-       early_stopping_rounds=None, fpreproc=None,
-       verbose_eval=None, show_stdv=True, seed=0,
-       callbacks=None, eval_train_metric=False,
-       return_cvbooster=False, rum_structure=None,
-       biogeme_model=None):
+        folds=None, nfold=5, stratified=True, shuffle=True,
+        metrics=None, fobj=None, feval=None, init_model=None,
+        feature_name='auto', categorical_feature='auto',
+        early_stopping_rounds=None, fpreproc=None,
+        verbose_eval=None, show_stdv=True, seed=0,
+        callbacks=None, eval_train_metric=False,
+        return_cvbooster=False, rum_structure=None,
+        biogeme_model=None):
     """Perform the cross-validation with given parameters.
 
     Parameters
