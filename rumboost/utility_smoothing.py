@@ -5,10 +5,11 @@ import seaborn as sns
 from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d, PchipInterpolator
 from scipy.special import softmax
+from copy import deepcopy
 
 # from rumboost.utils import data_leaf_value, get_grad, find_disc, get_mid_pos
 # from rumboost.basic_functions import func_wrapper
-from utils import data_leaf_value, get_grad, get_mid_pos
+from utils import data_leaf_value, get_grad, get_mid_pos, cross_entropy
 from basic_functions import func_wrapper
 
 def fit_func(data, weight, technique='weighted_data'):
@@ -203,7 +204,7 @@ def mean_monotone_spline(x_data, x_mean, y_data, y_mean, num_splines=15):
 
     return x_spline, y_spline, pchip
 
-def updated_utility_collection(weights, data, spline_utilities, num_splines=15):
+def updated_utility_collection(weights, data, num_splines_feat, mean_splines=False):
     '''
     Create a dictionary that stores what type of utility (smoothed or not) should be used for smooth_predict.
 
@@ -213,33 +214,44 @@ def updated_utility_collection(weights, data, spline_utilities, num_splines=15):
         A dictionary containing all leaf values for all utilities and all features.
     data : pandas DataFrame
         The pandas DataFrame used for training.
-    spline_utilities : list[str]
-        A list of features names that are interpolated with monotonic splines.
-    num_splines : int or dict, optional (default = 15)
-        The number of splines used for interpolation. If it is a dictionary, the key is a spline interpolated feature name, 
-        and the value is the number of splines used for interpolation as an int. There should be a key for all features.
+    num_splines_feat : dict
+        A dictionary of the same format than weights of features names for each utility that are interpolated with monotonic splines.
+        The key is a spline interpolated feature name, and the value is the number of splines used for interpolation as an int. 
+        There should be a key for all features where splines are used.
+    mean_splines : bool, optional (default = False)
+        If True, the splines are computed at the mean distribution of data for stairs.
 
     Returns
     -------
     util_collection : dict
         A dictionary containing the type of utility to use for all features in all utilities.
     '''
-
+    #initialise utility collection
     util_collection = {}
+
+    #for all utilities and features that have leaf values
     for u in weights:
         util_collection[u] = {}
         for f in weights[u]:
+            #data points and their utilities
             x_dat, y_dat = data_leaf_value(data[f], weights[u][f], technique='data_weighted')
-            if f in spline_utilities:
-                if isinstance(num_splines, dict):
-                    _, _, func = monotone_spline(x_dat, y_dat, num_splines=num_splines[f])
-                else:
-                    _, _, func = monotone_spline(x_dat, y_dat, num_splines=num_splines)
-                util_collection[u][f] = func
-            else:
-                func = interp1d(x_dat, y_dat, kind='previous')
-                util_collection[u][f] = func
 
+            #if using splines
+            if f in num_splines_feat[u].keys():
+                #if mean technique
+                if mean_splines:
+                    x_mean, y_mean = data_leaf_value(data[f], weights[u][f], technique='mean_data')
+                    _, _, func = mean_monotone_spline(x_dat, x_mean, y_dat, y_mean, num_splines=num_splines_feat[u][f])
+                #else, i.e. linearly sampled points
+                else:
+                    _, _, func = monotone_spline(x_dat, y_dat, num_splines=num_splines_feat[u][f])
+            #stairs functions
+            else:
+                func = interp1d(x_dat, y_dat, kind='previous', bounds_error=False, fill_value=(y_dat[0],y_dat[-1]))
+
+            #save the utility function
+            util_collection[u][f] = func
+                
     return util_collection
 
 def smooth_predict(data_test, util_collection, utilities=False):
@@ -267,11 +279,103 @@ def smooth_predict(data_test, util_collection, utilities=False):
         for f in util_collection[u]:
             U[:, int(u)] += util_collection[u][f](data_test[f])
 
-        #softmax
+    #softmax
     if not utilities:
         U = softmax(U, axis=1)
 
     return U
+
+def find_best_num_splines(weights, data_train, data_test, label_test, spline_utilities, mean_splines=False, search_technique='greedy'):
+    '''
+    Find the best number of splines fro each features prespecified.
+
+    Parameters
+    ----------
+    weights : dict
+        A dictionary containing all leaf values for all utilities and all features.
+    data_train : pandas DataFrame
+        The pandas DataFrame used for training.
+    data_test : pandas DataFrame
+        The pandas DataFrame used for testing.
+    data_test : pandas Series or numpy array
+        The labels of the dataset used for testing.
+    spline_utilities : dict[dict[int]]
+        A dictionary of dictionary of list. The first dictionary should contain the number of different alternatives as a str (i.e., '0', '1', ...).
+        The second disctionary contains feature as key and the number of splines as values.
+    mean_splines : bool, optional (default = False)
+        If True, the splines are computed at the mean distribution of data for stairs.
+    search_technique : str, optional (default = 'greedy')
+        The technique used to search for the best number of splines. It can be 'greedy' (i.e., optimise one feature after each other, while storing the feature value)
+        or 'feature_independant', 
+
+    Returns
+    -------
+    util_collection : dict
+        A dictionary containing the type of utility to use for all features in all utilities.
+    '''
+    #initialisation
+    spline_range = np.arange(3, 50)
+    num_splines = {}
+    best_splines = {}
+    ce=1000
+
+    #'greedy' search
+    if search_technique == 'greedy':
+        for u in spline_utilities:
+            best_splines[u] = {}
+            num_splines[u] = {}
+            for f in spline_utilities[u]:
+                for s in spline_range:
+                    num_splines[u][f] = s
+                    #compute new utility collection 
+                    utility_collection = updated_utility_collection(weights, data_train, num_splines_feat=num_splines, mean_splines=mean_splines)
+
+                    #get new predictions
+                    smooth_preds = smooth_predict(data_test, utility_collection)
+
+                    #compute new CE
+                    ce_knot = cross_entropy(smooth_preds, label_test)
+                    
+                    #store best one
+                    if ce_knot < ce:
+                        ce = ce_knot
+                        best_splines[u][f] = s
+                    
+                    print("CE = {} at iteration {} for feature {} ---- best CE = {} with best knots: {}".format(ce_knot, s-2, f, ce, best_splines))
+
+                num_splines = deepcopy(best_splines)
+            
+        return best_splines, ce
+    
+    elif search_technique == 'feature_independant':
+        for u in spline_utilities:
+            best_splines[u] = {}
+            for f in spline_utilities[u]:
+                ce = 1000
+                for s in spline_range:
+                    temp_num_splines = {u:{f:s}}
+                    #compute new utility collection
+                    utility_collection = updated_utility_collection(weights, data_train, num_splines_feat=temp_num_splines, mean_splines=mean_splines)
+
+                    #get new predictions
+                    smooth_preds = smooth_predict(data_test, utility_collection)
+
+                    #compute new CE
+                    ce_knot = cross_entropy(smooth_preds, label_test)
+
+                    #store best one
+                    if ce_knot < ce:
+                        ce = ce_knot
+                        best_splines[u][f] = s
+                    
+                    print("CE = {} at iteration {} for feature {} ---- best CE = {} with best knots: {}".format(ce_knot, s-2, f, ce, best_splines))
+
+        #computation of final cross entropy
+        utility_collection_final = updated_utility_collection(weights, data_train, num_splines_feat=best_splines, mean_splines=mean_splines)
+        smooth_preds_final = smooth_predict(data_test, utility_collection_final)
+        ce_final = cross_entropy(smooth_preds_final, label_test)
+
+        return best_splines, ce_final
 
 def stairs_to_pw(model, train_data, data_to_transform = None, util_for_plot = False):
     '''
