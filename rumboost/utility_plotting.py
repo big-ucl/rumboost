@@ -6,9 +6,9 @@ import seaborn as sns
 # from rumboost.utils import function_2d, get_weights, weights_to_plot_v2, get_asc, non_lin_function
 # from rumboost.basic_functions import func_wrapper
 # from rumboost.utility_smoothing import stairs_to_pw, find_feat_best_fit, fit_func
-from utils import function_2d, get_weights, weights_to_plot_v2, get_asc, non_lin_function
+from utils import function_2d, get_weights, weights_to_plot_v2, get_asc, non_lin_function, data_leaf_value
 from basic_functions import func_wrapper
-from utility_smoothing import stairs_to_pw, find_feat_best_fit, fit_func
+from utility_smoothing import stairs_to_pw, find_feat_best_fit, fit_func, monotone_spline, mean_monotone_spline
 
 def plot_2d(model, feature1: str, feature2: str, max1: int, max2: int, save_figure: bool = False, utility_names: list[str] = ['Walking', 'Cycling', 'Public Transport', 'Driving']):
     '''
@@ -451,3 +451,52 @@ def plot_util_pw(model, data_train, points = 10000):
     pw_func = stairs_to_pw(model, data_train, data_to_transform, util_for_plot = True)
 
     return pw_func
+
+def plot_spline(model, data_train, spline_collection, mean_splines = False):
+    '''
+    Plot the spline interpolation for all utilities interpolated.
+
+    Parameters
+    ----------
+    model : RUMBoost
+        A RUMBoost object.
+    data_train : pandas Dataframe
+        The full training dataset.
+    spline_collection : dict
+        A dictionary containing the optimal number of splines for each feature interpolated of each utility
+    mean_splines : bool, optional (default = False)
+        Must be True if the splines are computed at the mean distribution of data for stairs.
+    '''
+    #get weights ordered by features
+    weights = weights_to_plot_v2(model)
+
+    for u in spline_collection:
+        for f in spline_collection[u]:
+            #data points and their utilities
+            x_plot, y_plot = data_leaf_value(data_train[f], weights[u][f], 'data_weighted')
+            
+            #if using splines
+            #if mean technique
+            if mean_splines:
+                x_mean, y_mean = data_leaf_value(data_train[f], weights[u][f], technique='mean_data')
+                x_spline, y_spline, _, x_knot, y_knot = mean_monotone_spline(x_plot, x_mean, y_plot, y_mean, num_splines=spline_collection[u][f])
+            #else, i.e. linearly sampled points
+            else:
+                x_spline, y_spline, _, x_knot, y_knot = monotone_spline(x_plot, y_plot, num_splines=spline_collection[u][f])
+
+            sns.set_theme()
+
+            plt.figure(figsize=(10, 6))
+
+            #data
+            plt.scatter(x_plot, y_plot, color='k', s=1)
+
+            #splines
+            plt.plot(x_spline, y_spline, color='b')
+
+            #knots position
+            plt.scatter(x_knot, y_knot, color='r', s=5)
+
+            plt.legend(['data', 'Spl. with {} knots'.format(spline_collection[u][f]), 'Knots position'])
+            plt.title('Spline interpolation of {}'.format(f))
+            plt.show()

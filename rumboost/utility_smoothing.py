@@ -9,7 +9,7 @@ from copy import deepcopy
 
 # from rumboost.utils import data_leaf_value, get_grad, find_disc, get_mid_pos
 # from rumboost.basic_functions import func_wrapper
-from utils import data_leaf_value, get_grad, get_mid_pos, cross_entropy
+from utils import data_leaf_value, get_grad, get_mid_pos, cross_entropy, utility_ranking
 from basic_functions import func_wrapper
 
 def fit_func(data, weight, technique='weighted_data'):
@@ -127,7 +127,7 @@ def monotone_spline(x, y, num_splines=15):
     x_spline = np.linspace(0, np.max(x)*1.05, 10000)
     y_spline = pchip(x_spline)
 
-    return x_spline, y_spline, pchip
+    return x_spline, y_spline, pchip, x_knots, y_knots
 
 def mean_monotone_spline(x_data, x_mean, y_data, y_mean, num_splines=15):
     '''
@@ -175,7 +175,7 @@ def mean_monotone_spline(x_data, x_mean, y_data, y_mean, num_splines=15):
         x_spline = np.linspace(0, np.max(x_data)*1.05, 10000)
         y_spline = pchip(x_spline)
 
-        return x_spline, y_spline, pchip
+        return x_spline, y_spline, pchip, x_knots, y_knots
 
     #candidate for knots
     x_candidates = np.linspace(np.min(x_mean)+1e-10, np.max(x_mean)+1e-10, num_splines+1)
@@ -202,7 +202,7 @@ def mean_monotone_spline(x_data, x_mean, y_data, y_mean, num_splines=15):
     x_spline = np.linspace(0, np.max(x_data)*1.05, 10000)
     y_spline = pchip(x_spline)
 
-    return x_spline, y_spline, pchip
+    return x_spline, y_spline, pchip, x_knots, y_knots
 
 def updated_utility_collection(weights, data, num_splines_feat, mean_splines=False):
     '''
@@ -226,7 +226,7 @@ def updated_utility_collection(weights, data, num_splines_feat, mean_splines=Fal
     util_collection : dict
         A dictionary containing the type of utility to use for all features in all utilities.
     '''
-    #initialise utility collection
+#initialise utility collection
     util_collection = {}
 
     #for all utilities and features that have leaf values
@@ -237,16 +237,16 @@ def updated_utility_collection(weights, data, num_splines_feat, mean_splines=Fal
             x_dat, y_dat = data_leaf_value(data[f], weights[u][f], technique='data_weighted')
 
             #if using splines
-            if f in num_splines_feat[u].keys():
+            try:
                 #if mean technique
                 if mean_splines:
                     x_mean, y_mean = data_leaf_value(data[f], weights[u][f], technique='mean_data')
-                    _, _, func = mean_monotone_spline(x_dat, x_mean, y_dat, y_mean, num_splines=num_splines_feat[u][f])
+                    _, _, func, _, _ = mean_monotone_spline(x_dat, x_mean, y_dat, y_mean, num_splines=num_splines_feat[u][f])
                 #else, i.e. linearly sampled points
                 else:
-                    _, _, func = monotone_spline(x_dat, y_dat, num_splines=num_splines_feat[u][f])
+                    _, _, func, _, _ = monotone_spline(x_dat, y_dat, num_splines=num_splines_feat[u][f])
             #stairs functions
-            else:
+            except:
                 func = interp1d(x_dat, y_dat, kind='previous', bounds_error=False, fill_value=(y_dat[0],y_dat[-1]))
 
             #save the utility function
@@ -297,21 +297,23 @@ def find_best_num_splines(weights, data_train, data_test, label_test, spline_uti
         The pandas DataFrame used for training.
     data_test : pandas DataFrame
         The pandas DataFrame used for testing.
-    data_test : pandas Series or numpy array
+    label_test : pandas Series or numpy array
         The labels of the dataset used for testing.
-    spline_utilities : dict[dict[int]]
-        A dictionary of dictionary of list. The first dictionary should contain the number of different alternatives as a str (i.e., '0', '1', ...).
-        The second disctionary contains feature as key and the number of splines as values.
+    spline_utilities : dict[list[str]]
+        A dictionary of lists. The dictionary should contain the index of alternatives as a str (i.e., '0', '1', ...).
+        The list contains features where splines will be applied.
     mean_splines : bool, optional (default = False)
         If True, the splines are computed at the mean distribution of data for stairs.
     search_technique : str, optional (default = 'greedy')
-        The technique used to search for the best number of splines. It can be 'greedy' (i.e., optimise one feature after each other, while storing the feature value)
-        or 'feature_independant', 
+        The technique used to search for the best number of splines. It can be 'greedy' (i.e., optimise one feature after each other, while storing the feature value),
+        'greedy_ranked' (i.e., same as 'greedy' but starts with the feature with the largest utility range) or 'feature_independant'.
 
     Returns
     -------
-    util_collection : dict
-        A dictionary containing the type of utility to use for all features in all utilities.
+    best_splines : dict
+        A dictionary containing the optimal number of splines for each feature interpolated of each utility
+    ce : int
+        The negative cross-entropy on the test set
     '''
     #initialisation
     spline_range = np.arange(3, 50)
@@ -319,8 +321,37 @@ def find_best_num_splines(weights, data_train, data_test, label_test, spline_uti
     best_splines = {}
     ce=1000
 
+    #'greedy_ranked' search
+    if search_technique == 'greedy_ranked':
+        util_ranked = utility_ranking(weights, spline_utilities)
+        for rank in util_ranked:
+            if num_splines.get(rank[0], None) is None:
+                num_splines[rank[0]] = {}
+                best_splines[rank[0]] = {}
+            for s in spline_range:
+                num_splines[rank[0]][rank[1]] = s
+                #compute new utility collection 
+                utility_collection = updated_utility_collection(weights, data_train, num_splines_feat=num_splines, mean_splines=mean_splines)
+
+                #get new predictions
+                smooth_preds = smooth_predict(data_test, utility_collection)
+
+                #compute new CE
+                ce_knot = cross_entropy(smooth_preds, label_test)
+                
+                #store best one
+                if ce_knot < ce:
+                    ce = ce_knot
+                    best_splines[rank[0]][rank[1]] = s
+                
+                print("CE = {} at iteration {} for feature {} ---- best CE = {} with best knots: {}".format(ce_knot, s-2, rank[1], ce, best_splines))
+
+            #keep best values for next features
+            num_splines = deepcopy(best_splines)
+        
+        return best_splines, ce
     #'greedy' search
-    if search_technique == 'greedy':
+    elif search_technique == 'greedy':
         for u in spline_utilities:
             best_splines[u] = {}
             num_splines[u] = {}
@@ -342,11 +373,13 @@ def find_best_num_splines(weights, data_train, data_test, label_test, spline_uti
                         best_splines[u][f] = s
                     
                     print("CE = {} at iteration {} for feature {} ---- best CE = {} with best knots: {}".format(ce_knot, s-2, f, ce, best_splines))
-
+                
+                #keep best values for next features
                 num_splines = deepcopy(best_splines)
             
         return best_splines, ce
     
+    #'feature_independant' search
     elif search_technique == 'feature_independant':
         for u in spline_utilities:
             best_splines[u] = {}
@@ -376,6 +409,9 @@ def find_best_num_splines(weights, data_train, data_test, label_test, spline_uti
         ce_final = cross_entropy(smooth_preds_final, label_test)
 
         return best_splines, ce_final
+    
+    else:
+        raise ValueError('search_technique must be greedy, greedy_ranked, or feature_independant.')
 
 def stairs_to_pw(model, train_data, data_to_transform = None, util_for_plot = False):
     '''

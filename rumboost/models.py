@@ -193,7 +193,7 @@ def LPMC(dataset_train):
 def Optima(dataset_train):
     '''
     Create a MNL on the OPTIMA dataset.
-    The model is a slightly modified version from teh code that can be found here: https://github.com/JoseAngelMartinB/prediction-behavioural-analysis-ml-travel-mode-choice.
+    The model is a slightly modified version from the code that can be found here: https://github.com/JoseAngelMartinB/prediction-behavioural-analysis-ml-travel-mode-choice.
 
     Parameters
     ----------

@@ -20,8 +20,8 @@ def load_preprocess_LPMC():
         5 folds of indices grouped by household for CV.
     '''
     #source: https://github.com/JoseAngelMartinB/prediction-behavioural-analysis-ml-travel-mode-choice
-    data_train = pd.read_csv('Data/LTDS_train.csv')
-    data_test = pd.read_csv('Data/LTDS_test.csv')
+    data_train = pd.read_csv('../Data/LTDS_train.csv')
+    data_test = pd.read_csv('../Data/LTDS_test.csv')
 
     #distance in km
     data_train['distance'] = data_train['distance']/1000
@@ -80,7 +80,7 @@ def load_preprocess_SwissMetro(test_size: float = 0.3, random_state: int = 42):
     dataset_test : pandas Dataframe
         The training dataset ready to use.
     '''
-    df = pd.read_csv('Data/swissmetro.dat', sep='\t')
+    df = pd.read_csv('../Data/swissmetro.dat', sep='\t')
 
     #remove irrelevant choices and purposes
     keep = ((df['PURPOSE']!=1)*(df['PURPOSE']!=3)+(df['CHOICE']==0)) == 0
@@ -116,8 +116,8 @@ def load_preprocess_Optima():
         5 folds of indices grouped by household for CV.
     '''
     #source: https://github.com/JoseAngelMartinB/prediction-behavioural-analysis-ml-travel-mode-choice
-    data_train = pd.read_csv('Data/optima_ext_train.csv')
-    data_test = pd.read_csv('Data/optima_ext_test.csv')
+    data_train = pd.read_csv('../Data/optima_ext_train.csv')
+    data_test = pd.read_csv('../Data/optima_ext_test.csv')
 
     #get household ids
     hh_id = np.array(data_train['ID'].values)

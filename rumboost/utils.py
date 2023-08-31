@@ -339,6 +339,39 @@ def find_disc(x_values, grad):
 
     return disc, disc_idx, num_disc
 
+def utility_ranking(weights, spline_utilities):
+    """
+    Rank attributes utility importance by their utility range. The first rank is the attribute having the largest
+    max(V(x)) - min(V(x)).
+
+    Parameters
+    ----------
+    weights : dict
+        A dictionary containing all the split points and leaf values for all attributes, for all utilities.
+    spline_utilities : dict
+        A dictionary containing attributes where splines are applied. Must be in the form ]
+        {utility_indx: [attributes1, attributes2, ...], ...}.
+
+    Returns
+    -------
+    util_ranks_ascend : list of tupple
+        A list of tupple where the first tupple is the one having the largest utility range. Tupples are composed of 
+        their utility and the name of their attributes.
+    """
+    util_ranks = []
+    util_ranges = []
+    for u in spline_utilities:
+        for f in spline_utilities[u]:
+            #compute range
+            util_ranges.append(np.max(weights[u][f]['Histogram values']) - np.min(weights[u][f]['Histogram values']))
+            util_ranks.append((u, f))
+
+    sort_idx = np.argsort(util_ranges)
+    util_ranks = np.array(util_ranks)
+    util_ranks_ascend = util_ranks[np.flip(sort_idx)]
+    
+    return util_ranks_ascend
+
 def accuracy(preds, labels):
     """
     Compute accuracy of the model.
