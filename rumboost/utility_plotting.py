@@ -474,6 +474,7 @@ def plot_spline(model, data_train, spline_collection, mean_splines = False):
         for f in spline_collection[u]:
             #data points and their utilities
             x_plot, y_plot = data_leaf_value(data_train[f], weights[u][f], 'data_weighted')
+            y_plot_norm = [y - y_plot[0] for y in y_plot]
             
             #if using splines
             #if mean technique
@@ -483,20 +484,25 @@ def plot_spline(model, data_train, spline_collection, mean_splines = False):
             #else, i.e. linearly sampled points
             else:
                 x_spline, y_spline, _, x_knot, y_knot = monotone_spline(x_plot, y_plot, num_splines=spline_collection[u][f])
+            y_spline_norm = [y - y_plot[0] for y in y_spline]
+            y_knot_norm = [y - y_knot[0] for y in y_knot]
 
             sns.set_theme()
 
             plt.figure(figsize=(10, 6))
 
             #data
-            plt.scatter(x_plot, y_plot, color='k', s=1)
+            plt.scatter(x_plot, y_plot_norm, color='k', s=1)
 
             #splines
-            plt.plot(x_spline, y_spline, color='b')
+            plt.plot(x_spline, y_spline_norm, color='b')
 
             #knots position
-            plt.scatter(x_knot, y_knot, color='r', s=5)
+            plt.scatter(x_knot, y_knot_norm, color='r', s=5)
 
             plt.legend(['data', 'Spl. with {} knots'.format(spline_collection[u][f]), 'Knots position'])
             plt.title('Spline interpolation of {}'.format(f))
+            plt.xlabel('{} attribute'.format(f))
+            plt.ylabel('Utility')
+            plt.savefig("../../GBM feature extraction/Multiclass problem/Figures/rumbooster_splines {} utility, {} feature.png".format(u, f))
             plt.show()
