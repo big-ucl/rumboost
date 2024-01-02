@@ -16,11 +16,7 @@ from lightgbm import callback
 from lightgbm.basic import Booster, Dataset, LightGBMError, _ConfigAliases, _InnerPredictor, _choose_param_value, _log_warning
 from lightgbm.compat import SKLEARN_INSTALLED, _LGBMGroupKFold, _LGBMStratifiedKFold
 
-# from rumboost.utils import bio_to_rumboost
-# from rumboost.utility_smoothing import stairs_to_pw
-
-from utils import bio_to_rumboost, cross_entropy
-from utility_smoothing import stairs_to_pw
+from rumboost.utils import bio_to_rumboost, cross_entropy, nest_probs
 
 _LGBM_CustomObjectiveFunction = Callable[
     [Union[List, np.ndarray], Dataset],
@@ -45,7 +41,7 @@ class RUMBoost:
     Attributes
     ----------
     boosters : list of Booster
-        The list of underlying fitted models.
+        The list of fitted models.
     valid_sets : None
         Validation sets of the RUMBoost. By default None, to avoid computing cross entropy if there are no 
         validation sets.
@@ -60,6 +56,14 @@ class RUMBoost:
         """
         self.boosters = []
         self.valid_sets = None
+        self.num_classes = None #need to be specify by user
+
+        #for nested rumboost
+        self.mu = None
+        self.nests = None
+
+        #for functional effect rumboost
+        self.functional_effects = None
 
         if model_file is not None:
             with open(model_file, "r") as file:
@@ -93,6 +97,41 @@ class RUMBoost:
             grad = preds - labels
             hess = np.maximum(factor * preds * (1 - preds), eps) #truncate low values to avoid numerical errors
             return grad, hess
+    
+    def f_obj_nest(
+            self,
+            _,
+            train_set: Dataset
+        ):
+            """
+            Objective function of the binary classification boosters, for a nested rumboost.
+
+            Parameters
+            ----------
+            train_set : Dataset
+                Training set used to train the jth booster. It means that it is not the full training set but rather another dataset containing the relevant features for that utility. It is the jth dataset in the RUMBoost object.
+
+            Returns
+            -------
+            grad : numpy array
+                The gradient with the cross-entropy loss function and nested probabilities.
+            hess : numpy array
+                The hessian with the cross-entropy loss function and nested probabilities (second derivative approximation rather than the hessian).
+            """
+            j = self._current_j
+            pred_i_m = self.preds_i_m[:,j] #prediction of choice i knowing nest m
+            pred_m = self.preds_m[:,self.nests[j]] #prediction of choosing nest m
+            eps = 1e-6
+
+            #three cases: 1. choice i = j, 2. j is in the same nest than choice i, 3. j is in another nest.
+            grad = (self.labels == j) * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)) + \
+                   (self.labels_nest == self.nests[j]) * (1 - (self.labels == j)) * (self.mu[self.nests[j]] * pred_i_m - pred_i_m * (1 - pred_m)) + \
+                   (1 - (self.labels_nest == self.nests[j])) * (pred_i_m * pred_m)
+            hess = (self.labels == j) * (np.maximum(-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m), eps)) + \
+                   (self.labels_nest == self.nests[j]) * (1 - (self.labels == j)) * (np.maximum(-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m), eps)) + \
+                   (1 - (self.labels_nest == self.nests[j])) * (np.maximum(-pred_i_m * pred_m * (pred_i_m * (self.mu[self.nests[j]] - 1) - self.mu[self.nests[j]] - pred_i_m * pred_m), eps))
+
+            return grad, hess
             
     def predict(
         self,
@@ -105,7 +144,8 @@ class RUMBoost:
         data_has_header: bool = False,
         validate_features: bool = False,
         utilities: bool = False,
-        piece_wise: bool = False
+        nests: dict = None,
+        mu: list[float] = None
     ):
         """Predict logic.
 
@@ -132,8 +172,12 @@ class RUMBoost:
             Used only if data is pandas DataFrame.
         utilities : bool, optional (default=True)
             If True, return raw utilities for each class, without generating probabilities.
-        piece_wise : bool, optional (default=False)
-            If True, use piece-wise utility instead of stairs utility.
+        nests : dict, optional (default=False)
+            If not none, compute predictions with the nested probability function. The dictionary keys are alternatives number and their values are
+            their nest number. By example {0:0, 1:1, 2:0} means that alt 0 and 2 are in nest 0 and alt 1 is in nest 1.
+        mu : list, optional (default=None)
+            Only used, and required, if nests is True. It is the list of mu values for each nest.
+            The first value correspond to the first nest and so on.
 
         Returns
         -------
@@ -142,128 +186,89 @@ class RUMBoost:
             Can be sparse or a list of sparse objects (each element represents predictions for one class) for feature contributions (when ``pred_contrib=True``).
         """    
         #compute utilities with corresponding features
-        if piece_wise: #piece-wise utility
-            U = self.pw_predict(data, utility= True)
-        else:
-            #split data
-            new_data, _ = self._preprocess_data(data, return_data=True)
-            #compute U
-            U = [booster.predict(new_data[k].get_data(), 
-                                 start_iteration, 
-                                 num_iteration, 
-                                 raw_score, 
-                                 pred_leaf, 
-                                 pred_contrib,
-                                 data_has_header,
-                                 validate_features) for k, booster in enumerate(self.boosters)]
+        #split data
+        new_data, _ = self._preprocess_data(data, return_data=True)
+        #compute U
+        raw_preds = [booster.predict(new_data[k].get_data(), 
+                                start_iteration, 
+                                num_iteration, 
+                                raw_score, 
+                                pred_leaf, 
+                                pred_contrib,
+                                data_has_header,
+                                validate_features) for k, booster in enumerate(self.boosters)]
 
-        preds = np.array(U).T
+        raw_preds = np.array(raw_preds).T
+
+        #if functional effect, sum the two ensembles (of attributes and socio-economic characteristics) of each alternative
+        if self.functional_effects:
+            raw_preds = raw_preds.reshape((-1, self.num_classes, 2)).sum(axis=2)
+
+        #compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
+        if nests:
+            preds, pred_i_m, pred_m = nest_probs(raw_preds, mu=mu, nests=nests)
+            return preds, pred_i_m, pred_m
 
         #softmax
         if not utilities:
-            preds = softmax(preds, axis=1)
+            preds = softmax(raw_preds, axis=1)
+            return preds
    
-        return preds
+        return raw_preds
     
     def _inner_predict(
         self,
-        data = None,
-        start_iteration: int = 0,
-        num_iteration: int = -1,
-        raw_score: bool = True,
-        pred_leaf: bool = False,
-        pred_contrib: bool = False,
-        data_has_header: bool = False,
-        validate_features: bool = False,
+        data_idx: int = 0,
         utilities: bool = False,
-        piece_wise: bool = False
+        nests: bool = False,
+        mu = None
     ):
-        """Inner predict logic, the dataset is not assumed to be already build. Should not be used in public.
+        """
+        Predict logic for training RUMBoost object. This _inner_predict function is much faster than the predict function.
+        But the function takes advantage of the inner_prediction function of lightGBM boosters, and shouldn't be used
+        when predicting outside of training, as datasets might not be stored inside boosters.
 
         Parameters
         ----------
-        data : str, pathlib.Path, numpy array, pandas DataFrame, H2O DataTable's Frame or scipy.sparse
-            Data source for prediction.
-            If str or pathlib.Path, it represents the path to a text file (CSV, TSV, or LibSVM).
-        start_iteration : int, optional (default=0)
-            Start index of the iteration to predict.
-        num_iteration : int, optional (default=-1)
-            Iteration used for prediction.
-        raw_score : bool, optional (default=False)
-            Whether to predict raw scores.
-        pred_leaf : bool, optional (default=False)
-            Whether to predict leaf index.
-        pred_contrib : bool, optional (default=False)
-            Whether to predict feature contributions.
-        data_has_header : bool, optional (default=False)
-            Whether data has header.
-            Used only for txt data.
-        validate_features : bool, optional (default=False)
-            If True, ensure that the features used to predict match the ones used to train.
-            Used only if data is pandas DataFrame.
-        utilities : bool, optional (default=False)
-            If True, return raw utilities for each class, without generating probabilities.     
-        piece_wise : bool, optional (default=False)
-            If True, use piece-wise utility instead of stairs utility.
+        data_idx: int (default=0)
+            The index of the dataset. 0 means training set, and following numbers are validation sets, in the specified order.
+        utilities : bool, optional (default=True)
+            If True, return raw utilities for each class, without generating probabilities.
+        nests : bool, optional (default=False)
+            If True, compute predictions with the nested probability function.
+        mu : list, optional (default=None)
+            Only used, and required, if nests is True. It is the list of mu values for each nest.
+            The first value correspond to the first nest and so on.
 
         Returns
         -------
         result : numpy array, scipy.sparse or list of scipy.sparse
             Prediction result.
             Can be sparse or a list of sparse objects (each element represents predictions for one class) for feature contributions (when ``pred_contrib=True``).
-        """
-        #getting dataset
-        if data is None:
-            data = self.train_set
-
-        #compute utilities with corresponding features
-        if piece_wise:
-            U = self.pw_predict(data, utility= True)
-        else:
-            U = [booster.predict(data[k].get_data(), 
-                                 start_iteration, 
-                                 num_iteration, 
-                                 raw_score, 
-                                 pred_leaf, 
-                                 pred_contrib,
-                                 data_has_header,
-                                 validate_features) for k, booster in enumerate(self.boosters)]
-
-        U = np.array(U).T
-
-        #softmax
-        if not utilities:
-            U = softmax(U, axis=1)
-
-        return U
-
-    def pw_predict(self, data: Dataset, data_to_transform: pd.DataFrame = None, utilities: bool = False):
-        '''
-        Compute predictions with piece-wise utility (WARNING: Not stable).
-
-        Parameters
-        ----------
-        data : Dataset
-            The full training dataset.
-        data_to_transform : pandas DataFrame, optional
-            The stairs data to be transformed into a piece-wise linear approximation.
-        utilities : bool, optional (default=False)
-            If True, return raw utilities for each class, without generating probabilities.
-
-        Returns
-        -------
-        U : list or numpy array
-            The piece-wise linear predictions
-
-        '''
-        #compute the piece-wise utilities
-        U = stairs_to_pw(self, data, data_to_transform)
-
-        #softmax
-        if not utilities:
-            U = softmax(U.T, axis=1)
+        """    
         
-        return U
+
+        #getting raw prediction from lightGBM booster's inner predict
+        raw_preds = [booster._Booster__inner_predict(data_idx) for booster in self.boosters]
+
+        raw_preds = np.array(raw_preds).T
+
+        #if functional effect, sum the two ensembles (of attributes and socio-economic characteristics) of each alternative
+        if self.functional_effects:
+            raw_preds = raw_preds.reshape((-1, self.num_classes, 2)).sum(axis=2)
+
+        #compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
+        if nests:
+            nest = self.nests
+            preds, pred_i_m, pred_m = nest_probs(raw_preds, mu=mu, nests=nest)
+            return preds, pred_i_m, pred_m
+
+        #softmax
+        if not utilities:
+            preds = softmax(raw_preds, axis=1)
+            return preds
+
+        return raw_preds
     
     def _preprocess_data(self, data: Dataset, reduced_valid_set = None, return_data: bool = False):
         """Set up J training (and, if specified, validation) datasets.
@@ -290,33 +295,38 @@ class RUMBoost:
 
         #to access data
         data.construct()
+        self.labels = data.get_label()
 
         #loop over all J utilities
         for j, struct in enumerate(self.rum_structure):
             if struct:
                 if 'columns' in struct:
                     train_set_j_data = data.get_data()[struct['columns']] #only relevant features for the jth booster
-                    new_label = np.where(data.get_label() == j, 1, 0) #new binary label, used for multiclassification
-                    #create and build dataset
-                    if self.with_linear_trees:
-                        train_set_j = Dataset(train_set_j_data, label=new_label, free_raw_data=False, params={'linear_trees':True}) #WARNING not stable
+                    if self.functional_effects:
+                        new_label = np.where(data.get_label() == int(j/2), 1, 0) #new binary label for functional effect, divided by two because two ensembles per alternative
                     else:
-                        train_set_j = Dataset(train_set_j_data, label=new_label, free_raw_data=False)
+                        new_label = np.where(data.get_label() == j, 1, 0) #new binary label, used for multiclassification
+                    #create and build dataset
+                    train_set_j = Dataset(train_set_j_data, label=new_label, free_raw_data=False, params={'verbosity':-1})
                     train_set_j.construct()
                     if reduced_valid_set is not None:
                         reduced_valid_sets_j = []
                         for valid_set in reduced_valid_set:
                             #create and build validation sets
                             valid_set.construct()
-                            valid_set_j_data = valid_set.get_data()[struct['columns']] #only relevant features for the j booster
-                            label_valid = valid_set.get_label() #no need of new label for validation
+                            valid_set_j_data = valid_set.get_data()[struct['columns']] #only relevant features for the jth booster
+                            if self.functional_effects:
+                                label_valid = np.where(valid_set.get_label() == int(j/2), 1, 0) #new binary label for functional effect, divided by two because two ensembles per alternative
+                            else:
+                                label_valid = np.where(valid_set.get_label() == j, 1, 0) #new binary label, used for multiclassification
                             valid_set_j = Dataset(valid_set_j_data, label=label_valid, reference= train_set_j, free_raw_data=False)
                             valid_set_j.construct()
                             reduced_valid_sets_j.append(valid_set_j)
 
                 else:
                     #if no alternative specific datasets
-                    train_set_j = data
+                    new_label = np.where(data.get_label() == j, 1, 0)
+                    train_set_j = Dataset(data.get_data(), label=new_label, free_raw_data=False)
                     if reduced_valid_set is not None:
                         reduced_valid_sets_j = reduced_valid_set[:]
 
@@ -331,7 +341,7 @@ class RUMBoost:
         if return_data:
             return train_set_J, reduced_valid_sets_J
     
-    def _preprocess_params(self, params: dict, return_params: bool = False):
+    def _preprocess_params(self, params: dict, return_params: bool = False, params_fe: dict = None):
         """Set up J set of parameters.
         
         Parameters
@@ -340,26 +350,42 @@ class RUMBoost:
             Dictionary containing parameters. The syntax must follow the one from LightGBM.
         return_params : bool, optional (default = False)
             If True, returns the J sets of parameters (and potential validation sets)
+        params_fe: dict, optional (default=None)
+            Second set of parameters, for the functional effect model. These parameters are applied to the socio-economic characteristics ensembles
 
         Returns
         -------
         params_J : list[dict]
-            A list of dictionary containing J sets of parameters.
+            A list of dictionary containing J (or 2*J if functional effect model) sets of parameters.
         """
-        #store the number of classes in RUMBoost
-        self.num_classes = params['num_classes']
 
         #create the J parameters dictionaries
-        params_J = [{**copy.deepcopy(params),
-                    'objective': 'binary',
-                    'num_classes':1,
-                    'monotone_constraints': struct.get('monotone_constraints', []) if struct else [],
-                    'interaction_constraints': struct.get('interaction_constraints', []) if struct else [],
-                    'categorical_feature': struct.get('categorical_feature', []) if struct else []
-                    } for struct in self.rum_structure]
-        
-        #update if with linear trees or not
-        self.with_linear_trees = params.get('linear_tree', False)
+        if params_fe is not None: #for functional effect, two sets of parameters
+            params_J = [{**copy.deepcopy(params),
+                        'verbosity': -1,
+                        'objective': 'binary',
+                        'num_classes': 1,
+                        'monotone_constraints': struct.get('monotone_constraints', []) if struct else [],
+                        'interaction_constraints': struct.get('interaction_constraints', []) if struct else [],
+                        'categorical_feature': struct.get('categorical_feature', []) if struct else []
+                        } if i%2 == 0 else 
+                        {**copy.deepcopy(params_fe),
+                        'verbosity': -1,
+                        'objective': 'binary',
+                        'num_classes': 1,
+                        'monotone_constraints': struct.get('monotone_constraints', []) if struct else [],
+                        'interaction_constraints': struct.get('interaction_constraints', []) if struct else [],
+                        'categorical_feature': struct.get('categorical_feature', []) if struct else []
+                        } for i, struct in enumerate(self.rum_structure)]
+        else:
+            params_J = [{**copy.deepcopy(params),
+                        'verbosity': -1,
+                        'objective': 'binary',
+                        'num_classes': 1,
+                        'monotone_constraints': struct.get('monotone_constraints', []) if struct else [],
+                        'interaction_constraints': struct.get('interaction_constraints', []) if struct else [],
+                        'categorical_feature': struct.get('categorical_feature', []) if struct else []
+                        } for struct in self.rum_structure]
 
         #store the set of parameters in RUMBoost
         self.params = params_J
@@ -457,7 +483,8 @@ class RUMBoost:
 
         #initialise RUMBoost score information
         self.best_iteration = 0
-        self.best_score = 1000000
+        self.best_score = 1e6
+        self.best_score_train = 1e6
 
     def _append(self, booster: Booster) -> None:
         """Add a booster to RUMBoost."""
@@ -577,7 +604,6 @@ def rum_train(
     params: dict[str, Any],
     train_set: Dataset,
     rum_structure: list[dict[str, Any]] = None,
-    biogeme_model: BIOGEME = None,
     num_boost_round: int = 100,
     valid_sets: Optional[list[Dataset]] = None,
     valid_names: Optional[list[str]] = None,
@@ -587,7 +613,9 @@ def rum_train(
     categorical_feature: Union[list[str], list[int], str] = 'auto',
     keep_training_booster: bool = False,
     callbacks: Optional[list[Callable]] = None,
-    pw_utility: bool = False
+    nests: dict = None,
+    mu: list = None,
+    params_fe: dict = None 
 ) -> RUMBoost:
     """Perform the RUM training with given parameters.
 
@@ -662,8 +690,11 @@ def rum_train(
     callbacks : list of callable, or None, optional (default = None)
         List of callback functions that are applied at each iteration.
         See Callbacks in Python API for more information.
-    pw_utility: bool, optional (default = False)
-        If true, compute continuous feature utility in a piece-wise linear way.
+    mu : list, optional (default=None)
+        List of mu values, the scaling parameter, for each nest. The first value of the list correspond to nest 0, and so on.
+    nest : dict, optional (default=None)
+        Dictionary representing the nesting structure. Keys are alternatives, and values are the nest they belong to. By example,
+        {0:0, 1:1, 2:0} means alt 0 and 2 belong to nest 0 and alt 1 belongs to nest 1.
         
 
     Note
@@ -692,12 +723,9 @@ def rum_train(
     rum_booster : RUMBoost
         The trained RUMBoost model.
     """
-    #check that either rum_structure or biogeme_model are specified
-    if (type(biogeme_model) == BIOGEME) + (type(rum_structure) == list) == 0:
-        raise ValueError('A biogeme_model (a biogeme.biogeme.BIOGEME object) or a rum_structure (list) must be specified.')
-    elif (type(biogeme_model) == BIOGEME) + (type(rum_structure) == list) == 2:
-        raise ValueError('Only one of biogeme_model (a biogeme.biogeme.BIOGEME object) or rum_structure (list) can be specified.')
-
+    for alias in _ConfigAliases.get("verbosity"): 
+        if alias in params:
+            verbosity = params[alias]
     #create predictor first
     params = copy.deepcopy(params)
     params = _choose_param_value(
@@ -721,7 +749,7 @@ def rum_train(
         default_value=None
     )
     if params["early_stopping_round"] is None:
-        params.pop("early_stopping_round")
+        params["early_stopping_round"] = 10000
     first_metric_only = params.get('first_metric_only', False)
 
     if num_boost_round <= 0:
@@ -768,39 +796,57 @@ def rum_train(
     callbacks_after_iter = sorted(callbacks_after_iter_set, key=attrgetter('order'))
 
     #construct boosters
-    rum_booster = RUMBoost()
+    rumb = RUMBoost()
+
+    #initialise RUMBoost for functional effects if 2*num_classes rum structure are passed
+    if 'num_classes' not in params:
+        raise ValueError('Specify the number of classes in the dictionary of parameters with the key num_classes')
+    if len(rum_structure) == 2 * params['num_classes']:
+        rumb.functional_effects = True
+    elif len(rum_structure) == params['num_classes']:
+        rumb.functional_effects = False
+    else:
+        raise ValueError('The length of rum_structure must be equal to the number of classes or twice the number of class (for functional effects)')
+  
     reduced_valid_sets, \
     name_valid_sets, \
     is_valid_contain_train, \
-    train_data_name = rum_booster._preprocess_valids(train_set, params, valid_sets) #prepare validation sets
-    if rum_structure is not None:
-        rum_booster.rum_structure = rum_structure #save utility structure
-    elif biogeme_model is not None:
-        rum_booster.rum_structure = bio_to_rumboost(biogeme_model, max_depth=params['max_depth'])
-    else:
-        raise ValueError("Either one of rum_structure or biogeme_model arguments must be passed")
-    rum_booster._preprocess_params(params) #prepare J set of parameters
-    rum_booster._preprocess_data(train_set, reduced_valid_sets, return_data=True) #prepare J datasets with relevant features
-    rum_booster._construct_boosters(train_data_name, is_valid_contain_train, name_valid_sets) #build boosters with corresponding params and dataset
+    train_data_name = rumb._preprocess_valids(train_set, params, valid_sets) #prepare validation sets
+    rumb.rum_structure = rum_structure #saving utility structure
+    rumb.num_classes = params.pop('num_classes') #saving number of classes
+    rumb._preprocess_params(params, params_fe = params_fe) #prepare J set of parameters
+    rumb._preprocess_data(train_set, reduced_valid_sets, return_data=True) #prepare J datasets with relevant features
+    rumb._construct_boosters(train_data_name, is_valid_contain_train, name_valid_sets) #build boosters with corresponding params and dataset
 
-    #initial prediction for first iteration
-    rum_booster._preds = rum_booster._inner_predict()
+    #initialise nested probabilities if they are specified
+    if nests is not None:
+        rumb.mu = mu
+        rumb.nests = nests
+        f_obj = rumb.f_obj_nest
+        rumb.labels_nest = np.array([nests[l] for l in rumb.labels])
+        rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict(nests=True)
+    else:
+        f_obj = rumb.f_obj
+        rumb._preds = rumb._inner_predict()
 
     #start training
     for i in range(init_iteration, init_iteration + num_boost_round):
-        #update all binary boosters of the rum_booster
-        for j, booster in enumerate(rum_booster.boosters):
+        #update all binary boosters of the rumb
+        for j, booster in enumerate(rumb.boosters):
             for cb in callbacks_before_iter:
                 cb(callback.CallbackEnv(model=booster,
-                                        params=rum_booster.params[j],
+                                        params=rumb.params[j],
                                         iteration=i,
                                         begin_iteration=init_iteration,
                                         end_iteration=init_iteration + num_boost_round,
                                         evaluation_result_list=None))       
     
             #update booster with custom binary objective function, and relevant features
-            rum_booster._current_j = j
-            booster.update(train_set=rum_booster.train_set[j], fobj=rum_booster.f_obj)
+            if rumb.functional_effects:
+                rumb._current_j = int(j/2) #if functional effect keep same j for the two ensembles of each alternative
+            else:
+                rumb._current_j = j
+            booster.update(train_set=rumb.train_set[j], fobj=f_obj)
             
             #check evaluation result. (from lightGBM initial code, check on all J binary boosters)
             evaluation_result_list = []
@@ -811,7 +857,7 @@ def rum_train(
             try:
                 for cb in callbacks_after_iter:
                     cb(callback.CallbackEnv(model=booster,
-                                            params=rum_booster.params[j],
+                                            params=rumb.params[j],
                                             iteration=i,
                                             begin_iteration=init_iteration,
                                             end_iteration=init_iteration + num_boost_round,
@@ -821,44 +867,55 @@ def rum_train(
                 evaluation_result_list = earlyStopException.best_score
 
         #make predictions after boosting round to compute new cross entropy and for next iteration grad and hess
-        rum_booster._preds = rum_booster._inner_predict(piece_wise=pw_utility)
-        #compute cross validation on training or validation test
-        if (valid_sets is not None) and (not is_valid_contain_train):
-            for valid_set_J in rum_booster.valid_sets:
-                preds_valid = rum_booster._inner_predict(valid_set_J, piece_wise=pw_utility)
-                CE_train = cross_entropy(rum_booster._preds, train_set.get_label().astype(int))
-                CE = cross_entropy(preds_valid, valid_set_J[0].get_label().astype(int))
+        if nests is not None:
+            rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict(nests=True)
         else:
-            CE = cross_entropy(rum_booster._preds, train_set.get_label().astype(int))
-        
-        if CE < rum_booster.best_score:
-            rum_booster.best_score = CE
-            rum_booster.best_iteration = i+1
+            rumb._preds = rumb._inner_predict()
+
+        #compute cross validation on training or validation test
+        if valid_sets is not None:
+            if is_valid_contain_train:
+                cross_entropy = rumb.cross_entropy(rumb._preds, train_set.get_label().astype(int))
+            else:
+                for k, _ in enumerate(valid_sets):
+                    if nests is not None:
+                        preds_valid, _, _ = rumb._inner_predict(k+1, nests=True)
+                    else:
+                        preds_valid = rumb._inner_predict(k+1)
+                    cross_entropy_train = rumb.cross_entropy(rumb._preds, train_set.get_label().astype(int))
+                    cross_entropy = rumb.cross_entropy(preds_valid, valid_sets[0].get_label().astype(int))
+
+            #update best score and best iteration
+            if cross_entropy < rumb.best_score:
+                rumb.best_score = cross_entropy
+                if is_valid_contain_train:
+                    rumb.best_score_train = cross_entropy
+                else:
+                    rumb.best_score_train = cross_entropy_train
+                rumb.best_iteration = i+1
+
+            #verbosity
+            if (verbosity >= 1) and (i % 10 == 0):
+                if is_valid_contain_train:
+                    print('[{}] -- NCE value on train set: {}'.format(i + 1, cross_entropy))
+                else:
+                    print('[{}] -- NCE value on train set: {} \n     --  NCE value on test set: {}'.format(i + 1, cross_entropy_train, cross_entropy))      
     
-        #training communication
-        if (params['verbosity'] == 1) and (i % 10 == 0):
-            if is_valid_contain_train:
-                print('[{}] -- NCE value on train set: {}'.format(i + 1, CE))
-            else:
-                print('[{}] -- NCE value -- on train set: {} -- on test set: {}'.format(i + 1, CE_train, CE))
-        elif params['verbosity'] >= 2:
-            if is_valid_contain_train:
-                print('[{}] -- NCE value on train set: {}'.format(i + 1, CE))
-            else:
-                print('[{}] -- NCE value -- on train set: {} -- on test set: {}'.format(i + 1, CE_train, CE))
-        
         #early stopping
-        if (params.get("early_stopping_round", 0) != 0) and (rum_booster.best_iteration + params.get("early_stopping_round", 0) < i + 1):
-            print('Early stopping at iteration {}, with a best score of {}'.format(rum_booster.best_iteration, rum_booster.best_score))
+        if (params["early_stopping_round"] != 0) and (rumb.best_iteration + params["early_stopping_round"] < i + 1):
+            if is_valid_contain_train:
+                print('Early stopping at iteration {}, with a best score of {}'.format(rumb.best_iteration, rumb.best_score))
+            else:
+                print('Early stopping at iteration {}, with a best score on test set of {}, and on train set of {}'.format(rumb.best_iteration, rumb.best_score, rumb.best_score_train))
             break
 
-    for booster in rum_booster.boosters:
-        booster.best_score = collections.defaultdict(collections.OrderedDict)
+    for booster in rumb.boosters:
+        booster.best_score_lgb = collections.defaultdict(collections.OrderedDict)
         for dataset_name, eval_name, score, _ in evaluation_result_list:
-            booster.best_score[dataset_name][eval_name] = score
+            booster.best_score_lgb[dataset_name][eval_name] = score
         if not keep_training_booster:
             booster.model_from_string(booster.model_to_string()).free_dataset()
-    return rum_booster
+    return rumb
 
 class CVRUMBoost:
     """CVRUMBoost in LightGBM.

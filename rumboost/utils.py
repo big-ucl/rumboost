@@ -1,9 +1,13 @@
 import numpy as np
 import pandas as pd
 import random
+import lightgbm as lgb
 
 from collections import Counter, defaultdict
 from scipy.interpolate import interp1d
+from scipy.special import softmax
+
+from rumboost.rumboost import RUMBoost, rum_train
 
 def process_parent(parent, pairs):
     '''
@@ -41,7 +45,7 @@ def get_pair(parent):
     else:
         raise ValueError("Parent does not contain beta and variable")
     
-def bio_to_rumboost(model, all_columns = False, monotonic_constraints = True, interaction_contraints = True, max_depth=1):
+def bio_to_rumboost(model, all_columns = False, monotonic_constraints = True, interaction_contraints = True, fct_effect_variables = []):
     '''
     Converts a biogeme model to a rumboost dict.
 
@@ -55,8 +59,8 @@ def bio_to_rumboost(model, all_columns = False, monotonic_constraints = True, in
         If False, do not consider monotonic constraints.
     interaction_contraints : bool, optional (default = True)
         If False, do not consider feature interactions constraints.
-    max_depth : int, optional (default = 1)
-        The maximum depth allowed in the RUMBoost object for decision trees.
+    fct_effect_variables : list, optional (default = [])
+        The list of variables in the functional effect part of the model
 
     Returns
     -------
@@ -70,34 +74,52 @@ def bio_to_rumboost(model, all_columns = False, monotonic_constraints = True, in
     #for all utilities
     for k, v in utilities.items():
         rum_structure.append({'columns': [], 'monotone_constraints': [], 'interaction_constraints': [], 'betas': [], 'categorical_feature': []})
-        interac_2d = []
+        if len(fct_effect_variables) > 0:
+            rum_structure_re = {'columns': [], 'monotone_constraints': [], 'interaction_constraints': [], 'betas': [], 'categorical_feature': []}
         for i, pair in enumerate(process_parent(v, [])): # get all the pairs of the utility
-            rum_structure[-1]['columns'].append(pair[1]) #append variable name
-            rum_structure[-1]['betas'].append(pair[0]) #append beta name
-            if interaction_contraints:
-                # if (max_depth > 1) and (('weekend'in pair[0])|('dur_driving' in pair[0])|('dur_walking' in pair[0])|('dur_cycling' in pair[0])|('dur_pt_rail' in pair[0])): #('distance' in pair[0])): |('dur_pt_bus' in pair[0]))
-                #     interac_2d.append(i) #in the case of interaction constraint, append only the relevant continous features to be interacted
-                # else:             
-                #     rum_structure[-1]['interaction_constraints'].append([i]) #no interaction between features
-                rum_structure[-1]['interaction_constraints'].append([i]) #no interaction between features
-            if ('fueltype' in pair[0]) | ('female' in pair[0]) | ('purpose' in pair[0]) | ('license' in pair[0]) | ('week' in pair[0]):
-                rum_structure[-1]['categorical_feature'].append(i) #register categorical features
-            bounds = model.getBoundsOnBeta(pair[0]) #get bounds on beta parameter for monotonic constraint
-            if monotonic_constraints:
-                if (bounds[0] is not None) and (bounds[1] is not None):
-                    raise ValueError("Only one bound can be not None")
-                if bounds[0] is not None:
-                    if bounds[0] >= 0:
-                        rum_structure[-1]['monotone_constraints'].append(1) #register positive monotonic constraint
-                elif bounds[1] is not None:
-                    if bounds[1] <= 0:
-                        rum_structure[-1]['monotone_constraints'].append(-1) #register negative monotonic constraint
-                else:
-                    rum_structure[k]['monotone_constraints'].append(0) #none
+            
+            if pair[1] in fct_effect_variables:
+                rum_structure_re['columns'].append(pair[1]) #append variable name
+                rum_structure_re['betas'].append(pair[0]) #append beta name
+                if interaction_contraints:
+                    rum_structure_re['interaction_constraints'].append(len(rum_structure_re['interaction_constraints'])) #no interaction between features
+                if monotonic_constraints:
+                    bounds = model.getBoundsOnBeta(pair[0]) #get bounds on beta parameter for monotonic constraint
+                    if (bounds[0] is not None) and (bounds[1] is not None):
+                        raise ValueError("Only one bound can be not None")
+                    if bounds[0] is not None:
+                        if bounds[0] >= 0:
+                            rum_structure_re['monotone_constraints'].append(1) #register positive monotonic constraint
+                    elif bounds[1] is not None:
+                        if bounds[1] <= 0:
+                            rum_structure_re['monotone_constraints'].append(-1) #register negative monotonic constraint
+                    else:
+                        rum_structure_re['monotone_constraints'].append(0) #none
+            
+            else:
+                rum_structure[-1]['columns'].append(pair[1]) #append variable name
+                rum_structure[-1]['betas'].append(pair[0]) #append beta name
+                if interaction_contraints:
+                    if len(fct_effect_variables) > 0:
+                        rum_structure[-1]['interaction_constraints'].append([len(rum_structure[-1]['interaction_constraints'])]) #no interaction between features
+                    else:
+                        rum_structure[-1]['interaction_constraints'].append([i]) #no interaction between features
+                if monotonic_constraints:
+                    bounds = model.getBoundsOnBeta(pair[0]) #get bounds on beta parameter for monotonic constraint
+                    if (bounds[0] is not None) and (bounds[1] is not None):
+                        raise ValueError("Only one bound can be not None")
+                    if bounds[0] is not None:
+                        if bounds[0] >= 0:
+                            rum_structure[-1]['monotone_constraints'].append(1) #register positive monotonic constraint
+                    elif bounds[1] is not None:
+                        if bounds[1] <= 0:
+                            rum_structure[-1]['monotone_constraints'].append(-1) #register negative monotonic constraint
+                    else:
+                        rum_structure[k]['monotone_constraints'].append(0) #none      
         if all_columns:
-            rum_structure[-1]['columns'] = [col for col in model.database.data.drop(['household_id', 'choice', 'travel_month','driving_traffic_percent'], axis=1).columns.values.tolist()]
-        if max_depth > 1:
-            rum_structure[-1]['interaction_constraints'].append(interac_2d)
+            rum_structure[-1]['columns'] = [col for col in model.database.data.drop(['choice'], axis=1).columns.values.tolist()]
+        if len(fct_effect_variables) > 0:
+            rum_structure.append(rum_structure_re)
         
     return rum_structure
     
@@ -193,12 +215,19 @@ def data_leaf_value(data, weights_feature, technique='weighted_data'):
         Y coordinates of the data, or utility values
 
     '''
+    if technique == 'data_weighted':
+        data_ordered = np.sort(data)
+        idx = np.searchsorted(np.array(weights_feature['Splitting points']), data_ordered)
+        data_values = np.array(weights_feature['Histogram values'])[idx]
+
+        return np.array(data_ordered), data_values
+
     if technique == 'mid_point':
         mid_points = np.array(get_mid_pos(data, weights_feature['Splitting points']))
-        return mid_points, weights_feature['Histogram values']
+        return mid_points, np.array(weights_feature['Histogram values'])
     elif technique == 'mean_data':
         mean_data = np.array(get_mean_pos(data, weights_feature['Splitting points']))
-        return mean_data, weights_feature['Histogram values']  
+        return mean_data, np.array(weights_feature['Histogram values'])
 
     data_ordered = data.copy().sort_values()
     data_values = [weights_feature['Histogram values'][0]]*sum(data_ordered < weights_feature['Splitting points'][0])
@@ -220,12 +249,12 @@ def data_leaf_value(data, weights_feature, technique='weighted_data'):
     data_values += [weights_feature['Histogram values'][-1]]*sum(data_ordered > weights_feature['Splitting points'][-1])
     if technique == 'mid_point_weighted':
         mid_points_weighted += [mid_points[-1]]*sum(data_ordered > weights_feature['Splitting points'][-1])
-        return np.array(mid_points_weighted), data_values
+        return np.array(mid_points_weighted), np.array(data_values)
     elif technique == 'mean_data_weighted':
         mean_data_weighted += [mean_data[-1]]*sum(data_ordered > weights_feature['Splitting points'][-1])
-        return np.array(mean_data_weighted), data_values
+        return np.array(mean_data_weighted), np.array(data_values)
 
-    return data_ordered, data_values
+    return np.array(data_ordered), np.array(data_values)
 
 def get_grad(x, y, technique='slope', sample_points=30, normalise = False):
     '''
@@ -372,6 +401,75 @@ def utility_ranking(weights, spline_utilities):
     
     return util_ranks_ascend
 
+def map_x_knots(x_knots, num_splines_range, x_first = None, x_last = None):
+    '''
+    Map the 1d array of x_knots into a dictionary with utility and attributes as keys.
+
+    Parameters
+    ----------
+    x_knots : 1d np.array
+        The positions of knots in a 1d array, following this structure: 
+        np.array([x_att1_1, x_att1_2, ... x_att1_m, x_att2_1, ... x_attn_m]) where m is the number of knots 
+        and n the number of attributes that are interpolated with splines.
+    num_splines_range: dict
+        A dictionary of the same format than weights of features names for each utility that are interpolated with monotonic splines.
+        The key is a spline interpolated feature name, and the value is the number of splines used for interpolation as an int. 
+        There should be a key for all features where splines are used.
+    x_first : list, optional (default=None)
+        A list of all first knots in the order of the attributes from spline_utilities and num_splines_range.
+    x_last : list, optional (default=None)
+        A list of all last knots in the order of the attributes from spline_utilities and num_splines_range.
+
+    Returns
+    -------
+    x_knots_dict : dict
+        A dictionary in the form of {utility: {attribute: x_knots}} where x_knots are the spline knots for the corresponding 
+        utility and attributes
+    '''
+    x_knots_dict = {}
+    starter = 0
+    i=0
+    for u in num_splines_range:
+        x_knots_dict[u]={}
+        for f in num_splines_range[u]:
+            if x_first is not None:
+                x_knots_dict[u][f] = [x_first[i]]
+                x_knots_dict[u][f].extend(x_knots[starter:starter+num_splines_range[u][f]-1])
+                x_knots_dict[u][f].append(x_last[i])
+                x_knots_dict[u][f] = np.array(x_knots_dict[u][f])
+                starter += num_splines_range[u][f]-1
+                i +=1
+            else:
+                x_knots_dict[u][f] = x_knots[starter:starter+num_splines_range[u][f]+1]
+                starter += num_splines_range[u][f]+1
+
+    return x_knots_dict
+
+def compute_VoT(util_collection, u, f1, f2):
+    '''
+    The function compute the Value of Time of the attributes specified in attribute_VoT.
+
+    Parameters
+    ----------
+    util_collection : dict
+        A dictionary containing the type of utility to use for all features in all utilities.
+    u : str
+        The utility number, as a str (e.g. '0', '1', ...).
+    f1 : str
+        The time related attribtue name.
+    f2 : str
+        The cost related attribtue name.
+
+    Return
+    ------
+    VoT : lamda function
+        The function calculating value of time for attribute1 and attribute2. 
+    '''
+
+    VoT = lambda x1, x2, u1 = util_collection[u][f1], u2 = util_collection[u][f2]: u1.derivative()(x1) / u2.derivative()(x2)
+
+    return VoT
+
 def accuracy(preds, labels):
     """
     Compute accuracy of the model.
@@ -412,6 +510,59 @@ def cross_entropy(preds, labels):
     data_idx = np.arange(num_data)
 
     return - np.mean(np.log(preds[data_idx, labels]))
+
+def nest_probs(preds, mu, nests):
+    """compute nested predictions.
+    
+    Parameters
+    ----------
+
+    preds :
+        The raw predictions from the booster
+    mu :
+        The list of mu values for each nest.
+        The first value correspond to the first nest and so on.
+    nests :
+        The dictionary keys are alternatives number and their values are their nest number. 
+        By example, {0:0, 1:1, 2:0} means that alt 0 and 2 are in nest 0 and alt 1 is in nest 1.
+
+    Returns
+    -------
+
+    preds.T :
+        The nested predictions
+    pred_i_m :
+        The prediction of choosing alt i knowing nest m
+    pred_m :
+        The prediction of choosing nest m
+
+    """
+    #initialisation
+    n_obs = np.size(preds, 0)
+    data_idx = np.arange(n_obs)
+    n_alt = np.size(preds, 1)
+    pred_i_m = np.array(np.zeros((n_obs, n_alt)))
+    V_tilde_m = np.array(np.zeros((n_obs, len(mu))))
+
+    #for each alternative and their nest
+    for alt, nest in nests.items():
+
+        #compute the list of alternative in nests
+        nest_alt = [a for a, n in nests.items() if n == nest]
+
+        #pred of choosing i knowing m. Softmax within the nest (preds[data_idx, :][:, nest_alt]) to get prediction of alternatives within the nest)
+        pred_i_m[:, alt] = np.exp(mu[nest] * preds[data_idx, alt]) / np.sum(np.exp(mu[nest] * preds[data_idx, :][:, nest_alt]), axis=1)
+
+        #maximum expectation of utility within nest m
+        V_tilde_m[:, nest] = 1/mu[nest] * np.log(np.sum(np.exp(mu[nest] * preds[data_idx, :][:, nest_alt]), axis=1))
+
+    #pred of choosing nest m
+    pred_m = softmax(V_tilde_m, axis=1)
+
+    #final predictions for choosing i
+    preds = np.array([pred_i_m[:, i] * pred_m[:, nests[i]] for i in nests.keys()])
+
+    return preds.T, pred_i_m, pred_m
 
 def create_name(features):
     """Create new feature names from a list of feature names"""
@@ -651,25 +802,99 @@ def function_2d(weights_2d, x_vect, y_vect):
     contour_plot_values = np.zeros(shape=(len(x_vect), len(y_vect)))
 
     for k in range(len(weights_2d.index)):
-        y_check = True
-        for i in range(len(x_vect)):
-            if (x_vect[i] >= weights_2d['higher_lvl_range'].iloc[k][1]) | (not y_check):
-                break
+        if (weights_2d['lower_lvl_range'].iloc[k][1] == 10000) and (weights_2d['higher_lvl_range'].iloc[k][1] == 10000):
+            i_x = np.searchsorted(x_vect, weights_2d['higher_lvl_range'].iloc[k][0])
+            i_y = np.searchsorted(y_vect, weights_2d['lower_lvl_range'].iloc[k][0])
 
-            if x_vect[i] >= weights_2d['higher_lvl_range'].iloc[k][0]:
-                for j in range(len(y_vect)):
-                    if y_vect[j] >= weights_2d['lower_lvl_range'].iloc[k][1]:
-                        y_check = False
-                        break
-                    if y_vect[j] >= weights_2d['lower_lvl_range'].iloc[k][0]:
-                        if (weights_2d['lower_lvl_range'].iloc[k][1] == 10000) and (weights_2d['higher_lvl_range'].iloc[k][1] == 10000):
-                            contour_plot_values[i:, j:] += weights_2d['area_value'].iloc[k]
-                            y_check = False
-                            break
-                        else:
-                            contour_plot_values[i, j] += weights_2d['area_value'].iloc[k]
+            contour_plot_values[i_x:, i_y:] += weights_2d['area_value'].iloc[k]
+
+        elif (weights_2d['lower_lvl_range'].iloc[k][1] == 10000):
+            i_x = np.searchsorted(x_vect, weights_2d['higher_lvl_range'].iloc[k][1])
+            i_y = np.searchsorted(y_vect, weights_2d['lower_lvl_range'].iloc[k][0])
+
+            contour_plot_values[:i_x, i_y:] += weights_2d['area_value'].iloc[k]
+
+        elif (weights_2d['higher_lvl_range'].iloc[k][1] == 10000):
+            i_x = np.searchsorted(x_vect, weights_2d['higher_lvl_range'].iloc[k][0])
+            i_y = np.searchsorted(y_vect, weights_2d['lower_lvl_range'].iloc[k][1])
+            
+            contour_plot_values[i_x:, :i_y] += weights_2d['area_value'].iloc[k]
+
+        else:
+            i_x = np.searchsorted(x_vect, weights_2d['higher_lvl_range'].iloc[k][1])
+            i_y = np.searchsorted(y_vect, weights_2d['lower_lvl_range'].iloc[k][1])
+            
+            contour_plot_values[:i_x, :i_y] += weights_2d['area_value'].iloc[k]
 
     return contour_plot_values
+
+def split_fe_model(model: RUMBoost):
+    '''
+    Split a functional effect model and returns its two parts
+
+    Parameters
+    ----------
+
+    model: RUMBoost
+        A functional effect RUMBoost model with rum_structure
+
+    Returns
+    -------
+
+    attributes_model: RUMBoost
+        The part of the functional effect model with trip attributes without interaction
+    socio_economic_model: RUMBoost
+        The part of the model leading to the individual-specific constant, where socio-economic characteristics fully interact.
+    '''
+    if not isinstance(model.rum_structure, list):
+        raise ValueError('Please add a rum_structure to your model by setting model.rum_structure. A rum_structure must be a list of 2*n_alt dictionaries in this function')
+
+    attributes_model = RUMBoost()
+    socio_economic_model = RUMBoost()
+
+    attributes_model.boosters = [b for i, b in enumerate(model.boosters) if i%2 == 0]
+    attributes_model.rum_structure = model.rum_structure[::2]
+
+    socio_economic_model.boosters = [b for i, b in enumerate(model.boosters) if i%2 == 1]
+    socio_economic_model.rum_structure = model.rum_structure[1::2]
+
+    return attributes_model, socio_economic_model
+
+def bootstrap(dataset: pd.DataFrame, params: dict, rum_structure: list[dict], num_it: int = 100, seed: int = 42):
+    '''
+    Performs bootstrapping, with given dataset, parameters and rum_structure. For now, only a basic rumboost can be used.
+
+    Parameters
+    ----------
+    dataset: pd.DataFrame
+        A dataset used to train RUMBoost
+    params: dict
+        A dictionary used to train RUMBoost
+    rum_structure: list[dict]
+        A list of dictionaries used to specify the structure of RUMBoost
+    num_it: int, optional (default=100)
+        The number of bootstrapping iterations
+    seed: int, optional (default=42)
+        The seed used to randomly sample the dataset.
+    '''
+    np.random.seed(seed)
+
+    N = dataset.shape[0]
+    models = []
+    for _ in range(num_it):
+        ids = np.random.choice(dataset.index, size=N, replace=True)
+        ids2 = np.setdiff1d(dataset.index, ids)
+
+        df_train = dataset.loc[ids]
+        df_test = dataset.loc[ids2]
+        
+        dataset_train = lgb.Dataset(df_train.drop('choice', axis=1), label=df_train.choice, free_raw_data=False)
+        
+        valid_set = lgb.Dataset(df_test.drop('choice', axis=1), label=df_test.choice, free_raw_data=False)
+
+        models.append(rum_train(params, dataset_train, rum_structure, valid_sets=[valid_set]))
+
+    return models
 
 # Sample a dataset grouped by `groups` and stratified by `y`
 # Source: https://www.kaggle.com/jakubwasikowski/stratified-group-k-fold-cross-validation

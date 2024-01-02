@@ -1,5 +1,4 @@
 from rumboost.utils import *
-from rumboost.basic_functions import *
 from rumboost.utility_smoothing import *
 from rumboost.rumboost import *
 from rumboost.dataset import *
