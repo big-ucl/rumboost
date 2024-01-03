@@ -47,9 +47,9 @@ def plot_2d(model, feature1: str, feature2: str, min1: int, max1: int, min2: int
     utility_names = ['Walking', 'Cycling', 'PT', 'Driving']
     tex_fonts = {
             # Use LaTeX to write all text
-            "text.usetex": True, 
-            "font.family": "serif",
-            "font.serif": "Computer Modern Roman",
+            # "text.usetex": True, 
+            # "font.family": "serif",
+            # "font.serif": "Computer Modern Roman",
             # Use 14pt font in plots, to match 10pt font in document
             "axes.labelsize": 7,
             "axes.linewidth":0.5,
@@ -71,11 +71,11 @@ def plot_2d(model, feature1: str, feature2: str, min1: int, max1: int, min2: int
     sns.set_theme(font_scale=1, rc=tex_fonts)
     #sns.set_context(tex_fonts)
     sns.set_style("whitegrid")
-    plt.rcParams.update({
-        "text.usetex": True,
-        "font.family": "serif"
-        #"font.sans-serif": "Computer Modern Roman",
-    })
+    # plt.rcParams.update({
+    #     # "text.usetex": True,
+    #     "font.family": "serif"
+    #     #"font.sans-serif": "Computer Modern Roman",
+    # })
 
     for u in weights_2d.Utility.unique():
         weights_2d_util = weights_2d[weights_2d.Utility==u]
@@ -178,9 +178,9 @@ def plot_parameters(model, X, utility_names, Betas = None,  model_unconstrained 
 
     tex_fonts = {
         # Use LaTeX to write all text
-        "text.usetex": True, 
-        "font.family": "serif",
-        "font.serif": "Computer Modern Roman",
+        # "text.usetex": True, 
+        # "font.family": "serif",
+        # "font.serif": "Computer Modern Roman",
         # Use 14pt font in plots, to match 10pt font in document
         "axes.labelsize": 7,
         "axes.linewidth":0.5,
@@ -202,11 +202,11 @@ def plot_parameters(model, X, utility_names, Betas = None,  model_unconstrained 
     sns.set_theme(font_scale=1, rc=tex_fonts)
     #sns.set_context(tex_fonts)
     sns.set_style("whitegrid")
-    plt.rcParams.update({
-        "text.usetex": True,
-        "font.family": "serif"
-        #"font.sans-serif": "Computer Modern Roman",
-    })
+    # plt.rcParams.update({
+    #     # "text.usetex": True,
+    #     "font.family": "serif"
+    #     #"font.sans-serif": "Computer Modern Roman",
+    # })
 
     if sm_tt_cost:
         #plot for travel time on one figure
@@ -469,7 +469,7 @@ def plot_parameters(model, X, utility_names, Betas = None,  model_unconstrained 
                 elif 'cost' in f:
                     plt.xlabel('{} [£]'.format(f))
                 elif 'distance' in f:
-                    plt.xlabel('{} [m]'.format(f))
+                    plt.xlabel('{} [km]'.format(f))
                 elif 'CO' in f:
                     plt.xlabel('{} [chf]'.format(f))
                 else:
@@ -606,9 +606,9 @@ def plot_spline(model, data_train, spline_collection, utility_names, mean_spline
     weights = model.weights_to_plot_v2()
     tex_fonts = {
             # Use LaTeX to write all text
-            "text.usetex": True, 
-            "font.family": "serif",
-            "font.serif": "Computer Modern Roman",
+            # "text.usetex": True, 
+            # "font.family": "serif",
+            # "font.serif": "Computer Modern Roman",
             # Use 14pt font in plots, to match 10pt font in document
             "axes.labelsize": 7,
             "axes.linewidth":0.5,
@@ -631,11 +631,11 @@ def plot_spline(model, data_train, spline_collection, utility_names, mean_spline
     sns.set_theme(font_scale=1, rc=tex_fonts)
     #sns.set_context(tex_fonts)
     sns.set_style("whitegrid")
-    plt.rcParams.update({
-        "text.usetex": True,
-        "font.family": "serif"
-        #"font.sans-serif": "Computer Modern Roman",
-    })
+    # plt.rcParams.update({
+    #     # "text.usetex": True,
+    #     "font.family": "serif"
+    #     #"font.sans-serif": "Computer Modern Roman",
+    # })
 
     if lpmc_tt_cost:
         x_plot_w, y_plot_w = data_leaf_value(data_train['dur_walking'], weights['0']['dur_walking'], 'data_weighted')
@@ -964,9 +964,9 @@ def plot_VoT(data_train, util_collection, attribute_VoT, utility_names, draw_ran
 
     tex_fonts = {
             # Use LaTeX to write all text
-            "text.usetex": True, 
-            "font.family": "serif",
-            "font.serif": "Computer Modern Roman",
+            # "text.usetex": True, 
+            # "font.family": "serif",
+            # "font.serif": "Computer Modern Roman",
             # Use 14pt font in plots, to match 10pt font in document
             "axes.labelsize": 7,
             "axes.linewidth":0.5,
@@ -988,11 +988,11 @@ def plot_VoT(data_train, util_collection, attribute_VoT, utility_names, draw_ran
     sns.set_theme(font_scale=1, rc=tex_fonts)
     #sns.set_context(tex_fonts)
     sns.set_style("whitegrid")
-    plt.rcParams.update({
-        "text.usetex": True,
-        "font.family": "serif"
-        #"font.sans-serif": "Computer Modern Roman",
-    })
+    # plt.rcParams.update({
+    #     # "text.usetex": True,
+    #     "font.family": "serif"
+    #     #"font.sans-serif": "Computer Modern Roman",
+    # })
     
     for u in attribute_VoT: 
         f1, f2 = attribute_VoT[u]
@@ -1039,9 +1039,9 @@ def plot_pop_VoT(data_test, util_collection, attribute_VoT, save_figure = False)
 
     tex_fonts = {
             # Use LaTeX to write all text
-            "text.usetex": True, 
-            "font.family": "serif",
-            "font.serif": "Computer Modern Roman",
+            # "text.usetex": True, 
+            # "font.family": "serif",
+            # "font.serif": "Computer Modern Roman",
             # Use 14pt font in plots, to match 10pt font in document
             "axes.labelsize": 7,
             "axes.linewidth":0.5,
@@ -1063,11 +1063,11 @@ def plot_pop_VoT(data_test, util_collection, attribute_VoT, save_figure = False)
     sns.set_theme(font_scale=1, rc=tex_fonts)
     #sns.set_context(tex_fonts)
     sns.set_style("whitegrid")
-    plt.rcParams.update({
-        "text.usetex": True,
-        "font.family": "serif"
-        #"font.sans-serif": "Computer Modern Roman",
-    })
+    # plt.rcParams.update({
+    #     # "text.usetex": True,
+    #     "font.family": "serif"
+    #     #"font.sans-serif": "Computer Modern Roman",
+    # })
 
     for u in attribute_VoT: 
         f1, f2 = attribute_VoT[u]
@@ -1108,9 +1108,9 @@ def plot_ind_spec_constant(socec_model, dataset_train, alternatives: list[str]):
 
     tex_fonts = {
         # Use LaTeX to write all text
-        "text.usetex": True, 
-        "font.family": "serif",
-        "font.serif": "Computer Modern Roman",
+        # "text.usetex": True, 
+        # "font.family": "serif",
+        # "font.serif": "Computer Modern Roman",
         # Use 14pt font in plots, to match 10pt font in document
         "axes.labelsize": 7,
         "axes.linewidth": 0.5,
@@ -1132,11 +1132,11 @@ def plot_ind_spec_constant(socec_model, dataset_train, alternatives: list[str]):
     sns.set_theme(font_scale=1, rc=tex_fonts)
     #sns.set_context(tex_fonts)
     sns.set_style("whitegrid")
-    plt.rcParams.update({
-        "text.usetex": True,
-        "font.family": "serif"
-        #"font.sans-serif": "Computer Modern Roman",
-    })
+    # plt.rcParams.update({
+    #     # "text.usetex": True,
+    #     "font.family": "serif"
+    #     #"font.sans-serif": "Computer Modern Roman",
+    # })
 
     ind_spec_constants = socec_model.predict(dataset_train, utilities=True)
 
@@ -1175,9 +1175,9 @@ def plot_bootstrap(models: list, dataset: pd.DataFrame, features: dict[list[str]
     '''
     tex_fonts = {
         # Use LaTeX to write all text
-        "text.usetex": True, 
-        "font.family": "serif",
-        "font.serif": "Computer Modern Roman",
+        # "text.usetex": True, 
+        # "font.family": "serif",
+        # "font.serif": "Computer Modern Roman",
         # Use 14pt font in plots, to match 10pt font in document
         "axes.labelsize": 7,
         "axes.linewidth":0.5,
@@ -1198,11 +1198,11 @@ def plot_bootstrap(models: list, dataset: pd.DataFrame, features: dict[list[str]
     }
     sns.set_theme(font_scale=1, rc=tex_fonts)
     sns.set_style("whitegrid")
-    plt.rcParams.update({
-        "text.usetex": True,
-        "font.family": "serif"
-        #"font.sans-serif": "Computer Modern Roman",
-    })
+    # plt.rcParams.update({
+    #     # "text.usetex": True,
+    #     "font.family": "serif"
+    #     #"font.sans-serif": "Computer Modern Roman",
+    # })
 
     ufs_dict = {}
     for u in features:

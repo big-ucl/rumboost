@@ -217,7 +217,7 @@ def mean_monotone_spline(x_data, x_mean, y_data, y_mean, num_splines=15):
 
     return x_spline, y_spline, pchip, x_knots, y_knots
 
-def updated_utility_collection(weights, data, num_splines_feat, mean_splines=False, x_knots=None):
+def updated_utility_collection(weights, data, num_splines_feat, spline_utilities, mean_splines=False, x_knots = None):
     '''
     Create a dictionary that stores what type of utility (smoothed or not) should be used for smooth_predict.
 
@@ -231,11 +231,14 @@ def updated_utility_collection(weights, data, num_splines_feat, mean_splines=Fal
         A dictionary of the same format than weights of features names for each utility that are interpolated with monotonic splines.
         The key is a spline interpolated feature name, and the value is the number of splines used for interpolation as an int. 
         There should be a key for all features where splines are used.
+    spline_utilities : dict
+        A dictionary containing attributes where splines are applied. Must be in the form ]
+        {utility_indx: [attributes1, attributes2, ...], ...}.
     mean_splines : bool, optional (default = False)
         If True, the splines are computed at the mean distribution of data for stairs.
-    x_knots : dict, optional (default = None)
+    x_knots : dict
         A dictionary in the form of {utility: {attribute: x_knots}} where x_knots are the spline knots for the corresponding 
-        utility and attributes.
+        utility and attributes
 
     Returns
     -------
@@ -253,18 +256,18 @@ def updated_utility_collection(weights, data, num_splines_feat, mean_splines=Fal
             x_dat, y_dat = data_leaf_value(data[f], weights[u][f])
 
             #if using splines
-            try:
+            if f in spline_utilities[u]:
                 #if mean technique
                 if mean_splines:
                     x_mean, y_mean = data_leaf_value(data[f], weights[u][f], technique='mean_data')
                     _, _, func, _, _ = mean_monotone_spline(x_dat, x_mean, y_dat, y_mean, num_splines=num_splines_feat[u][f])
                 #else, i.e. linearly sampled points
-                else:
+                else:       
                     x_spline = np.linspace(np.min(data[f]), np.max(data[f]), num=10000)
                     x_knots_temp, y_knots = data_leaf_value(x_knots[u][f], weights[u][f])
                     _, _, func, _, _ = monotone_spline(x_spline, weights, num_splines=num_splines_feat[u][f], x_knots=x_knots_temp, y_knots=y_knots)
             #stairs functions
-            except:
+            else:
                 func = interp1d(x_dat, y_dat, kind='previous', bounds_error=False, fill_value=(y_dat[0],y_dat[-1]))
 
             #save the utility function
@@ -305,7 +308,7 @@ def smooth_predict(data_test, util_collection, utilities=False, mu=None, nests=N
         for f in util_collection[u]:
             raw_preds[:, int(u)] += util_collection[u][f](data_test[f])
 
-    #adding the 
+    #adding the socio-economic constant
     if fe_model is not None:
         raw_preds += fe_model.predict(Dataset(data_test, label=data_test[target], free_raw_data=False), utilities = True)
 
@@ -470,7 +473,7 @@ def optimal_knots_position(weights, dataset_train, dataset_test, labels_test, sp
             x_opt = minimize(optimise_splines, np.array(x_0), args = (weights, dataset_train, dataset_test, labels_test, spline_utilities, num_spline_range, x_first, x_last, deg_freedom, mu, nests, fe_model), bounds=all_bounds, constraints=all_cons, method='SLSQP', options={'maxiter':max_iter, 'disp':True})
 
             #compute final negative cross-entropy with optimised knots
-            ce_final = optimise_splines(x_opt.x, weights, dataset_train, dataset_test, labels_test, spline_utilities, num_spline_range, x_first, x_last, deg_freedom, mu=mu, nests=nests, rde_model=fe_model)
+            ce_final = optimise_splines(x_opt.x, weights, dataset_train, dataset_test, labels_test, spline_utilities, num_spline_range, x_first, x_last, deg_freedom, mu=mu, nests=nests, fe_model=fe_model)
             
             #store best value
             if ce_final < ce:
@@ -481,7 +484,7 @@ def optimal_knots_position(weights, dataset_train, dataset_test, labels_test, sp
             print(f'{n+1}/{n_iter}:{ce_final} with knots at: {x_opt.x}')
         else:
             #without optimisation
-            final_loss = optimise_splines(np.array(x_0), weights, dataset_train, dataset_test, labels_test, spline_utilities, num_spline_range, x_first, x_last, deg_freedom, mu=mu, nests=nests, rde_model=fe_model)
+            final_loss = optimise_splines(np.array(x_0), weights, dataset_train, dataset_test, labels_test, spline_utilities, num_spline_range, x_first, x_last, deg_freedom, mu=mu, nests=nests, fe_model=fe_model)
 
             if final_loss < ce:
                 ce = final_loss

@@ -4,3 +4,4 @@ from rumboost.rumboost import *
 from rumboost.dataset import *
 from rumboost.models import *
 from rumboost.utility_plotting import *
+from rumboost.post_process import *

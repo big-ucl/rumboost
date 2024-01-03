@@ -875,21 +875,21 @@ def rum_train(
         #compute cross validation on training or validation test
         if valid_sets is not None:
             if is_valid_contain_train:
-                cross_entropy = rumb.cross_entropy(rumb._preds, train_set.get_label().astype(int))
+                cross_entropy_test = cross_entropy(rumb._preds, train_set.get_label().astype(int))
             else:
                 for k, _ in enumerate(valid_sets):
                     if nests is not None:
                         preds_valid, _, _ = rumb._inner_predict(k+1, nests=True)
                     else:
                         preds_valid = rumb._inner_predict(k+1)
-                    cross_entropy_train = rumb.cross_entropy(rumb._preds, train_set.get_label().astype(int))
-                    cross_entropy = rumb.cross_entropy(preds_valid, valid_sets[0].get_label().astype(int))
+                    cross_entropy_train = cross_entropy(rumb._preds, train_set.get_label().astype(int))
+                    cross_entropy_test = cross_entropy(preds_valid, valid_sets[0].get_label().astype(int))
 
             #update best score and best iteration
-            if cross_entropy < rumb.best_score:
-                rumb.best_score = cross_entropy
+            if cross_entropy_test < rumb.best_score:
+                rumb.best_score = cross_entropy_test
                 if is_valid_contain_train:
-                    rumb.best_score_train = cross_entropy
+                    rumb.best_score_train = cross_entropy_test
                 else:
                     rumb.best_score_train = cross_entropy_train
                 rumb.best_iteration = i+1
@@ -897,9 +897,9 @@ def rum_train(
             #verbosity
             if (verbosity >= 1) and (i % 10 == 0):
                 if is_valid_contain_train:
-                    print('[{}] -- NCE value on train set: {}'.format(i + 1, cross_entropy))
+                    print('[{}] -- NCE value on train set: {}'.format(i + 1, cross_entropy_test))
                 else:
-                    print('[{}] -- NCE value on train set: {} \n     --  NCE value on test set: {}'.format(i + 1, cross_entropy_train, cross_entropy))      
+                    print('[{}] -- NCE value on train set: {} \n     --  NCE value on test set: {}'.format(i + 1, cross_entropy_train, cross_entropy_test))      
     
         #early stopping
         if (params["early_stopping_round"] != 0) and (rumb.best_iteration + params["early_stopping_round"] < i + 1):
