@@ -603,7 +603,7 @@ def plot_spline(model, data_train, spline_collection, utility_names, mean_spline
         utility and attributes
     '''
     #get weights ordered by features
-    weights = model.weights_to_plot_v2()
+    weights = weights_to_plot_v2(model)
     tex_fonts = {
             # Use LaTeX to write all text
             # "text.usetex": True, 
@@ -1145,13 +1145,13 @@ def plot_ind_spec_constant(socec_model, dataset_train, alternatives: list[str]):
     f, axes = plt.subplots(2, 2, figsize=(12, 10), tight_layout=True)
     colors = ['b', 'r', 'g', 'orange']
 
-    for i, axs in enumerate(axes):
+    for i, axs in enumerate(axes.flatten()):
         sns.histplot(ind_spec_constants[:, i], bins=bins, alpha=0.5, ax=axs, kde=True, color=colors[i])
         axs.set_title(f'{alternatives[i]}')
 
     # Defining custom 'xlim' and 'ylim' values.
-    xlim = (-3, 3)
-    ylim = (0, 5000)
+    xlim = (-3.5, 3.5)
+    ylim = (0, 5250)
 
     # Setting the values for all axes.
     plt.setp(axes, xlim=xlim, ylim=ylim)

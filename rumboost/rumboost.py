@@ -259,6 +259,8 @@ class RUMBoost:
 
         #compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
         if nests:
+            if self.mu:
+                mu = self.mu
             nest = self.nests
             preds, pred_i_m, pred_m = nest_probs(raw_preds, mu=mu, nests=nest)
             return preds, pred_i_m, pred_m
