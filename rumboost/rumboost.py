@@ -119,6 +119,7 @@ class RUMBoost:
                 The hessian with the cross-entropy loss function and nested probabilities (second derivative approximation rather than the hessian).
             """
             j = self._current_j
+            n_obs = np.arange(self.preds_m.shape[0])
             pred_i_m = self.preds_i_m[:,j] #prediction of choice i knowing nest m
             pred_m = self.preds_m[:,self.nests[j]] #prediction of choosing nest m
             eps = 1e-6
@@ -127,9 +128,9 @@ class RUMBoost:
             grad = (self.labels == j) * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)) + \
                    (self.labels_nest == self.nests[j]) * (1 - (self.labels == j)) * (self.mu[self.nests[j]] * pred_i_m - pred_i_m * (1 - pred_m)) + \
                    (1 - (self.labels_nest == self.nests[j])) * (pred_i_m * pred_m)
-            hess = (self.labels == j) * (np.maximum(-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m), eps)) + \
-                   (self.labels_nest == self.nests[j]) * (1 - (self.labels == j)) * (np.maximum(-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m), eps)) + \
-                   (1 - (self.labels_nest == self.nests[j])) * (np.maximum(-pred_i_m * pred_m * (pred_i_m * (self.mu[self.nests[j]] - 1) - self.mu[self.nests[j]] - pred_i_m * pred_m), eps))
+            hess = (self.labels == j) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
+                   (self.labels_nest == self.nests[j]) * (1 - (self.labels == j)) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
+                   (1 - (self.labels_nest == self.nests[j])) * (-pred_i_m * pred_m * (pred_i_m * (self.mu[self.nests[j]] - 1) - self.mu[self.nests[j]] - pred_i_m * pred_m))
 
             return grad, hess
     
@@ -155,30 +156,30 @@ class RUMBoost:
             """
             j = self._current_j
             labels = self.labels.astype(int)
-            mu = np.array(self.mu).reshape(1, 1, len(self.mu))
+            mu = np.array(self.mu).reshape(1, len(self.mu))
             data_idx = np.arange(self.preds_i_m.shape[0])
 
             pred_j_m = self.preds_i_m[:,j,:] #pred of alternative j knowing nest m
             pred_i_m = self.preds_i_m[data_idx,labels,:] #prediction of choice i knowing nest m
             pred_m = self.preds_m[:,j,:] #prediction of choosing nest m
-            pred_i = self._preds[data_idx,labels] #pred of choice i
-            pred_j = self._preds[:,j] #pred of alt j
+            pred_i = self._preds[data_idx,labels].reshape(-1, 1) #pred of choice i
+            pred_j = self._preds[:,j].reshape(-1, 1) #pred of alt j
 
-            d_pred_i_Vi = np.sum((pred_i_m * pred_m * (pred_i_m * (1 - mu) + mu - pred_i)), axis=2) #first derivative of pred i with resepct to Vi
-            d_pred_i_Vj = np.sum((pred_i_m * pred_m * (pred_j_m * (1 - mu) - pred_j)), axis=2) #first derivative of pred i with resepct to Vj
-            d_pred_j_Vj = np.sum((pred_j_m * pred_m * (pred_j_m * (1 - mu) + mu - pred_j)), axis=2) #first derivative of pred j with resepct to Vj
-            d2_pred_i_Vi = np.sum((pred_i_m * pred_m * (mu**2 * (2*pred_i_m**2 - 3*pred_i_m + 1) + mu * (-3*pred_i_m**2 + 3*pred_i_m + 2*pred_i*(pred_i_m-1) + 1) + (pred_i_m**2 - 2*pred_i_m*pred_i + pred_i**2 + d_pred_i_Vi))), axis=2)
-            d2_pred_i_Vj = np.sum((pred_i_m * pred_m * (mu**2 * (-pred_j_m) + mu * (-2*pred_j_m**2 + pred_j_m) + (pred_j_m - pred_j)**2 + d_pred_j_Vj)), axis=2)
+            d_pred_i_Vi = np.sum((pred_i_m * pred_m * (pred_i_m * (1 - mu) + mu - pred_i)), axis=1, keepdims=True) #first derivative of pred i with resepct to Vi
+            d_pred_i_Vj = np.sum((pred_i_m * pred_m * (pred_j_m * (1 - mu) - pred_j)), axis=1, keepdims=True) #first derivative of pred i with resepct to Vj
+            d_pred_j_Vj = np.sum((pred_j_m * pred_m * (pred_j_m * (1 - mu) + mu - pred_j)), axis=1, keepdims=True) #first derivative of pred j with resepct to Vj
+            d2_pred_i_Vi = np.sum((pred_i_m * pred_m * (mu**2 * (2*pred_i_m**2 - 3*pred_i_m + 1) + mu * (-3*pred_i_m**2 + 3*pred_i_m + 2*pred_i*(pred_i_m-1) + 1) + (pred_i_m**2 - 2*pred_i_m*pred_i + pred_i**2 + d_pred_i_Vi))), axis=1, keepdims=True)
+            d2_pred_i_Vj = np.sum((pred_i_m * pred_m * (mu**2 * (-pred_j_m) + mu * (-2*pred_j_m**2 + pred_j_m) + (pred_j_m - pred_j)**2 + d_pred_j_Vj)), axis=1, keepdims=True)
             
             eps = 1e-6
             
             #two cases: 1. alt j is choice i, 2. alt j is not choice i
-            grad = np.maximum((labels == j) * (1/pred_i) * d_pred_i_Vi + \
-                              (1 - (labels == j)) * (1/pred_i) * d_pred_i_Vj, eps)
-            hess = np.maximum((labels == j) * (1/pred_i**2) * (d2_pred_i_Vi - d_pred_i_Vi**2) + \
-                              (1 - (labels == j)) * (1/pred_i**2) * (d2_pred_i_Vj - d_pred_i_Vj**2), eps)
+            grad = (labels == j).reshape(-1, 1) * (-1/pred_i) * d_pred_i_Vi + \
+                   (1 - (labels == j)).reshape(-1, 1) * (-1/pred_i) * d_pred_i_Vj
+            hess = (labels == j).reshape(-1, 1) * (-1/pred_i**2) * (d2_pred_i_Vi - d_pred_i_Vi**2) + \
+                   (1 - (labels == j)).reshape(-1, 1) * (-1/pred_i**2) * (d2_pred_i_Vj - d_pred_i_Vj**2)
 
-            return grad, hess
+            return grad.reshape(-1), hess.reshape(-1)
             
     def predict(
         self,
@@ -965,7 +966,7 @@ def rum_train(
                     if nests is not None:
                         preds_valid, _, _ = rumb._inner_predict(k+1, nests=True)
                     elif alphas is not None:
-                        rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict(alphas=alphas)
+                        preds_valid,  _, _ = rumb._inner_predict(k+1, alphas=alphas)
                     else:
                         preds_valid = rumb._inner_predict(k+1)
                     cross_entropy_train = cross_entropy(rumb._preds, train_set.get_label().astype(int))
