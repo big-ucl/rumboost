@@ -509,13 +509,13 @@ def cross_entropy(preds, labels):
 
     return - np.mean(np.log(preds[data_idx, labels]))
 
-def nest_probs(preds, mu, nests):
+def nest_probs(raw_preds, mu, nests):
     """compute nested predictions.
     
     Parameters
     ----------
 
-    preds :
+    raw_preds :
         The raw predictions from the booster
     mu :
         The list of mu values for each nest.
@@ -533,12 +533,11 @@ def nest_probs(preds, mu, nests):
         The prediction of choosing alt i knowing nest m
     pred_m :
         The prediction of choosing nest m
-
     """
     #initialisation
-    n_obs = np.size(preds, 0)
+    n_obs = np.size(raw_preds, 0)
     data_idx = np.arange(n_obs)
-    n_alt = np.size(preds, 1)
+    n_alt = np.size(raw_preds, 1)
     pred_i_m = np.array(np.zeros((n_obs, n_alt)))
     V_tilde_m = np.array(np.zeros((n_obs, len(mu))))
 
@@ -548,11 +547,11 @@ def nest_probs(preds, mu, nests):
         #compute the list of alternative in nests
         nest_alt = [a for a, n in nests.items() if n == nest]
 
-        #pred of choosing i knowing m. Softmax within the nest (preds[data_idx, :][:, nest_alt]) to get prediction of alternatives within the nest)
-        pred_i_m[:, alt] = np.exp(mu[nest] * preds[data_idx, alt]) / np.sum(np.exp(mu[nest] * preds[data_idx, :][:, nest_alt]), axis=1)
+        #pred of choosing i knowing m. Softmax within the nest (raw_preds[data_idx, :][:, nest_alt]) to get prediction of alternatives within the nest)
+        pred_i_m[:, alt] = np.exp(mu[nest] * raw_preds[data_idx, alt]) / np.sum(np.exp(mu[nest] * raw_preds[data_idx, :][:, nest_alt]), axis=1)
 
         #maximum expectation of utility within nest m
-        V_tilde_m[:, nest] = 1/mu[nest] * np.log(np.sum(np.exp(mu[nest] * preds[data_idx, :][:, nest_alt]), axis=1))
+        V_tilde_m[:, nest] = 1/mu[nest] * np.log(np.sum(np.exp(mu[nest] * raw_preds[data_idx, :][:, nest_alt]), axis=1))
 
     #pred of choosing nest m
     pred_m = softmax(V_tilde_m, axis=1)
@@ -561,6 +560,58 @@ def nest_probs(preds, mu, nests):
     preds = np.array([pred_i_m[:, i] * pred_m[:, nests[i]] for i in nests.keys()])
 
     return preds.T, pred_i_m, pred_m
+
+def cross_nested_probs(raw_preds, mu, alphas):
+    """compute nested predictions.
+    
+    Parameters
+    ----------
+
+    raw_preds :
+        The raw predictions from the booster
+    mu :
+        The list of mu values for each nest.
+        The first value correspond to the first nest and so on.
+    alphas :
+        An array of J (alternatives) by M (nests).
+        alpha_jn represents the degree of membership of alternative j to nest n
+        By example, alpha_12 = 0.5 means that alternative one belongs 50% to nest 2.
+
+    Returns
+    -------
+
+    raw_preds :
+        The cross nested predictions
+    pred_i_m :
+        The prediction of choosing alt i knowing nest m
+    pred_m :
+        The prediction of choosing nest m
+    """
+    #initialisation
+    n_obs = np.size(raw_preds, 0)
+    data_idx = np.arange(n_obs)
+    n_alt = np.size(raw_preds, 1)
+    pred_i_m = np.array(np.zeros((n_obs, n_alt, len(mu))))
+    pred_m = np.array(np.zeros((n_obs, n_alt, len(mu))))
+    sum_of_nest = []
+
+    #for each nest
+    for m, mu_m in enumerate(mu):
+        
+        #pred of choosing i knowing m.
+        pred_i_m[:, :, m] = (alphas[:, m] ** mu_m * np.exp(mu_m * raw_preds)) / np.sum(alphas[:, m] ** mu_m * np.exp(mu_m * raw_preds), axis=1, keepdims=True)
+
+        #storing sum of nest for computing pred of choosing m easily
+        sum_of_nest.append([np.sum(alphas[:, m] ** mu_m * np.exp(mu_m * raw_preds), axis=1) ** (1/mu_m)]*n_alt)
+
+    sum_of_nest = np.array(sum_of_nest).T
+    #pred of choosing m
+    pred_m[:, :, :] =  sum_of_nest / np.sum(sum_of_nest, axis=2, keepdims=True)
+
+    #final predictions for choosing i
+    preds = np.sum(pred_i_m * pred_m, axis=2)
+
+    return preds, pred_i_m, pred_m
 
 def create_name(features):
     """Create new feature names from a list of feature names"""

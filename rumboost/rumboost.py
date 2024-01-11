@@ -16,7 +16,7 @@ from lightgbm import callback
 from lightgbm.basic import Booster, Dataset, LightGBMError, _ConfigAliases, _InnerPredictor, _choose_param_value, _log_warning
 from lightgbm.compat import SKLEARN_INSTALLED, _LGBMGroupKFold, _LGBMStratifiedKFold
 
-from rumboost.utils import bio_to_rumboost, cross_entropy, nest_probs
+from rumboost.utils import bio_to_rumboost, cross_entropy, nest_probs, cross_nested_probs
 
 _LGBM_CustomObjectiveFunction = Callable[
     [Union[List, np.ndarray], Dataset],
@@ -132,6 +132,53 @@ class RUMBoost:
                    (1 - (self.labels_nest == self.nests[j])) * (np.maximum(-pred_i_m * pred_m * (pred_i_m * (self.mu[self.nests[j]] - 1) - self.mu[self.nests[j]] - pred_i_m * pred_m), eps))
 
             return grad, hess
+    
+    def f_obj_cross_nested(
+            self,
+            _,
+            train_set: Dataset
+        ):
+            """
+            Objective function of the binary classification boosters, for a cross-nested rumboost.
+
+            Parameters
+            ----------
+            train_set : Dataset
+                Training set used to train the jth booster. It means that it is not the full training set but rather another dataset containing the relevant features for that utility. It is the jth dataset in the RUMBoost object.
+
+            Returns
+            -------
+            grad : numpy array
+                The gradient with the cross-entropy loss function and cross-nested probabilities.
+            hess : numpy array
+                The hessian with the cross-entropy loss function and cross-nested probabilities (second derivative approximation rather than the hessian).
+            """
+            j = self._current_j
+            labels = self.labels.astype(int)
+            mu = np.array(self.mu).reshape(1, 1, len(self.mu))
+            data_idx = np.arange(self.preds_i_m.shape[0])
+
+            pred_j_m = self.preds_i_m[:,j,:] #pred of alternative j knowing nest m
+            pred_i_m = self.preds_i_m[data_idx,labels,:] #prediction of choice i knowing nest m
+            pred_m = self.preds_m[:,j,:] #prediction of choosing nest m
+            pred_i = self._preds[data_idx,labels] #pred of choice i
+            pred_j = self._preds[:,j] #pred of alt j
+
+            d_pred_i_Vi = np.sum((pred_i_m * pred_m * (pred_i_m * (1 - mu) + mu - pred_i)), axis=2) #first derivative of pred i with resepct to Vi
+            d_pred_i_Vj = np.sum((pred_i_m * pred_m * (pred_j_m * (1 - mu) - pred_j)), axis=2) #first derivative of pred i with resepct to Vj
+            d_pred_j_Vj = np.sum((pred_j_m * pred_m * (pred_j_m * (1 - mu) + mu - pred_j)), axis=2) #first derivative of pred j with resepct to Vj
+            d2_pred_i_Vi = np.sum((pred_i_m * pred_m * (mu**2 * (2*pred_i_m**2 - 3*pred_i_m + 1) + mu * (-3*pred_i_m**2 + 3*pred_i_m + 2*pred_i*(pred_i_m-1) + 1) + (pred_i_m**2 - 2*pred_i_m*pred_i + pred_i**2 + d_pred_i_Vi))), axis=2)
+            d2_pred_i_Vj = np.sum((pred_i_m * pred_m * (mu**2 * (-pred_j_m) + mu * (-2*pred_j_m**2 + pred_j_m) + (pred_j_m - pred_j)**2 + d_pred_j_Vj)), axis=2)
+            
+            eps = 1e-6
+            
+            #two cases: 1. alt j is choice i, 2. alt j is not choice i
+            grad = np.maximum((labels == j) * (1/pred_i) * d_pred_i_Vi + \
+                              (1 - (labels == j)) * (1/pred_i) * d_pred_i_Vj, eps)
+            hess = np.maximum((labels == j) * (1/pred_i**2) * (d2_pred_i_Vi - d_pred_i_Vi**2) + \
+                              (1 - (labels == j)) * (1/pred_i**2) * (d2_pred_i_Vj - d_pred_i_Vj**2), eps)
+
+            return grad, hess
             
     def predict(
         self,
@@ -145,7 +192,8 @@ class RUMBoost:
         validate_features: bool = False,
         utilities: bool = False,
         nests: dict = None,
-        mu: list[float] = None
+        mu: list[float] = None,
+        alphas: np.array = None
     ):
         """Predict logic.
 
@@ -178,6 +226,10 @@ class RUMBoost:
         mu : list, optional (default=None)
             Only used, and required, if nests is True. It is the list of mu values for each nest.
             The first value correspond to the first nest and so on.
+        alphas : ndarray, optional (default=None)
+            An array of J (alternatives) by M (nests).
+            alpha_jn represents the degree of membership of alternative j to nest n
+            By example, alpha_12 = 0.5 means that alternative one belongs 50% to nest 2.
 
         Returns
         -------
@@ -208,6 +260,11 @@ class RUMBoost:
         if nests:
             preds, pred_i_m, pred_m = nest_probs(raw_preds, mu=mu, nests=nests)
             return preds, pred_i_m, pred_m
+        
+        #compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
+        if alphas is not None:
+            preds, pred_i_m, pred_m = cross_nested_probs(raw_preds, mu=mu, alphas=alphas)
+            return preds, pred_i_m, pred_m
 
         #softmax
         if not utilities:
@@ -221,7 +278,8 @@ class RUMBoost:
         data_idx: int = 0,
         utilities: bool = False,
         nests: bool = False,
-        mu = None
+        mu = None,
+        alphas: np.array = None
     ):
         """
         Predict logic for training RUMBoost object. This _inner_predict function is much faster than the predict function.
@@ -239,6 +297,10 @@ class RUMBoost:
         mu : list, optional (default=None)
             Only used, and required, if nests is True. It is the list of mu values for each nest.
             The first value correspond to the first nest and so on.
+        alphas : ndarray, optional (default=None)
+            An array of J (alternatives) by M (nests).
+            alpha_jn represents the degree of membership of alternative j to nest n
+            By example, alpha_12 = 0.5 means that alternative one belongs 50% to nest 2.
 
         Returns
         -------
@@ -263,6 +325,13 @@ class RUMBoost:
                 mu = self.mu
             nest = self.nests
             preds, pred_i_m, pred_m = nest_probs(raw_preds, mu=mu, nests=nest)
+            return preds, pred_i_m, pred_m
+        
+        #compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
+        if alphas is not None:
+            if self.mu:
+                mu = self.mu
+            preds, pred_i_m, pred_m = cross_nested_probs(raw_preds, mu=mu, alphas=alphas)
             return preds, pred_i_m, pred_m
 
         #softmax
@@ -617,7 +686,8 @@ def rum_train(
     callbacks: Optional[list[Callable]] = None,
     nests: dict = None,
     mu: list = None,
-    params_fe: dict = None 
+    params_fe: dict = None,
+    alphas: np.array = None
 ) -> RUMBoost:
     """Perform the RUM training with given parameters.
 
@@ -696,7 +766,13 @@ def rum_train(
         List of mu values, the scaling parameter, for each nest. The first value of the list correspond to nest 0, and so on.
     nest : dict, optional (default=None)
         Dictionary representing the nesting structure. Keys are alternatives, and values are the nest they belong to. By example,
-        {0:0, 1:1, 2:0} means alt 0 and 2 belong to nest 0 and alt 1 belongs to nest 1.
+        {0:0, 1:1, 2:0} means alt 0 and 2 belong to nest 0 and alt 1 belongs to nest 1. 
+    params_fe : dict, optional (default=None)
+        Parameters for training the socio-economic part of a functional effect model.
+    alphas : ndarray, optional (default=None)
+        An array of J (alternatives) by M (nests).
+        alpha_jn represents the degree of membership of alternative j to nest n
+        By example, alpha_12 = 0.5 means that alternative one belongs 50% to nest 2.
         
 
     Note
@@ -827,6 +903,10 @@ def rum_train(
         f_obj = rumb.f_obj_nest
         rumb.labels_nest = np.array([nests[l] for l in rumb.labels])
         rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict(nests=True)
+    elif alphas is not None:
+        rumb.mu = mu
+        f_obj = rumb.f_obj_cross_nested
+        rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict(alphas=alphas)
     else:
         f_obj = rumb.f_obj
         rumb._preds = rumb._inner_predict()
@@ -871,6 +951,8 @@ def rum_train(
         #make predictions after boosting round to compute new cross entropy and for next iteration grad and hess
         if nests is not None:
             rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict(nests=True)
+        elif alphas is not None:
+            rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict(alphas=alphas)
         else:
             rumb._preds = rumb._inner_predict()
 
@@ -882,6 +964,8 @@ def rum_train(
                 for k, _ in enumerate(valid_sets):
                     if nests is not None:
                         preds_valid, _, _ = rumb._inner_predict(k+1, nests=True)
+                    elif alphas is not None:
+                        rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict(alphas=alphas)
                     else:
                         preds_valid = rumb._inner_predict(k+1)
                     cross_entropy_train = cross_entropy(rumb._preds, train_set.get_label().astype(int))
