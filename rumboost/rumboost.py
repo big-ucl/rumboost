@@ -119,10 +119,8 @@ class RUMBoost:
                 The hessian with the cross-entropy loss function and nested probabilities (second derivative approximation rather than the hessian).
             """
             j = self._current_j
-            n_obs = np.arange(self.preds_m.shape[0])
             pred_i_m = self.preds_i_m[:,j] #prediction of choice i knowing nest m
-            pred_m = self.preds_m[:,self.nests[j]] #prediction of choosing nest m
-            eps = 1e-6
+            pred_m = self.preds_m[:, self.nests[j]] #prediction of choosing nest m
 
             #three cases: 1. choice i = j, 2. j is in the same nest than choice i, 3. j is in another nest.
             grad = (self.labels == j) * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)) + \
@@ -130,7 +128,7 @@ class RUMBoost:
                    (1 - (self.labels_nest == self.nests[j])) * (pred_i_m * pred_m)
             hess = (self.labels == j) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
                    (self.labels_nest == self.nests[j]) * (1 - (self.labels == j)) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
-                   (1 - (self.labels_nest == self.nests[j])) * (-pred_i_m * pred_m * (pred_i_m * (self.mu[self.nests[j]] - 1) - self.mu[self.nests[j]] - pred_i_m * pred_m))
+                   (1 - (self.labels_nest == self.nests[j])) * (-pred_i_m * pred_m * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)))
 
             return grad, hess
     
@@ -168,16 +166,16 @@ class RUMBoost:
             d_pred_i_Vi = np.sum((pred_i_m * pred_m * (pred_i_m * (1 - mu) + mu - pred_i)), axis=1, keepdims=True) #first derivative of pred i with resepct to Vi
             d_pred_i_Vj = np.sum((pred_i_m * pred_m * (pred_j_m * (1 - mu) - pred_j)), axis=1, keepdims=True) #first derivative of pred i with resepct to Vj
             d_pred_j_Vj = np.sum((pred_j_m * pred_m * (pred_j_m * (1 - mu) + mu - pred_j)), axis=1, keepdims=True) #first derivative of pred j with resepct to Vj
-            d2_pred_i_Vi = np.sum((pred_i_m * pred_m * (mu**2 * (2*pred_i_m**2 - 3*pred_i_m + 1) + mu * (-3*pred_i_m**2 + 3*pred_i_m + 2*pred_i*(pred_i_m-1) + 1) + (pred_i_m**2 - 2*pred_i_m*pred_i + pred_i**2 + d_pred_i_Vi))), axis=1, keepdims=True)
-            d2_pred_i_Vj = np.sum((pred_i_m * pred_m * (mu**2 * (-pred_j_m) + mu * (-2*pred_j_m**2 + pred_j_m) + (pred_j_m - pred_j)**2 + d_pred_j_Vj)), axis=1, keepdims=True)
+            d2_pred_i_Vi = np.sum((pred_i_m * pred_m * (mu**2 * (2*pred_i_m**2 - 3*pred_i_m + 1) + mu * (-3*pred_i_m**2 + 3*pred_i_m + 2*pred_i*(pred_i_m-1) + 1) + (pred_i_m**2 - 2*pred_i_m*pred_i + pred_i**2 - d_pred_i_Vi))), axis=1, keepdims=True)
+            d2_pred_i_Vj = np.sum((pred_i_m * pred_m * (mu**2 * (-pred_j_m) + mu * (-2*pred_j_m**2 + pred_j_m) + (pred_j_m - pred_j)**2 - d_pred_j_Vj)), axis=1, keepdims=True)
             
             eps = 1e-6
             
             #two cases: 1. alt j is choice i, 2. alt j is not choice i
             grad = (labels == j).reshape(-1, 1) * (-1/pred_i) * d_pred_i_Vi + \
                    (1 - (labels == j)).reshape(-1, 1) * (-1/pred_i) * d_pred_i_Vj
-            hess = (labels == j).reshape(-1, 1) * (-1/pred_i**2) * (d2_pred_i_Vi - d_pred_i_Vi**2) + \
-                   (1 - (labels == j)).reshape(-1, 1) * (-1/pred_i**2) * (d2_pred_i_Vj - d_pred_i_Vj**2)
+            hess = (labels == j).reshape(-1, 1) * (-1/pred_i**2) * (d2_pred_i_Vi*pred_i - d_pred_i_Vi**2) + \
+                   (1 - (labels == j)).reshape(-1, 1) * (-1/pred_i**2) * (d2_pred_i_Vj*pred_i - d_pred_i_Vj**2)
 
             return grad.reshape(-1), hess.reshape(-1)
             
