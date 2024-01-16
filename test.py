@@ -38,12 +38,13 @@ label = "choice"
 dataset_train = lightgbm.Dataset(LPMC_train[features], label=LPMC_train[label], free_raw_data=False)
 dataset_test = lightgbm.Dataset(LPMC_test[features], label=LPMC_test[label], free_raw_data=False)
 
-mu = [1, 1, 1]
+mu = [1, 1, 1.16]
+# mu = [1, 1, 1.16]
 
-# alphas  =np.array([[1, 0, 0, 0],
-#         [0, 1, 0, 0],
-#         [0, 0, 1, 0],
-#         [0, 0, 0, 1]])
+alphas  =np.array([[1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+        [0, 0, 1]])
 
 nests = {0:0, 1:1, 2:2, 3:2}
 
@@ -60,8 +61,8 @@ nests = {0:0, 1:1, 2:2, 3:2}
 
 #     print('-'*50 + '\n')
 #     print(f'Iteration {i+1}')
-#     # LPMC_model_trained = rum_train(param,train_set,rum_structure=rum_structure, valid_sets = [test_set], mu=mu, alphas=alphas)
-#     LPMC_model_trained = rum_train(param,train_set,rum_structure=rum_structure, valid_sets = [test_set], mu=mu, nests=nests)
+#     LPMC_model_trained = rum_train(param,train_set,rum_structure=rum_structure, valid_sets = [test_set], mu=mu, alphas=alphas)
+#     # LPMC_model_trained = rum_train(param,train_set,rum_structure=rum_structure, valid_sets = [test_set], mu=mu, nests=nests)
 #     ce_loss += LPMC_model_trained.best_score
 #     num_trees += LPMC_model_trained.best_iteration
 #     print('-'*50 + '\n')
@@ -74,25 +75,25 @@ nests = {0:0, 1:1, 2:2, 3:2}
 # print(f'Cross validation negative cross entropy loss: {ce_loss}')
 # print(f'With a number of trees on average of {num_trees}')
 
-# rum_structure = bio_to_rumboost(LPMC_model)
-# params = {'n_jobs': -1,
-#           'num_classes':4,
-#           'objective':'multiclass',
-#           'boosting': 'gbdt',
-#           'monotone_constraints_method': 'advanced',
-#           'verbosity': -1,
-#           'num_iterations':1256,
-#           #'early_stopping_round':100,
-#           'learning_rate':0.1,
-#           'max_depth':1
-#           }
+rum_structure = bio_to_rumboost(LPMC_model)
+params = {'n_jobs': -1,
+          'num_classes':4,
+          'objective':'multiclass',
+          'boosting': 'gbdt',
+          'monotone_constraints_method': 'advanced',
+          'verbosity': 1,
+          'num_iterations':1256,
+          'early_stopping_round':100,
+          'learning_rate':0.1,
+          'max_depth':1
+          }
 
-# LPMC_model_fully_trained = rum_train(params, dataset_train, rum_structure, mu=mu, nests=nests)
-# #LPMC_model_fully_trained = rum_train(params, dataset_train, rum_structure, mu=mu, alphas=alphas)
+#LPMC_model_fully_trained = rum_train(params, dataset_train, rum_structure, valid_sets=[dataset_test], mu=mu, nests=nests)
+LPMC_model_fully_trained = rum_train(params, dataset_train, rum_structure, valid_sets=[dataset_test], mu=mu, alphas=alphas)
 
-# preds = LPMC_model_fully_trained.predict(dataset_test)
+preds, _, _ = LPMC_model_fully_trained.predict(dataset_test, mu=mu, alphas=alphas)
 
-# ce_test = cross_entropy(preds, dataset_test.get_label().astype(int))
+ce_test = cross_entropy(preds, dataset_test.get_label().astype(int))
 
-# print('-'*50)
-# print(f'Final negative cross-entropy on the test set: {ce_test}')
+print('-'*50)
+print(f'Final negative cross-entropy on the test set: {ce_test}')

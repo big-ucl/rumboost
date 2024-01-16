@@ -58,9 +58,10 @@ class RUMBoost:
         self.valid_sets = None
         self.num_classes = None #need to be specify by user
 
-        #for nested rumboost
+        #for nested and cross-nested rumboost
         self.mu = None
         self.nests = None
+        self.alphas = None
 
         #for functional effect rumboost
         self.functional_effects = None
@@ -121,6 +122,7 @@ class RUMBoost:
             j = self._current_j
             pred_i_m = self.preds_i_m[:,j] #prediction of choice i knowing nest m
             pred_m = self.preds_m[:, self.nests[j]] #prediction of choosing nest m
+            factor = self.num_classes/(self.num_classes-1) #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
 
             #three cases: 1. choice i = j, 2. j is in the same nest than choice i, 3. j is in another nest.
             grad = (self.labels == j) * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)) + \
@@ -129,6 +131,8 @@ class RUMBoost:
             hess = (self.labels == j) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
                    (self.labels_nest == self.nests[j]) * (1 - (self.labels == j)) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
                    (1 - (self.labels_nest == self.nests[j])) * (-pred_i_m * pred_m * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)))
+            
+            hess = factor * hess
 
             return grad, hess
     
@@ -156,6 +160,7 @@ class RUMBoost:
             labels = self.labels.astype(int)
             mu = np.array(self.mu).reshape(1, len(self.mu))
             data_idx = np.arange(self.preds_i_m.shape[0])
+            factor = self.num_classes/(self.num_classes-1) #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
 
             pred_j_m = self.preds_i_m[:,j,:] #pred of alternative j knowing nest m
             pred_i_m = self.preds_i_m[data_idx,labels,:] #prediction of choice i knowing nest m
@@ -166,8 +171,8 @@ class RUMBoost:
             d_pred_i_Vi = np.sum((pred_i_m * pred_m * (pred_i_m * (1 - mu) + mu - pred_i)), axis=1, keepdims=True) #first derivative of pred i with resepct to Vi
             d_pred_i_Vj = np.sum((pred_i_m * pred_m * (pred_j_m * (1 - mu) - pred_j)), axis=1, keepdims=True) #first derivative of pred i with resepct to Vj
             d_pred_j_Vj = np.sum((pred_j_m * pred_m * (pred_j_m * (1 - mu) + mu - pred_j)), axis=1, keepdims=True) #first derivative of pred j with resepct to Vj
-            d2_pred_i_Vi = np.sum((pred_i_m * pred_m * (mu**2 * (2*pred_i_m**2 - 3*pred_i_m + 1) + mu * (-3*pred_i_m**2 + 3*pred_i_m + 2*pred_i*(pred_i_m-1) + 1) + (pred_i_m**2 - 2*pred_i_m*pred_i + pred_i**2 - d_pred_i_Vi))), axis=1, keepdims=True)
-            d2_pred_i_Vj = np.sum((pred_i_m * pred_m * (mu**2 * (-pred_j_m) + mu * (-2*pred_j_m**2 + pred_j_m) + (pred_j_m - pred_j)**2 - d_pred_j_Vj)), axis=1, keepdims=True)
+            d2_pred_i_Vi = np.sum((pred_i_m * pred_m * (mu**2 * (2*pred_i_m**2 - 3*pred_i_m + 1) + mu * (-3*pred_i_m**2 + 3*pred_i_m + 2*pred_i*(pred_i_m-1)) + (pred_i_m**2 - 2*pred_i_m*pred_i + pred_i**2 - d_pred_i_Vi))), axis=1, keepdims=True)
+            d2_pred_i_Vj = np.sum((pred_i_m * pred_m * (mu**2 * (-pred_j_m) + mu * (-pred_j_m**2 + pred_j_m) + (pred_j_m - pred_j)**2 - d_pred_j_Vj)), axis=1, keepdims=True)
             
             eps = 1e-6
             
@@ -176,6 +181,8 @@ class RUMBoost:
                    (1 - (labels == j)).reshape(-1, 1) * (-1/pred_i) * d_pred_i_Vj
             hess = (labels == j).reshape(-1, 1) * (-1/pred_i**2) * (d2_pred_i_Vi*pred_i - d_pred_i_Vi**2) + \
                    (1 - (labels == j)).reshape(-1, 1) * (-1/pred_i**2) * (d2_pred_i_Vj*pred_i - d_pred_i_Vj**2)
+            
+            hess = factor * hess
 
             return grad.reshape(-1), hess.reshape(-1)
             
@@ -219,7 +226,7 @@ class RUMBoost:
             Used only if data is pandas DataFrame.
         utilities : bool, optional (default=True)
             If True, return raw utilities for each class, without generating probabilities.
-        nests : dict, optional (default=False)
+        nests : dict, optional (default=None)
             If not none, compute predictions with the nested probability function. The dictionary keys are alternatives number and their values are
             their nest number. By example {0:0, 1:1, 2:0} means that alt 0 and 2 are in nest 0 and alt 1 is in nest 1.
         mu : list, optional (default=None)
