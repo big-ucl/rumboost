@@ -174,8 +174,6 @@ class RUMBoost:
             d2_pred_i_Vi = np.sum((pred_i_m * pred_m * (mu**2 * (2*pred_i_m**2 - 3*pred_i_m + 1) + mu * (-3*pred_i_m**2 + 3*pred_i_m + 2*pred_i*(pred_i_m-1)) + (pred_i_m**2 - 2*pred_i_m*pred_i + pred_i**2 - d_pred_i_Vi))), axis=1, keepdims=True)
             d2_pred_i_Vj = np.sum((pred_i_m * pred_m * (mu**2 * (-pred_j_m) + mu * (-pred_j_m**2 + pred_j_m) + (pred_j_m - pred_j)**2 - d_pred_j_Vj)), axis=1, keepdims=True)
             
-            eps = 1e-6
-            
             #two cases: 1. alt j is choice i, 2. alt j is not choice i
             grad = (labels == j).reshape(-1, 1) * (-1/pred_i) * d_pred_i_Vi + \
                    (1 - (labels == j)).reshape(-1, 1) * (-1/pred_i) * d_pred_i_Vj

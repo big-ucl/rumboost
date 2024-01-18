@@ -38,13 +38,13 @@ label = "choice"
 dataset_train = lightgbm.Dataset(LPMC_train[features], label=LPMC_train[label], free_raw_data=False)
 dataset_test = lightgbm.Dataset(LPMC_test[features], label=LPMC_test[label], free_raw_data=False)
 
-mu = [1, 1, 1.16]
+mu = [1.25, 1.16]
 # mu = [1, 1, 1.16]
 
-alphas  =np.array([[1, 0, 0],
-        [0, 1, 0],
-        [0, 0, 1],
-        [0, 0, 1]])
+alphas  =np.array([[1, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1]])
 
 nests = {0:0, 1:1, 2:2, 3:2}
 
