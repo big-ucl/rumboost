@@ -1,0 +1,7 @@
+.readthedocs
+__pycache__/
+.git
+build/
+dist/
+rumboost.egg-info/
+.readthedocs
