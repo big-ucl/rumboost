@@ -1,4 +1,4 @@
-<img src="logo/rumboost_logo.png" width="600">
+<img src="logo/rumboost_logo.png" width="950">
 
 ---------------------------------
 
