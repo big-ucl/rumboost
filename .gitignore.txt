@@ -1,5 +1,6 @@
 .readthedocs
-__pycache__/
+__pycache__
+**/__pycache__
 .git
 build/
 dist/
