@@ -1,7 +1,8 @@
-<img src="logo/rumboost_logo.png" width="300">
+<img src="logo/rumboost_logo.png" width="600">
 
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT) [![PyPI version](https://badge.fury.io/py/mylibrary.svg)](https://badge.fury.io/py/rumboost)
+---------------------------------
 
+[![Documentation Status](https://readthedocs.org/projects/rumboost/badge/?version=latest)](https://rumboost.readthedocs.io/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.org/NicoSlvd/rumboost/LICENSE.md) [![Python Versions](https://img.shields.io/pypi/pyversions/rumboost.svg?logo=python&logoColor=white)](https://pypi.org/project/rumboost) [![PyPI Version](https://img.shields.io/pypi/v/rumboost.svg?logo=pypi&logoColor=white)](https://pypi.org/project/rumboost)
 
 ## Description
 
