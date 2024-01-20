@@ -1,9 +1,0 @@
-.readthedocs
-__pycache__
-**/__pycache__
-.git
-build/
-dist/
-rumboost.egg-info/
-.readthedocs
-tests/test.py
