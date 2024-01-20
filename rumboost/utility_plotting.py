@@ -1009,6 +1009,8 @@ def plot_VoT(data_train, util_collection, attribute_VoT, utility_names, draw_ran
                     VoT_contour_plot[i, j] = 100
                 elif VoT(X[i, j], Y[i, j]) > 100:
                     VoT_contour_plot[i, j] = 100
+                elif VoT(X[i, j], Y[i, j]) < 0.1:
+                    VoT_contour_plot[i, j] = 0.1
                 else:
                     VoT_contour_plot[i, j] = VoT(X[i, j], Y[i, j])
 
@@ -1018,14 +1020,16 @@ def plot_VoT(data_train, util_collection, attribute_VoT, utility_names, draw_ran
 
         res = 100
 
-        c_plot = axes.contourf(X, Y, VoT_contour_plot, levels=res, linewidths=0, cmap=sns.color_palette("Blues", as_cmap=True), vmin = 0, vmax = 100)
+        c_plot = axes.contourf(X, Y, np.log(VoT_contour_plot)/np.log(10), levels=res, linewidths=0, cmap=sns.color_palette("Blues", as_cmap=True), vmin = -1, vmax = 2)
 
         #axes.set_title(f'{utility_names[u]}')
         axes.set_xlabel(f'{f1} [h]')
         axes.set_ylabel(f'{f2} [£]')
 
-        cbar = fig.colorbar(c_plot, ax = axes, ticks=[0, 20, 40, 60, 80, 100])
+        cbar = fig.colorbar(c_plot, ax = axes, ticks=[-1, 0, 1, 2])
+        cbar.set_ticklabels([0.1, 1, 10, 100])
         cbar.ax.set_ylabel('VoT [£/h]')
+        cbar.ax.set_ylim([-1, 2])
 
         #plt.tight_layout()
 
@@ -1074,7 +1078,7 @@ def plot_pop_VoT(data_test, util_collection, attribute_VoT, save_figure = False)
         d_f1 = util_collection[u][f1].derivative()
         d_f2 = util_collection[u][f2].derivative()
 
-        VoT_pop = 60*d_f1(data_test[f1])/d_f2(data_test[f2])
+        VoT_pop = d_f1(data_test[f1])/d_f2(data_test[f2])
 
         filtered_VoT_pop = VoT_pop[~np.isnan(VoT_pop)]
 
@@ -1084,7 +1088,7 @@ def plot_pop_VoT(data_test, util_collection, attribute_VoT, save_figure = False)
 
         plt.figure(figsize=(3.49, 2.09), dpi=1000)
         sns.histplot(limited_VoT_pop, color='b', alpha = 0.5, kde=True, bins=50)
-        plt.xlabel("VoT [chf/h]")
+        plt.xlabel("VoT [£/h]")
         plt.tight_layout()
         plt.show()
 

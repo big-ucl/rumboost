@@ -20,8 +20,8 @@ def load_preprocess_LPMC():
         5 folds of indices grouped by household for CV.
     '''
     #source: https://github.com/JoseAngelMartinB/prediction-behavioural-analysis-ml-travel-mode-choice
-    data_train = pd.read_csv('Data/LPMC_train.csv')
-    data_test = pd.read_csv('Data/LPMC_test.csv')
+    data_train = pd.read_csv('../Data/LPMC_train.csv')
+    data_test = pd.read_csv('../Data/LPMC_test.csv')
 
     # data_train_2 = pd.read_csv('Data/LTDS_train.csv')
     # data_test_2 = pd.read_csv('Data/LTDS_test.csv')
@@ -62,12 +62,12 @@ def load_preprocess_LPMC():
     train_idx = []
     test_idx = []
     try:
-        train_idx, test_idx = pickle.load(open('Data/strat_group_k_fold_london.pickle', "rb"))
+        train_idx, test_idx = pickle.load(open('../Data/strat_group_k_fold_london.pickle', "rb"))
     except FileNotFoundError:
         for (train_i, test_i) in stratified_group_k_fold(data_train[features], data_train['travel_mode'], hh_id, k=5):
             train_idx.append(train_i)
             test_idx.append(test_i)
-        pickle.dump([train_idx, test_idx], open('Data/strat_group_k_fold_london.pickle', "wb"))
+        pickle.dump([train_idx, test_idx], open('../Data/strat_group_k_fold_london.pickle', "wb"))
 
     folds = zip(train_idx, test_idx)
 
@@ -91,7 +91,7 @@ def load_preprocess_SwissMetro(test_size: float = 0.3, random_state: int = 42, f
     dataset_test : pandas Dataframe
         The training dataset ready to use.
     '''
-    df = pd.read_csv('Data/swissmetro.dat', sep='\t')
+    df = pd.read_csv('../Data/swissmetro.dat', sep='\t')
 
     label_name = {'CHOICE': 'choice'}
 
@@ -133,12 +133,12 @@ def load_preprocess_SwissMetro(test_size: float = 0.3, random_state: int = 42, f
     train_idx = []
     test_idx = []
     try:
-        train_idx, test_idx = pickle.load(open('Data/strat_group_k_fold_swissmetro.pickle', "rb"))
+        train_idx, test_idx = pickle.load(open('../Data/strat_group_k_fold_swissmetro.pickle', "rb"))
     except FileNotFoundError:
         for (train_i, test_i) in stratified_group_k_fold(df_train[['TRAIN_TT', 'TRAIN_COST', 'TRAIN_HE', 'SM_TT', 'SM_COST', 'SM_HE', 'CAR_TT', 'CAR_CO']], df_train['choice'], hh_id, k=5):
             train_idx.append(train_i)
             test_idx.append(test_i)
-        pickle.dump([train_idx, test_idx], open('Data/strat_group_k_fold_swissmetro.pickle', "wb"))
+        pickle.dump([train_idx, test_idx], open('../Data/strat_group_k_fold_swissmetro.pickle', "wb"))
 
     folds = zip(train_idx, test_idx)
     
@@ -158,8 +158,8 @@ def load_preprocess_Optima():
         5 folds of indices grouped by household for CV.
     '''
     #source: https://github.com/JoseAngelMartinB/prediction-behavioural-analysis-ml-travel-mode-choice
-    data_train = pd.read_csv('Data/optima_ext_train.csv')
-    data_test = pd.read_csv('Data/optima_ext_test.csv')
+    data_train = pd.read_csv('../Data/optima_ext_train.csv')
+    data_test = pd.read_csv('../Data/optima_ext_test.csv')
 
     #get household ids
     hh_id = np.array(data_train['ID'].values)
@@ -179,12 +179,12 @@ def load_preprocess_Optima():
     train_idx = []
     test_idx = []
     try:
-        train_idx, test_idx = pickle.load(open('Data/strat_group_k_fold_optima.pickle', "rb"))
+        train_idx, test_idx = pickle.load(open('../Data/strat_group_k_fold_optima.pickle', "rb"))
     except FileNotFoundError:
         for (train_i, test_i) in stratified_group_k_fold(dataset_train[features], dataset_train[target], hh_id, k=5):
             train_idx.append(train_i)
             test_idx.append(test_i)
-        pickle.dump([train_idx, test_idx], open('Data/strat_group_k_fold_optima.pickle', "wb"))
+        pickle.dump([train_idx, test_idx], open('../Data/strat_group_k_fold_optima.pickle', "wb"))
 
     folds = zip(train_idx, test_idx)
 
@@ -192,7 +192,7 @@ def load_preprocess_Optima():
 
 def load_preprocess_Netherlands(test_size: float = 0.3, random_state: int = 42):
 
-    pandas = pd.read_table("Data/netherlands.dat")
+    pandas = pd.read_table("../Data/netherlands.dat")
 
     pandas_rp = pandas[pandas['rp']==1]
 
@@ -216,12 +216,12 @@ def load_preprocess_Netherlands(test_size: float = 0.3, random_state: int = 42):
     train_idx = []
     test_idx = []
     try:
-        train_idx, test_idx = pickle.load(open('Data/strat_group_k_fold_netherlands.pickle', "rb"))
+        train_idx, test_idx = pickle.load(open('../Data/strat_group_k_fold_netherlands.pickle', "rb"))
     except FileNotFoundError:
         for (train_i, test_i) in stratified_group_k_fold(df_train[features], df_train[target], hh_id, k=5):
             train_idx.append(train_i)
             test_idx.append(test_i)
-        pickle.dump([train_idx, test_idx], open('Data/strat_group_k_fold_netherlands.pickle', "wb"))
+        pickle.dump([train_idx, test_idx], open('../Data/strat_group_k_fold_netherlands.pickle', "wb"))
 
     folds = zip(train_idx, test_idx)
 
@@ -252,12 +252,12 @@ def load_preprocess_Airplane(test_size: float = 0.3, random_state: int = 42):
     train_idx = []
     test_idx = []
     try:
-        train_idx, test_idx = pickle.load(open('Data/strat_group_k_fold_airplane.pickle', "rb"))
+        train_idx, test_idx = pickle.load(open('../Data/strat_group_k_fold_airplane.pickle', "rb"))
     except FileNotFoundError:
         for (train_i, test_i) in stratified_group_k_fold(df_train[features], df_train[target], hh_id, k=5):
             train_idx.append(train_i)
             test_idx.append(test_i)
-        pickle.dump([train_idx, test_idx], open('Data/strat_group_k_fold_airplane.pickle', "wb"))
+        pickle.dump([train_idx, test_idx], open('../Data/strat_group_k_fold_airplane.pickle', "wb"))
 
     folds = zip(train_idx, test_idx)
 
@@ -287,12 +287,12 @@ def load_preprocess_Telephone(test_size: float = 0.3, random_state: int = 3):
     train_idx = []
     test_idx = []
     try:
-        train_idx, test_idx = pickle.load(open('Data/strat_group_k_fold_telephone.pickle', "rb"))
+        train_idx, test_idx = pickle.load(open('../Data/strat_group_k_fold_telephone.pickle', "rb"))
     except FileNotFoundError:
         for (train_i, test_i) in stratified_group_k_fold(df_train[features], df_train[target], hh_id, k=5):
             train_idx.append(train_i)
             test_idx.append(test_i)
-        pickle.dump([train_idx, test_idx], open('Data/strat_group_k_fold_telephone.pickle', "wb"))
+        pickle.dump([train_idx, test_idx], open('../Data/strat_group_k_fold_telephone.pickle', "wb"))
 
     folds = zip(train_idx, test_idx)
 
@@ -319,12 +319,12 @@ def load_preprocess_Parking(test_size: float = 0.3, random_state: int = 42):
     train_idx = []
     test_idx = []
     try:
-        train_idx, test_idx = pickle.load(open('Data/strat_group_k_fold_parking.pickle', "rb"))
+        train_idx, test_idx = pickle.load(open('../Data/strat_group_k_fold_parking.pickle', "rb"))
     except FileNotFoundError:
         for (train_i, test_i) in stratified_group_k_fold(df_train[features], df_train[target], hh_id, k=5):
             train_idx.append(train_i)
             test_idx.append(test_i)
-        pickle.dump([train_idx, test_idx], open('Data/strat_group_k_fold_parking.pickle', "wb"))
+        pickle.dump([train_idx, test_idx], open('../Data/strat_group_k_fold_parking.pickle', "wb"))
 
     folds = zip(train_idx, test_idx)
 
@@ -332,7 +332,7 @@ def load_preprocess_Parking(test_size: float = 0.3, random_state: int = 42):
 
 def load_preprocess_Vaccines():
 
-    pandas = pd.read_csv("Data/vaccinechoiceMar12.csv")
+    pandas = pd.read_csv("../Data/vaccinechoiceMar12.csv")
     #pandas.drop()
     pandas.loc[:,'choice'] = pandas['vaccinechoice'] - 1
     new_names = {'cost.1':'cost1','effectiveness.1':'effectiveness1','protection.1':'protection1','incubation.1':'incubation1','severe.1':'severe1','mild.1':'mild1','doses.1':'doses1','booster.1':'booster1','USA.1':'USA1','UK.1':'UK1','Germany.1':'Germany1','China.1':'China1','Russia.1':'Russia1','media.1':'media1','CDC.1':'CDC1','WHO.1':'WHO1','months.1':'months1','cost.3':'cost3','effectiveness.3':'effectiveness3','protection.3':'protection3','incubation.3':'incubation3','severe.3':'severe3','mild.3':'mild3','doses.3':'doses3','booster.3':'booster3','USA.3':'USA3','UK.3':'UK3','Germany.3':'Germany3','China.3':'China3','Russia.3':'Russia3','media.3':'media3','CDC.3':'CDC3','WHO.3':'WHO3','months.3':'months3'}
@@ -364,12 +364,12 @@ def load_preprocess_Vaccines():
     train_idx = []
     test_idx = []
     try:
-        train_idx, test_idx = pickle.load(open('Data/strat_group_k_fold_vaccine.pickle', "rb"))
+        train_idx, test_idx = pickle.load(open('../Data/strat_group_k_fold_vaccine.pickle', "rb"))
     except FileNotFoundError:
         for (train_i, test_i) in stratified_group_k_fold(df_train[features], df_train[target], hh_id, k=5):
             train_idx.append(train_i)
             test_idx.append(test_i)
-        pickle.dump([train_idx, test_idx], open('Data/strat_group_k_fold_vaccine.pickle', "wb"))
+        pickle.dump([train_idx, test_idx], open('../Data/strat_group_k_fold_vaccine.pickle', "wb"))
 
     folds = zip(train_idx, test_idx)
 
