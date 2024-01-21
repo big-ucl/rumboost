@@ -19,7 +19,7 @@ For more details, you can refer to the [preprint](https://papers.ssrn.com/sol3/p
 
 ## Installation
 
-RUMBoost is launched on pypi. You can install it with the following command:
+RUMBoost is launched on [pypi](https://pypi.org/project/rumboost/). You can install it with the following command:
 
 `pip install rumboost`
 
