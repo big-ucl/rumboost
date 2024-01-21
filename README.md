@@ -25,7 +25,7 @@ RUMBoost is launched on [pypi](https://pypi.org/project/rumboost/). You can inst
 
 We recommend to install rumboost in a separate environment with its dependencies.
 
-## Documentation and example
+## Documentation and examples
 The full documentation can be found [here](https://rumboost.readthedocs.io/en/latest/). In addition, you can find several examples on how to use RUMBoost under the example folder. Currently, there are seven example notebooks. We recommend using them in this order:
 
 1. simple_rumboost: how to train and plot parameters of a simple RUMBoost model
