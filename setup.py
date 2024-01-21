@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-VERSION = '1.0.1'
+VERSION = '1.0.2'
 DESCRIPTION = 'Gradient Boosting Decision Trees for Random Utility Models'
 LONG_DESCRIPTION = 'A package that allows to estimate some random utility models through gradient boosting decision trees'
 
@@ -31,6 +31,7 @@ setup(
         "Development Status :: 1 - Planning",
         "Intended Audience :: Developers",
         "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.11",
         "Operating System :: Unix",
         "Operating System :: MacOS :: MacOS X",
         "Operating System :: Microsoft :: Windows",
