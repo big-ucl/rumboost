@@ -26,7 +26,15 @@ RUMBoost is launched on pypi. You can install it with the following command:
 We recommend to install rumboost in a separate environment with its dependencies.
 
 ## Documentation and example
-The full documentation can be found [here](https://rumboost.readthedocs.io/en/latest/). In addition, you can find a full tutorial on how to use RUMBoost under the example folder.
+The full documentation can be found [here](https://rumboost.readthedocs.io/en/latest/). In addition, you can find several examples on how to use RUMBoost under the example folder. Currently, there are seven example notebooks. We recommend using them in this order:
+
+1. simple_rumboost: how to train and plot parameters of a simple RUMBoost model
+2. feature_interaction: how to include feature interactions for training and plotting
+3. nested: how to train a nested logit RUMBoost model
+4. functional_effect: how to train and plot a functional effect RUMBoost model
+5. cross-nested: how to train a cross-nested logit RUMBoost model
+6. bootstrap: how to test the model robustness
+7. smoothing_and_vot: how to smooth a RUMBoost output and plot the smoothed version, as well as computing and plotting VoT
 
 ## Bug reports and feature requests
 If you encounter any issues or have ideas for new features, please open an [issue](https://github.com/NicoSlvd/rumboost/issues). You can also contact us at nicolas.salvade.22@ucl.ac.uk
