@@ -2,7 +2,7 @@
 
 ---------------------------------
 
-[![Documentation Status](https://readthedocs.org/projects/rumboost/badge/?version=latest)](https://rumboost.readthedocs.io/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.org/NicoSlvd/rumboost/LICENSE.md) [![Python Versions](https://img.shields.io/pypi/pyversions/rumboost.svg?logo=python&logoColor=white)](https://pypi.org/project/rumboost) [![PyPI Version](https://img.shields.io/pypi/v/rumboost.svg?logo=pypi&logoColor=white)](https://pypi.org/project/rumboost) [![arXiv](https://img.shields.io/badge/arXiv-2401.11954-b31b1b.svg?style=plastic)](https://arxiv.org/abs/2401.11954)
+[![Documentation Status](https://readthedocs.org/projects/rumboost/badge/?version=latest)](https://rumboost.readthedocs.io/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.org/NicoSlvd/rumboost/LICENSE.md) [![Python Versions](https://img.shields.io/pypi/pyversions/rumboost.svg?logo=python&logoColor=white)](https://pypi.org/project/rumboost) [![PyPI Version](https://img.shields.io/pypi/v/rumboost.svg?logo=pypi&logoColor=white)](https://pypi.org/project/rumboost) [![arXiv](https://img.shields.io/badge/arXiv-2401.11954-b31b1b.svg)](https://arxiv.org/abs/2401.11954)
 
 
 ## Description
