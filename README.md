@@ -35,7 +35,7 @@ The full documentation can be found [here](https://rumboost.readthedocs.io/en/la
 4. [functional_effect](https://github.com/NicoSlvd/rumboost/blob/main/examples/4_functional_effect.ipynb): how to train and plot a functional effect RUMBoost model
 5. [cross-nested](https://github.com/NicoSlvd/rumboost/blob/main/examples/5_cross-nested.ipynb): how to train a cross-nested logit RUMBoost model
 6. [bootstrap](https://github.com/NicoSlvd/rumboost/blob/main/examples/6_bootstrap.ipynb): how to test the model robustness
-7. [smoothing_and_vot](https://github.com/NicoSlvd/blob/main/rumboost/examples/7_smoothing_and_vot.ipynb): how to smooth a RUMBoost output and plot the smoothed version, as well as computing and plotting VoT
+7. [smoothing_and_vot](https://github.com/NicoSlvd/rumboost/blob/main/examples/7_smoothing_and_vot.ipynb): how to smooth a RUMBoost output and plot the smoothed version, as well as computing and plotting VoT
 
 ## Bug reports and feature requests
 If you encounter any issues or have ideas for new features, please open an [issue](https://github.com/NicoSlvd/rumboost/issues). You can also contact us at nicolas.salvade.22@ucl.ac.uk
