@@ -1,10 +1,8 @@
 import numpy as np
 import pandas as pd
 import random
-import lightgbm as lgb
 
 from collections import Counter, defaultdict
-from scipy.interpolate import interp1d
 from scipy.special import softmax
 
 def process_parent(parent, pairs):
@@ -254,118 +252,6 @@ def data_leaf_value(data, weights_feature, technique='data_weighted'):
 
     return np.array(data_ordered), np.array(data_values)
 
-def get_grad(x, y, technique='slope', sample_points=30, normalise = False):
-    '''
-    Computes the arc gradient according to the prespecified technique.
-
-    Parameters
-    ----------
-    x : numpy array
-        X coordinates of the point to compute the gradient.
-    y : numpy array
-        Y coordinates of the point to compute the gradient.
-    technique : str, optional (default = slope)
-        The technique used to compute data values. It can be:
-
-            slope : compute the slope as gradient between each point.
-            sample_data : compute the slope between uniformly distributed sampled data.
-
-    Returns
-    -------
-    grad : numpy array
-        A vector with gradient values at each given points.
-    x_sample : numpy array
-        The x coordinates of the sampled points if the technique is sample_data.
-    y_sample : numpy array
-        The y coordinates of the sampled points if the technique is sample_data.
-
-    '''
-
-    if len(y) <= 1:
-        return 0
-    
-    x_values = x
-    y_values = y
-
-    if normalise:
-        x_values = (x - np.min(x))/(np.max(x) - np.min(x))
-        y_values = (y - np.min(y))/(np.max(y) - np.min(y))
-
-    if technique == 'slope'  :
-        grad = [(y_values[i+1]-y_values[i])/(x_values[i+1]-x_values[i]) for i in range(0, len(x_values)-1)]
-        #grad.insert(0, 0) #adding first slope
-        grad.append(0) #adding last slope
-    elif technique == 'sample_data':
-        x_sample = np.linspace(np.min(x_values), np.max(x_values), sample_points)
-        f = interp1d(x_values, y_values, kind='previous')
-        y_sample = f(x_sample)
-        grad = [(y_sample[i+1]-y_sample[i])/(x_sample[i+1]-x_sample[i]) for i in range(0, len(x_sample)-1)]
-        #grad.insert(0, 0) #adding first slope
-        grad.append(0) #adding last slope
-
-        if normalise:
-            x_sample = x_sample*(np.max(x) - np.min(x)) + np.min(x)
-            y_sample = y_sample*(np.max(y) - np.min(y)) + np.min(y)
-
-        return grad, x_sample, y_sample
-
-    return grad
-
-def get_angle_diff(x_values, y_values):
-    '''
-    Computes the angle between three given points.
-
-    Parameters
-    ----------
-    x_values : numpy array
-        X coordinates of the point to compute the angle.
-    y_values : numpy array
-        Y coordinates of the point to compute the angle.
-
-    Returns
-    -------
-    diff_angle : list
-        A list containing all vectors for each subsequent three points.
-
-    '''
-    slope = get_grad(x_values, y_values, normalise = True)
-    angle = np.arctan(slope)
-    diff_angle = [np.pi - np.abs(angle[0])]
-    diff_angle += [np.pi - np.abs(a_1-a_0) for (a_1, a_0) in zip(angle[1:], angle[:-1])]
-
-    return diff_angle
-
-def find_disc(x_values, grad):
-    '''
-    Find discontinuities for a given feature values. The angle must be smaller than 0.2 radian and the slope bigger than 5. Values are normalised.
-
-    Parameters
-    ----------
-    x_values : numpy array
-        X coordinates of the point to find discontinuities.
-    grad : numpy array
-        A vector with gradient values at each given points.
-
-    Returns
-    -------
-    disc : numpy array
-        The coordinates of discontinuities.
-    disc_idx : numpy array
-        The index of discontinuities.
-    num_disc : int
-        The number of discontinuities.
-
-    '''
-    diff_angle = get_angle_diff(x_values, grad)
-
-    is_disc = [True if (angle < 0.2) and (np.abs(g) > 5) else False for angle, g in zip(diff_angle, grad)]
-
-    disc = x_values[is_disc]
-    disc_idx = np.nonzero(is_disc)[0]
-    num_disc = np.sum(is_disc)
-
-    return disc, disc_idx, num_disc
-
 def utility_ranking(weights, spline_utilities):
     """
     Rank attributes utility importance by their utility range. The first rank is the attribute having the largest
@@ -428,8 +314,9 @@ def map_x_knots(x_knots, num_splines_range, x_first = None, x_last = None):
     starter = 0
     i=0
     for u in num_splines_range:
+        num_splines_sorted = sort_dict(num_splines_range[u])
         x_knots_dict[u]={}
-        for f in num_splines_range[u]:
+        for f in num_splines_sorted:
             if x_first is not None:
                 x_knots_dict[u][f] = [x_first[i]]
                 x_knots_dict[u][f].extend(x_knots[starter:starter+num_splines_range[u][f]-1])
@@ -442,6 +329,26 @@ def map_x_knots(x_knots, num_splines_range, x_first = None, x_last = None):
                 starter += num_splines_range[u][f]+1
 
     return x_knots_dict
+
+def sort_dict(dict_to_sort):
+    '''
+    Sort a dictionary by its keys.
+
+    Parameters
+    ----------
+    dict_to_sort : dict
+        A dictionary to sort.
+
+    Returns
+    -------
+    dict_sorted : dict
+        The sorted dictionary.
+    '''
+    dict_sorted = {}
+    for k in sorted(dict_to_sort.keys()):
+        dict_sorted[k] = dict_to_sort[k]
+
+    return dict_sorted
 
 def compute_VoT(util_collection, u, f1, f2):
     '''

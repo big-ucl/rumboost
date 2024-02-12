@@ -4,13 +4,11 @@ import collections
 import copy
 import json
 import numpy as np
-import pandas as pd
 
 from scipy.special import softmax
 from operator import attrgetter
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-from biogeme.biogeme import BIOGEME
 
 from lightgbm import callback
 from lightgbm.basic import Booster, Dataset, LightGBMError, _ConfigAliases, _InnerPredictor, _choose_param_value, _log_warning

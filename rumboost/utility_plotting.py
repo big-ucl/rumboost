@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from rumboost.utils import function_2d, weights_to_plot_v2, get_asc, non_lin_function, data_leaf_value, get_weights
-from rumboost.utility_smoothing import stairs_to_pw, find_feat_best_fit, fit_func, monotone_spline, mean_monotone_spline
+from rumboost.utility_smoothing import monotone_spline, mean_monotone_spline
 
 def plot_2d(model, feature1: str, feature2: str, min1: int, max1: int, min2: int, max2: int, save_figure: bool = False, utility_names: list[str] = ['Walking', 'Cycling', 'Public Transport', 'Driving'], num_points = 1000):
     '''
@@ -28,7 +28,7 @@ def plot_2d(model, feature1: str, feature2: str, min1: int, max1: int, min2: int
         Maximum value of feature 2.
     save_figure : bool, optional (default = False)
         If true, save the figure as a png file
-    utility_names : list[str]
+    utility_names : list[str], optional (default=['Walking', 'Cycling', 'Public Transport', 'Driving'])
         List of the alternative names
     num_points : int, optional (default=1000)
         The number of points per axis. The total number of points is num_points**2.
@@ -109,7 +109,6 @@ def plot_2d(model, feature1: str, feature2: str, min1: int, max1: int, min2: int
 
             c_plot = axes.contourf(X, Y, contour_plot.T, levels=res, linewidths=0, cmap=customPalette, vmin=-12, vmax=0)
 
-
             #axes.set_title(f'{utility_names[int(u)]}')
             axes.set_xlabel(f'{feature1} [h]')
             axes.set_ylabel(f'{feature2}')
@@ -122,14 +121,10 @@ def plot_2d(model, feature1: str, feature2: str, min1: int, max1: int, min2: int
 
             plt.show()
 
-def plot_parameters(model, X, utility_names, Betas = None,  model_unconstrained = None, 
-                    with_pw = False, save_figure=False, asc_normalised = False, with_asc = False, 
-                    with_cat = True, only_tt = False, only_1d = False, with_fit = False, 
-                    fit_all = True, technique = 'weighted_data', data_sep = False, sm_tt_cost=False,
-                    save_file=''):
+def plot_parameters(model, X, utility_names, save_figure=False, asc_normalised = False, with_asc = False, 
+                    only_tt = False, only_1d = False, with_fit = False, sm_tt_cost=False, save_file=''):
     """
-    Plot the non linear impact of parameters on the utility function. When specified, unconstrained parameters
-    and parameters from a RUM model can be added to the plot.
+    Plot the non linear impact of parameters on the utility function.
 
     Parameters
     ----------
@@ -139,33 +134,16 @@ def plot_parameters(model, X, utility_names, Betas = None,  model_unconstrained 
         Features used to train the model, in a pandas dataframe.
     utility_name : dict
         Dictionary mapping utilities indices to their names.
-    Betas : list, optional (default = None)
-        List of beta parameters value from a RUM. They should be listed in the same order as 
-        in the RUMBoost model.
-    model_unconstrained : LightGBM model, optional (default = None)
-        The unconstrained model. Must be trained and compatible with dump_model().
-    with_pw : bool, optional (default = False)
-        If the piece-wise function should be included in the graph.
     save_figure : bool, optional (default = False)
         If True, save the plot as a png file.
     asc_normalised : bool, optional (default = False)
         If True, scale down utilities to be zero at the y axis.
     with_asc : bool, optional (default = False)
         If True, add the ASCs to all graphs (one is normalised, and asc_normalised must be True).
-    with_cat : bool, optional (default = True)
-        If False, categorical features are not plotted.
     only_tt : bool, optional (default = False)
         If True, plot only travel time and distance.
     only_1d : bool, optional (default = False)
         If True, plot only the features separately.
-    with_fit : bool, optional (default = False)
-        If True, fit the data with simple functions to approximate the step functions.
-    fit_all : bool, optional (default = True)
-        If False, plot only the best fitting function.
-    technique : str, optional (default = 'weighted_data')
-        The technique for data sampling in the function fitting.
-    data_sep : bool, optional (default = False)
-        If True, split the data to fit subsets of data.
     sm_tt_cost : bool, optional (default = False)
         If True, plot only the swissmetro travel time and cost on the same figure.
     save_file : str, optional (default='')
@@ -483,10 +461,7 @@ def plot_parameters(model, X, utility_names, Betas = None,  model_unconstrained 
                 plt.tight_layout()
                     
                 if save_figure:
-                    if with_fit:
-                        plt.savefig('Figures/{}{} utility, {} feature {} technique.png'.format(utility_names[u], f, technique))
-                    else:
-                        plt.savefig('Figures/{}{} utility, {} feature.png'.format(save_file, utility_names[u], f))
+                    plt.savefig('Figures/{}{} utility, {} feature.png'.format(save_file, utility_names[u], f))
 
                 plt.show()
 
@@ -558,32 +533,6 @@ def plot_util(model, data_train, points=10000):
             plt.plot(np.linspace(0,1.05*max(data_train[f]),points), ypred)
             plt.title(f)
 
-def plot_util_pw(model, data_train, points = 10000):
-    '''
-    Plot the piece-wise utility function
-
-    Parameters
-    ----------
-    model : RUMBoost
-        A RUMBoost object.
-    data_train : pandas Dataframe
-        The full training dataset.
-    points : int, optional (default = 10000)
-        The number of points used to draw the line plot.
-        
-    '''
-    features = data_train.columns
-    data_to_transform = {}
-    for f in features:
-        xi = np.linspace(0, 1.05*max(data_train[f]), points)
-        data_to_transform[f] = xi
-
-    data_to_transform = pd.DataFrame(data_to_transform)
-
-    pw_func = stairs_to_pw(model, data_train, data_to_transform, util_for_plot = True)
-
-    return pw_func
-
 def plot_spline(model, data_train, spline_collection, utility_names, mean_splines = False, x_knots_dict = None, save_fig = False, lpmc_tt_cost=False, sm_tt_cost=False, save_file=''):
     '''
     Plot the spline interpolation for all utilities interpolated.
@@ -598,9 +547,17 @@ def plot_spline(model, data_train, spline_collection, utility_names, mean_spline
         A dictionary containing the optimal number of splines for each feature interpolated of each utility
     mean_splines : bool, optional (default = False)
         Must be True if the splines are computed at the mean distribution of data for stairs.
-    x_knots_dict : dict
+    x_knots_dict : dict, optional (default = None)
         A dictionary in the form of {utility: {attribute: x_knots}} where x_knots are the spline knots for the corresponding 
         utility and attributes
+    save_fig : bool, optional (default = False)
+        If True, save the plot as a png file.
+    lpmc_tt_cost : bool, optional (default = False)
+        If True, plot only the LPMC travel time and cost on the same figure.
+    sm_tt_cost : bool, optional (default = False)
+        If True, plot only the swissmetro travel time and cost on the same figure.
+    save_file : str, optional (default='')
+        The name to save the figure with.
     '''
     #get weights ordered by features
     weights = weights_to_plot_v2(model)
@@ -645,9 +602,6 @@ def plot_spline(model, data_train, spline_collection, utility_names, mean_spline
         _, y_spline_w, _, x_knot_w, y_knot_w = monotone_spline(x_spline_w, weights['0']['dur_walking'], num_splines=spline_collection['0']['dur_walking'], x_knots=x_knots_temp_w, y_knots=y_knots_w)
         y_spline_norm_w = [y - y_plot_w[0] for y in y_spline_w]
         y_knot_norm_w = [y - y_plot_w[0] for y in y_knot_w]
-
-        
-
         
         plt.figure(figsize=(3.49, 2.09), dpi=1000)
 
@@ -960,6 +914,16 @@ def plot_VoT(data_train, util_collection, attribute_VoT, utility_names, draw_ran
     attribute_VoT : dict
         A dictionary with keys being the utility number (as string) and values being a tuple of the attributes to compute the VoT on.
         The structure follows this form: {utility: (attribute1, attribute2)}
+    utility_names : dict
+        A dictionary containing the names of the utilities.
+        The structure of the dictionary follows this form: {utility: names}
+    draw_range : dict
+        A dictionary containing the range of the attributes to draw the VoT.
+        The structure of the dictionary follows this form: {utility: {attribute: (min, max)}}
+    save_figure : bool, optional (default = False)
+        If True, save the plot as a png file.
+    num_points : int, optional (default = 1000)
+        The number of points used to draw the contour plot.  
     '''
 
     tex_fonts = {
@@ -1040,6 +1004,21 @@ def plot_VoT(data_train, util_collection, attribute_VoT, utility_names, draw_ran
 
 
 def plot_pop_VoT(data_test, util_collection, attribute_VoT, save_figure = False):
+    '''
+    Plot the Value of Time for the given observations.
+
+    Parameters
+    ----------
+    data_test : pd.DataFrame
+        The test dataset.
+    util_collection : dict
+        A dictionary containing the utility function (spline or tree) to use for all features in all utilities where the VoT is computed. it follows this structure {utility: {feature: tree/spline function}}
+    attribute_VoT : dict
+        A dictionary with keys being the utility number (as string) and values being a tuple of the attributes to compute the VoT on.
+        The structure follows this form: {utility: (attribute1, attribute2)}
+    save_figure : bool, optional (default = False)
+        If True, save the plot as a png file.
+    '''
 
     tex_fonts = {
             # Use LaTeX to write all text
@@ -1106,7 +1085,7 @@ def plot_ind_spec_constant(socec_model, dataset_train, alternatives: list[str]):
         The part of the functional effect model with full interactions of socio-economic characteristics.
     dataset_train: 
         The dataset used to train the model. It must be a lightGBM Dataset object.
-    alternatives:
+    alternatives: list[str]
         The list of alternatives name.
     '''
 
@@ -1168,7 +1147,6 @@ def plot_bootstrap(models: list, dataset: pd.DataFrame, features: dict[list[str]
 
     Parameters
     ----------
-
     models: list
         A list containing all the trained mdoels of the bootstrap sampling
     dataset: pd.DataFrame
