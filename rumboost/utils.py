@@ -495,9 +495,7 @@ def cross_nested_probs(raw_preds, mu, alphas):
         The prediction of choosing nest m
     """
     #initialisation
-    n_obs = np.size(raw_preds, 0)
-    data_idx = np.arange(n_obs)
-    n_alt = np.size(raw_preds, 1)
+    n_obs, n_alt = raw_preds.shape[0], raw_preds.shape[1]
     pred_i_m = np.array(np.zeros((n_obs, n_alt, len(mu))))
     pred_m = np.array(np.zeros((n_obs, n_alt, len(mu))))
     sum_of_nest = []
