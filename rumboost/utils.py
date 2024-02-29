@@ -469,52 +469,35 @@ def nest_probs(raw_preds, mu, nests):
     return preds.T, pred_i_m, pred_m
 
 def cross_nested_probs(raw_preds, mu, alphas):
-    """compute nested predictions.
+    """Compute nested predictions.
     
     Parameters
     ----------
-
-    raw_preds :
+    raw_preds : numpy.ndarray
         The raw predictions from the booster
-    mu :
+    mu : list
         The list of mu values for each nest.
-        The first value correspond to the first nest and so on.
-    alphas :
+        The first value corresponds to the first nest and so on.
+    alphas : numpy.ndarray
         An array of J (alternatives) by M (nests).
-        alpha_jn represents the degree of membership of alternative j to nest n
-        By example, alpha_12 = 0.5 means that alternative one belongs 50% to nest 2.
+        alpha_jn represents the degree of membership of alternative j to nest n.
+        For example, alpha_12 = 0.5 means that alternative one belongs 50% to nest 2.
 
     Returns
     -------
-
-    raw_preds :
+    preds : numpy.ndarray
         The cross nested predictions
-    pred_i_m :
+    pred_i_m : numpy.ndarray
         The prediction of choosing alt i knowing nest m
-    pred_m :
+    pred_m : numpy.ndarray
         The prediction of choosing nest m
     """
-    #initialisation
-    n_obs, n_alt = raw_preds.shape[0], raw_preds.shape[1]
-    pred_i_m = np.array(np.zeros((n_obs, n_alt, len(mu))))
-    pred_m = np.array(np.zeros((n_obs, n_alt, len(mu))))
-    sum_of_nest = []
+    e_vim = (alphas[:, :, np.newaxis] ** mu) * np.exp(mu * raw_preds)
+    sum_of_nest = np.sum(alphas[:, :, np.newaxis] ** mu * np.exp(mu * raw_preds), axis=1)
+    pred_i_m = e_vim / sum_of_nest[:, np.newaxis, :]
 
-    #for each nest
-    for m, mu_m in enumerate(mu):
-        
-        #pred of choosing i knowing m.
-        pred_i_m[:, :, m] = (alphas[:, m] ** mu_m * np.exp(mu_m * raw_preds)) / np.sum(alphas[:, m] ** mu_m * np.exp(mu_m * raw_preds), axis=1, keepdims=True)
-
-        #storing sum of nest for computing pred of choosing m easily
-        sum_of_nest.append([np.sum(alphas[:, m] ** mu_m * np.exp(mu_m * raw_preds), axis=1) ** (1/mu_m)]*n_alt)
-
-    sum_of_nest = np.array(sum_of_nest).T
-    #pred of choosing m
-    pred_m[:, :, :] =  sum_of_nest / np.sum(sum_of_nest, axis=2, keepdims=True)
-
-    #final predictions for choosing i
-    preds = np.sum(pred_i_m * pred_m, axis=2)
+    pred_m = sum_of_nest**(1/mu) / np.sum(sum_of_nest**(1/mu), axis=1, keepdims=True)
+    preds = np.sum(pred_i_m * pred_m[:, np.newaxis, :], axis=2)
 
     return preds, pred_i_m, pred_m
 
