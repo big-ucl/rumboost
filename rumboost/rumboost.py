@@ -174,6 +174,35 @@ class RUMBoost:
         hess = factor * hess
 
         return grad.reshape(-1), hess.reshape(-1)
+    
+    def f_obj_shared_ensembles(
+            self,
+            _,
+            train_set: Dataset
+        ):
+            """
+            Objective function of the binary classification boosters, but based on softmax predictions. This function is used for shared ensembles.
+
+            Parameters
+            ----------
+            train_set : Dataset
+                Training set used to train the jth booster. It means that it is not the full training set but rather another dataset containing the relevant features for that utility. It is the jth dataset in the RUMBoost object.
+
+            Returns
+            -------
+            grad : numpy array
+                The gradient with the cross-entropy loss function. It is the predictions minus the binary labels (if it is used for the jth booster, labels will be 1 if the chosen class is j, 0 if it is any other classes).
+            hess : numpy array
+                The hessian with the cross-entropy loss function (second derivative approximation rather than the hessian). Calculated as factor * preds * (1 - preds).
+            """
+            j = self._current_j #jth booster
+            preds = np.hstack(self._preds[:,self.shared_ensembles[j]]) #corresponding predictions
+            factor = self.num_classes / (self.num_classes - 1)  # factor to correct redundancy (see Friedmann, Greedy Function Approximation)
+            eps = 1e-6
+            labels = train_set.get_label()
+            grad = preds - labels
+            hess = np.maximum(factor * preds * (1 - preds), eps) #truncate low values to avoid numerical errors
+            return grad, hess
             
     def predict(
         self,
@@ -245,11 +274,22 @@ class RUMBoost:
                                 data_has_header,
                                 validate_features) for k, booster in enumerate(self.boosters)]
 
+        #if shared ensembles, get the shared predictions out and reorder them for easier addition later
+        if self.shared_ensembles:
+            raw_shared_preds = np.reshape(raw_preds[[*self.shared_ensembles][0]:], (len(raw_preds[0]), -1))
+            raw_preds = raw_preds[:[*self.shared_ensembles][0]]
+
         raw_preds = np.array(raw_preds).T
 
         #if functional effect, sum the two ensembles (of attributes and socio-economic characteristics) of each alternative
         if self.functional_effects:
             raw_preds = raw_preds.reshape((-1, self.num_classes, 2)).sum(axis=2)
+
+        #if shared ensembles, add the shared ensembles to the individual specific ensembles
+        if self.shared_ensembles:
+            for shared_ensembles in self.shared_ensembles.values():
+                raw_preds[:, shared_ensembles] += raw_shared_preds[:,:len(shared_ensembles)]
+                raw_shared_preds = raw_shared_preds[:,len(shared_ensembles):]
 
         #compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
         if nests:
@@ -302,11 +342,14 @@ class RUMBoost:
         result : numpy array, scipy.sparse or list of scipy.sparse
             Prediction result.
             Can be sparse or a list of sparse objects (each element represents predictions for one class) for feature contributions (when ``pred_contrib=True``).
-        """    
-        
-
+        """
         #getting raw prediction from lightGBM booster's inner predict
-        raw_preds = [booster._Booster__inner_predict(data_idx) for booster in self.boosters]
+        raw_preds = [booster._Booster__inner_predict(data_idx) for i, booster in enumerate(self.boosters)]
+
+        #if shared ensembles, get the shared predictions out and reorder them for easier addition later
+        if self.shared_ensembles:
+            raw_shared_preds = np.reshape(raw_preds[[*self.shared_ensembles][0]:], (-1, len(raw_preds[0]))).T
+            raw_preds = raw_preds[:[*self.shared_ensembles][0]]
 
         raw_preds = np.array(raw_preds).T
 
@@ -314,6 +357,12 @@ class RUMBoost:
         if self.functional_effects:
             raw_preds = raw_preds.reshape((-1, self.num_classes, 2)).sum(axis=2)
 
+        #if shared ensembles, add the shared ensembles to the individual specific ensembles
+        if self.shared_ensembles:
+            for shared_ensembles in self.shared_ensembles.values():
+                raw_preds[:, shared_ensembles] += raw_shared_preds[:,:len(shared_ensembles)]
+                raw_shared_preds = raw_shared_preds[:,len(shared_ensembles):]
+            
         #compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
         if nests:
             if self.mu:
@@ -363,30 +412,59 @@ class RUMBoost:
         data.construct()
         self.labels = data.get_label()
 
+        if self.shared_ensembles is not None:
+            shared_labels = {}
+            shared_valids = {}
+
         #loop over all J utilities
         for j, struct in enumerate(self.rum_structure):
             if struct:
                 if 'columns' in struct:
                     train_set_j_data = data.get_data()[struct['columns']] #only relevant features for the jth booster
-                    if self.functional_effects:
-                        new_label = np.where(data.get_label() == int(j/2), 1, 0) #new binary label for functional effect, divided by two because two ensembles per alternative
+
+                    #transforming labels for functional effects
+                    if self.functional_effects and j < 2*self.num_classes:
+                        l = int(j/2)
                     else:
-                        new_label = np.where(data.get_label() == j, 1, 0) #new binary label, used for multiclassification
-                    #create and build dataset
-                    train_set_j = Dataset(train_set_j_data, label=new_label, free_raw_data=False, params={'verbosity':-1})
-                    train_set_j.construct()
+                        l = j
+
+                    if self.shared_ensembles:
+                        if l >= self.num_classes:
+                            new_label = np.hstack([shared_labels[s] for s in self.shared_ensembles[l]])
+                            train_set_j = Dataset(train_set_j_data.values.reshape((-1, 1), order='A'), label=new_label, free_raw_data=False, params={'verbosity':-1}) #create and build dataset
+                            train_set_j.construct()
+                        else:
+                            new_label = np.where(data.get_label() == l, 1, 0) #new binary label, used for multiclassification
+                            shared_labels[l] = new_label
+                            train_set_j = Dataset(train_set_j_data, label=new_label, free_raw_data=False, params={'verbosity':-1}) #create and build dataset
+                            train_set_j.construct()
+                    else:
+                        new_label = np.where(data.get_label() == l, 1, 0) #new binary label, used for multiclassification
+                        train_set_j = Dataset(train_set_j_data, label=new_label, free_raw_data=False, params={'verbosity':-1}) #create and build dataset
+                        train_set_j.construct()
+                     
                     if reduced_valid_set is not None:
                         reduced_valid_sets_j = []
                         for valid_set in reduced_valid_set:
                             #create and build validation sets
                             valid_set.construct()
                             valid_set_j_data = valid_set.get_data()[struct['columns']] #only relevant features for the jth booster
-                            if self.functional_effects:
-                                label_valid = np.where(valid_set.get_label() == int(j/2), 1, 0) #new binary label for functional effect, divided by two because two ensembles per alternative
+                            
+                            if self.shared_ensembles:
+                                if l >= self.num_classes:
+                                    label_valid = np.hstack([shared_valids[s] for s in self.shared_ensembles[l]])
+                                    valid_set_j = Dataset(valid_set_j_data.values.reshape((-1, 1), order='A'), label=label_valid, free_raw_data=False, reference=train_set_j, params={'verbosity':-1}) #create and build dataset
+                                    valid_set_j.construct()
+                                else:
+                                    label_valid = np.where(valid_set.get_label() == l, 1, 0) #new binary label, used for multiclassification
+                                    shared_valids[l] = label_valid
+                                    valid_set_j = Dataset(valid_set_j_data, label=label_valid, free_raw_data=False, reference=train_set_j, params={'verbosity':-1}) #create and build dataset
+                                    valid_set_j.construct()
                             else:
-                                label_valid = np.where(valid_set.get_label() == j, 1, 0) #new binary label, used for multiclassification
-                            valid_set_j = Dataset(valid_set_j_data, label=label_valid, reference= train_set_j, free_raw_data=False)
-                            valid_set_j.construct()
+                                label_valid = np.where(valid_set.get_label() == l, 1, 0) #new binary label, used for multiclassification
+                                valid_set_j = Dataset(valid_set_j_data, label=label_valid, reference= train_set_j, free_raw_data=False)
+                                valid_set_j.construct()
+                            
                             reduced_valid_sets_j.append(valid_set_j)
 
                 else:
@@ -451,7 +529,16 @@ class RUMBoost:
                         'monotone_constraints': struct.get('monotone_constraints', []) if struct else [],
                         'interaction_constraints': struct.get('interaction_constraints', []) if struct else [],
                         'categorical_feature': struct.get('categorical_feature', []) if struct else []
-                        } for struct in self.rum_structure]
+                        } if i < self.num_classes else
+                        {**copy.deepcopy(params),
+                        'learning_rate': params['learning_rate'] * 0.5, #learning rate divided by 2 for shared ensembles
+                        'verbosity': -1,
+                        'objective': 'binary',
+                        'num_classes': 1,
+                        'monotone_constraints': struct.get('monotone_constraints', []) if struct else [],
+                        'interaction_constraints': struct.get('interaction_constraints', []) if struct else [],
+                        'categorical_feature': struct.get('categorical_feature', []) if struct else []
+                        } for i, struct in enumerate(self.rum_structure)]
 
         #store the set of parameters in RUMBoost
         self.params = params_J
@@ -532,7 +619,7 @@ class RUMBoost:
 
         for j, (param_j, train_set_j) in enumerate(zip(params_J, train_set_J)):
             #construct booster and perform basic preparations
-            try: 
+            try:
                 booster = Booster(params=param_j, train_set=train_set_j)
                 if is_valid_contain_train:
                     booster.set_train_data_name(train_data_name)
@@ -682,7 +769,8 @@ def rum_train(
     nests: dict = None,
     mu: list = None,
     params_fe: dict = None,
-    alphas: np.array = None
+    alphas: np.array = None,
+    shared_ensembles: dict = None
 ) -> RUMBoost:
     """Perform the RUM training with given parameters.
 
@@ -768,6 +856,9 @@ def rum_train(
         An array of J (alternatives) by M (nests).
         alpha_jn represents the degree of membership of alternative j to nest n
         By example, alpha_12 = 0.5 means that alternative one belongs 50% to nest 2.
+    shared_ensembles : dict, optional (default=None)
+        Dictionary of shared ensembles. Keys are the names of the shared ensembles, 
+        and values are the list of alternatives that share the ensemble.
         
 
     Note
@@ -871,16 +962,25 @@ def rum_train(
     #construct boosters
     rumb = RUMBoost()
 
-    #initialise RUMBoost for functional effects if 2*num_classes rum structure are passed
+    #some checks
     if 'num_classes' not in params:
         raise ValueError('Specify the number of classes in the dictionary of parameters with the key num_classes')
-    if len(rum_structure) == 2 * params['num_classes']:
+    
+    #initialise RUMBoost for functional effects if param_fe is passed
+    if params_fe is not None:    
+        if len(rum_structure) == 2 * params['num_classes']:
+            raise ValueError('Functional effects model requires a rum_structure of length 2 * num_classes')
         rumb.functional_effects = True
-    elif len(rum_structure) == params['num_classes']:
-        rumb.functional_effects = False
     else:
-        raise ValueError('The length of rum_structure must be equal to the number of classes or twice the number of class (for functional effects)')
-  
+        rumb.functional_effects = False
+
+    #initialise shared ensembles if they are specified
+    if shared_ensembles is not None:
+        rumb.shared_ensembles = shared_ensembles
+        rumb.shared_valid_sets = []
+    else:
+        rumb.shared_ensembles = None
+
     reduced_valid_sets, \
     name_valid_sets, \
     is_valid_contain_train, \
@@ -919,11 +1019,15 @@ def rum_train(
                                         evaluation_result_list=None))       
     
             #update booster with custom binary objective function, and relevant features
-            if rumb.functional_effects:
+            if rumb.functional_effects and j < 2*rumb.num_classes:
                 rumb._current_j = int(j/2) #if functional effect keep same j for the two ensembles of each alternative
             else:
                 rumb._current_j = j
-            booster.update(train_set=rumb.train_set[j], fobj=f_obj)
+
+            if rumb._current_j >= rumb.num_classes:
+                booster.update(train_set=rumb.train_set[j], fobj=rumb.f_obj_shared_ensembles)
+            else:
+                booster.update(train_set=rumb.train_set[j], fobj=f_obj)
             
             #check evaluation result. (from lightGBM initial code, check on all J binary boosters)
             evaluation_result_list = []
