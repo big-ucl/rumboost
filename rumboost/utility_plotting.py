@@ -425,7 +425,10 @@ def plot_parameters(model, X, utility_names, save_figure=False, asc_normalised =
             for i, f in enumerate(weights_arranged[u]):
 
                 #create nonlinear plot
-                x, non_lin_func = non_lin_function(weights_arranged[u][f], 0, 1.05*max(X[f]), 10000)
+                if f in list(X.columns):
+                    x, non_lin_func = non_lin_function(weights_arranged[u][f], 0, 1.05*max(X[f]), 10000)
+                else:
+                    x, non_lin_func = non_lin_function(weights_arranged[u][f], 0, 10, 10000)
 
                 if asc_normalised:
                     val_0 = non_lin_func[0]
@@ -455,7 +458,11 @@ def plot_parameters(model, X, utility_names, save_figure=False, asc_normalised =
 
                 sns.lineplot(x=x, y=non_lin_func, color='k', label='RUMBoost')
                 
-                plt.xlim([0-0.05*np.max(X[f]), np.max(X[f])*1.05])
+
+                if f in list(X.columns):
+                    plt.xlim([0-0.05*np.max(X[f]), np.max(X[f])*1.05])
+                else:
+                    plt.xlim([0-0.05*10, 10*1.05])
                 plt.ylim([np.min(non_lin_func) - 0.05*(np.max(non_lin_func)-np.min(non_lin_func)), np.max(non_lin_func) + 0.05*(np.max(non_lin_func)-np.min(non_lin_func))])
 
                 plt.tight_layout()

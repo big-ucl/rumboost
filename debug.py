@@ -24,7 +24,7 @@ params = {'n_jobs': -1,
           'boosting': 'gbdt',
           'monotone_constraints_method': 'advanced',
           'verbosity': 1,
-          'num_iterations':100,
+          'num_iterations':1000,
           #'early_stopping_round':100,
           'learning_rate':0.1,
           'max_depth':1 #important to let it at 1 so that the model can split on many different features.
@@ -49,20 +49,20 @@ rum_structure = [{'columns': ['age', 'female', 'day_of_week', 'start_time_linear
                  'monotone_constraints': [0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1, -1, -1], 
                  'interaction_constraints': [[0], [1], [2], [3], [4], [5], [6], [7], [8], [9], [10], [11], [12], [13], [14], [15], [16], [17], [18]],
                 },
-                # {'columns': ['dur_walking', 'dur_cycling', 'dur_pt_rail', 'dur_driving'],
-                #  'monotone_constraints': [-1],
+                {'columns': ['dur_walking', 'dur_cycling', 'dur_pt_rail', 'dur_driving'],
+                 'monotone_constraints': [-1],
+                },
+                # {'columns': ['dur_walking', 'dur_cycling'],
+                #  'monotone_constraints': [-1]
                 # },
-                {'columns': ['dur_walking', 'dur_cycling'],
-                 'monotone_constraints': [-1]
-                },
-                {'columns': ['dur_pt_rail', 'dur_driving'],
-                 'monotone_constraints': [-1]
-                },
+                # {'columns': ['dur_pt_rail', 'dur_driving'],
+                #  'monotone_constraints': [-1]
+                # },
                 ]
 
-#shared_ensembles = {4: [0, 1, 2, 3]}
-shared_ensembles = {4: [0, 1],
-                    5: [2, 3]}
+shared_ensembles = {4: [0, 1, 2, 3]}
+#shared_ensembles = {4: [0, 1],
+#                    5: [2, 3]}
 
 #features and label column names
 features = [f for f in LPMC_train.columns if f != "choice"]
@@ -73,3 +73,7 @@ lgb_train_set = lgb.Dataset(LPMC_train[features], label=LPMC_train[label], free_
 lgb_test_set = lgb.Dataset(LPMC_test[features], label=LPMC_test[label], free_raw_data=False)
 
 LPMC_model_fully_trained = rum_train(params, lgb_train_set, rum_structure, valid_sets=[lgb_test_set], shared_ensembles=shared_ensembles)
+
+utility_names = {'0':'Walking', '1':'Cycling', '2':'Public Transport', '3': 'Driving', '4':'shared_params'}
+
+plot_parameters(LPMC_model_fully_trained, LPMC_train, utility_names,only_1d=True)

@@ -196,7 +196,7 @@ class RUMBoost:
                 The hessian with the cross-entropy loss function (second derivative approximation rather than the hessian). Calculated as factor * preds * (1 - preds).
             """
             j = self._current_j #jth booster
-            preds = np.hstack(self._preds[:,self.shared_ensembles[j]]) #corresponding predictions
+            preds = self._preds[:,self.shared_ensembles[j]].reshape(-1, order='A') #corresponding predictions
             factor = self.num_classes / (self.num_classes - 1)  # factor to correct redundancy (see Friedmann, Greedy Function Approximation)
             eps = 1e-6
             labels = train_set.get_label()
