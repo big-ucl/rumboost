@@ -9,6 +9,12 @@ rumboost.egg-info/
 tests/test.py
 biogeme.toml
 
+#data
+data_lausanne_trips_preprocessed.csv
+
+#debug files
+debug.ipynb
+debug.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

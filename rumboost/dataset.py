@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import pickle
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GroupShuffleSplit
 from rumboost.utils import stratified_group_k_fold
 import sys
 sys.path.append('../')
@@ -374,3 +374,37 @@ def load_preprocess_Vaccines():
     folds = zip(train_idx, test_idx)
 
     return df_train, df_test, folds
+
+def load_preprocess_MTMC(test_size: float = 0.2, random_state: int = 42):
+
+    #load data
+    data = pd.read_csv(r"C:\Users\DAF1\OneDrive - University College London\Documents\PhD - UCL\rumboost\Data\data_lausanne_trips_preprocessed.csv", index_col=False)
+
+    #load destination zones
+    z_idx = list(np.loadtxt(r"C:\Users\DAF1\OneDrive - University College London\Documents\PhD - UCL\rumboost\Data\z_idx.csv"))
+
+    #split by household
+    gsp = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
+    train_idx, test_idx = next(gsp.split(data, groups=data['HHNR']))
+    df_train, df_test = data.iloc[train_idx], data.iloc[test_idx]
+
+    #get all features
+    target = 'choice'
+    features = [f for f in df_train.columns if f != target]
+
+    hh_id = df_train['HHNR']
+
+    #k folds sampled by households for cross validation
+    train_idx = []
+    test_idx = []
+    try:
+        train_idx, test_idx = pickle.load(open('../Data/strat_group_k_fold_mtmc.pickle', "rb"))
+    except FileNotFoundError:
+        for (train_i, test_i) in stratified_group_k_fold(df_train[features], df_train[target], hh_id, k=5):
+            train_idx.append(train_i)
+            test_idx.append(test_i)
+        pickle.dump([train_idx, test_idx], open('../Data/strat_group_k_fold_mtmc.pickle', "wb"))
+
+    folds = zip(train_idx, test_idx)
+
+    return df_train, df_test, folds, z_idx

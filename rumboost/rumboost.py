@@ -276,8 +276,11 @@ class RUMBoost:
 
         #if shared ensembles, get the shared predictions out and reorder them for easier addition later
         if self.shared_ensembles:
-            raw_shared_preds = np.reshape(raw_preds[[*self.shared_ensembles][0]:], (len(raw_preds[0]), -1))
-            raw_preds = raw_preds[:[*self.shared_ensembles][0]]
+            raw_shared_preds = np.reshape(raw_preds[self.shared_start_idx:], (self.num_obs, -1))
+            if self.shared_start_idx == 0:
+                raw_preds = [[0]*self.num_obs]*self.num_classes
+            else:
+                raw_preds = raw_preds[:self.shared_start_idx]
 
         raw_preds = np.array(raw_preds).T
 
@@ -348,8 +351,11 @@ class RUMBoost:
 
         #if shared ensembles, get the shared predictions out and reorder them for easier addition later
         if self.shared_ensembles:
-            raw_shared_preds = np.reshape(raw_preds[[*self.shared_ensembles][0]:], (-1, len(raw_preds[0]))).T
-            raw_preds = raw_preds[:[*self.shared_ensembles][0]]
+            raw_shared_preds = np.reshape(raw_preds[self.shared_start_idx:], (self.num_obs, -1))
+            if self.shared_start_idx == 0:
+                raw_preds = [[0]*self.num_obs]*self.num_classes
+            else:
+                raw_preds = raw_preds[:self.shared_start_idx]
 
         raw_preds = np.array(raw_preds).T
 
@@ -410,6 +416,7 @@ class RUMBoost:
 
         #to access data
         data.construct()
+        self.num_obs = data.num_data() #saving number of observations
         self.labels = data.get_label()
 
         if self.shared_ensembles is not None:
@@ -429,7 +436,9 @@ class RUMBoost:
                         l = j
 
                     if self.shared_ensembles:
-                        if l >= self.num_classes:
+                        if l >= self.shared_start_idx:
+                            if not shared_labels:
+                                shared_labels = {a: np.where(data.get_label() == a, 1, 0) for a in range(self.num_classes)}
                             new_label = np.hstack([shared_labels[s] for s in self.shared_ensembles[l]])
                             train_set_j = Dataset(train_set_j_data.values.reshape((-1, 1), order='A'), label=new_label, free_raw_data=False, params={'verbosity':-1}) #create and build dataset
                             train_set_j.construct()
@@ -451,7 +460,9 @@ class RUMBoost:
                             valid_set_j_data = valid_set.get_data()[struct['columns']] #only relevant features for the jth booster
                             
                             if self.shared_ensembles:
-                                if l >= self.num_classes:
+                                if l >= self.shared_start_idx:
+                                    if not shared_valids:
+                                        shared_valids = {a: np.where(valid_set.get_label() == a, 1, 0) for a in range(self.num_classes)}
                                     label_valid = np.hstack([shared_valids[s] for s in self.shared_ensembles[l]])
                                     valid_set_j = Dataset(valid_set_j_data.values.reshape((-1, 1), order='A'), label=label_valid, free_raw_data=False, reference=train_set_j, params={'verbosity':-1}) #create and build dataset
                                     valid_set_j.construct()
@@ -529,16 +540,7 @@ class RUMBoost:
                         'monotone_constraints': struct.get('monotone_constraints', []) if struct else [],
                         'interaction_constraints': struct.get('interaction_constraints', []) if struct else [],
                         'categorical_feature': struct.get('categorical_feature', []) if struct else []
-                        } if i < self.num_classes else
-                        {**copy.deepcopy(params),
-                        'learning_rate': params['learning_rate'] * 0.5, #learning rate divided by 2 for shared ensembles
-                        'verbosity': -1,
-                        'objective': 'binary',
-                        'num_classes': 1,
-                        'monotone_constraints': struct.get('monotone_constraints', []) if struct else [],
-                        'interaction_constraints': struct.get('interaction_constraints', []) if struct else [],
-                        'categorical_feature': struct.get('categorical_feature', []) if struct else []
-                        } for i, struct in enumerate(self.rum_structure)]
+                        } for struct in self.rum_structure]
 
         #store the set of parameters in RUMBoost
         self.params = params_J
@@ -857,8 +859,8 @@ def rum_train(
         alpha_jn represents the degree of membership of alternative j to nest n
         By example, alpha_12 = 0.5 means that alternative one belongs 50% to nest 2.
     shared_ensembles : dict, optional (default=None)
-        Dictionary of shared ensembles. Keys are the names of the shared ensembles, 
-        and values are the list of alternatives that share the ensemble.
+        Dictionary of shared ensembles. Keys are the index of position in the rum_structure list of the shared ensembles, 
+        and values are the list of alternatives that share the parameter.
         
 
     Note
@@ -977,7 +979,7 @@ def rum_train(
     #initialise shared ensembles if they are specified
     if shared_ensembles is not None:
         rumb.shared_ensembles = shared_ensembles
-        rumb.shared_valid_sets = []
+        rumb.shared_start_idx = [*shared_ensembles][0]
     else:
         rumb.shared_ensembles = None
 
@@ -1024,7 +1026,7 @@ def rum_train(
             else:
                 rumb._current_j = j
 
-            if rumb._current_j >= rumb.num_classes:
+            if rumb._current_j >= rumb.shared_start_idx:
                 booster.update(train_set=rumb.train_set[j], fobj=rumb.f_obj_shared_ensembles)
             else:
                 booster.update(train_set=rumb.train_set[j], fobj=f_obj)
