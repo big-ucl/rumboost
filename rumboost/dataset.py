@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import pickle
-from sklearn.model_selection import train_test_split, GroupShuffleSplit
+from sklearn.model_selection import train_test_split, GroupShuffleSplit, GroupKFold
 from rumboost.utils import stratified_group_k_fold
 import sys
 sys.path.append('../')
@@ -375,13 +375,15 @@ def load_preprocess_Vaccines():
 
     return df_train, df_test, folds
 
-def load_preprocess_MTMC(test_size: float = 0.2, random_state: int = 42):
-
+def load_preprocess_MTMC(test_size: float = 0.2, random_state: int = 1):
+    '''
+    Load and preprocess the MTMC dataset.
+    '''
     #load data
-    data = pd.read_csv(r"C:\Users\DAF1\OneDrive - University College London\Documents\PhD - UCL\rumboost\Data\data_lausanne_trips_preprocessed.csv", index_col=False)
+    data = pd.read_csv('Data/data_laus_trips_prep_attractions_allalt.csv')
 
     #load destination zones
-    z_idx = list(np.loadtxt(r"C:\Users\DAF1\OneDrive - University College London\Documents\PhD - UCL\rumboost\Data\z_idx.csv"))
+    z_idx = list(np.loadtxt('Data/z_idx.csv'))
 
     #split by household
     gsp = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
@@ -398,12 +400,13 @@ def load_preprocess_MTMC(test_size: float = 0.2, random_state: int = 42):
     train_idx = []
     test_idx = []
     try:
-        train_idx, test_idx = pickle.load(open('../Data/strat_group_k_fold_mtmc.pickle', "rb"))
+        train_idx, test_idx = pickle.load(open('Data/strat_group_k_fold_mtmc.pickle', "rb"))
     except FileNotFoundError:
-        for (train_i, test_i) in stratified_group_k_fold(df_train[features], df_train[target], hh_id, k=5):
+        gkf = GroupKFold()
+        for (train_i, test_i) in gkf.split(df_train[features], df_train[target], hh_id):
             train_idx.append(train_i)
             test_idx.append(test_i)
-        pickle.dump([train_idx, test_idx], open('../Data/strat_group_k_fold_mtmc.pickle', "wb"))
+        pickle.dump([train_idx, test_idx], open('Data/strat_group_k_fold_mtmc.pickle', "wb"))
 
     folds = zip(train_idx, test_idx)
 

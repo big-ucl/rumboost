@@ -11,10 +11,13 @@ biogeme.toml
 
 #data
 data_lausanne_trips_preprocessed.csv
+data_laus_trips_prep_attractions_allalt.csv
+
+#models
+models/
 
 #debug files
-debug.ipynb
-debug.py
+debug.*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

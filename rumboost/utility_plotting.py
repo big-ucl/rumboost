@@ -121,7 +121,7 @@ def plot_2d(model, feature1: str, feature2: str, min1: int, max1: int, min2: int
 
             plt.show()
 
-def plot_parameters(model, X, utility_names, save_figure=False, asc_normalised = False, with_asc = False, 
+def plot_parameters(model, X, utility_names, save_figure=False, asc_normalised = True, with_asc = False, 
                     only_tt = False, only_1d = False, with_fit = False, sm_tt_cost=False, save_file=''):
     """
     Plot the non linear impact of parameters on the utility function.
@@ -428,7 +428,7 @@ def plot_parameters(model, X, utility_names, save_figure=False, asc_normalised =
                 if f in list(X.columns):
                     x, non_lin_func = non_lin_function(weights_arranged[u][f], 0, 1.05*max(X[f]), 10000)
                 else:
-                    x, non_lin_func = non_lin_function(weights_arranged[u][f], 0, 10, 10000)
+                    x, non_lin_func = non_lin_function(weights_arranged[u][f], 0, 1.05*weights_arranged[u][f]['Splitting points'][-1], 10000)
 
                 if asc_normalised:
                     val_0 = non_lin_func[0]
@@ -462,7 +462,7 @@ def plot_parameters(model, X, utility_names, save_figure=False, asc_normalised =
                 if f in list(X.columns):
                     plt.xlim([0-0.05*np.max(X[f]), np.max(X[f])*1.05])
                 else:
-                    plt.xlim([0-0.05*10, 10*1.05])
+                    plt.xlim([0-0.05*weights_arranged[u][f]['Splitting points'][-1], weights_arranged[u][f]['Splitting points'][-1]*1.05])
                 plt.ylim([np.min(non_lin_func) - 0.05*(np.max(non_lin_func)-np.min(non_lin_func)), np.max(non_lin_func) + 0.05*(np.max(non_lin_func)-np.min(non_lin_func))])
 
                 plt.tight_layout()

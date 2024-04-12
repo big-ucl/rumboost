@@ -276,9 +276,9 @@ class RUMBoost:
 
         #if shared ensembles, get the shared predictions out and reorder them for easier addition later
         if self.shared_ensembles:
-            raw_shared_preds = np.reshape(raw_preds[self.shared_start_idx:], (self.num_obs, -1))
+            raw_shared_preds = np.concatenate([arr.reshape((data.num_data(), -1)) for arr in raw_preds[self.shared_start_idx:]], axis=1)
             if self.shared_start_idx == 0:
-                raw_preds = [[0]*self.num_obs]*self.num_classes
+                raw_preds = [np.zeros(data.num_data())]*self.num_classes
             else:
                 raw_preds = raw_preds[:self.shared_start_idx]
 
@@ -347,13 +347,13 @@ class RUMBoost:
             Can be sparse or a list of sparse objects (each element represents predictions for one class) for feature contributions (when ``pred_contrib=True``).
         """
         #getting raw prediction from lightGBM booster's inner predict
-        raw_preds = [booster._Booster__inner_predict(data_idx) for i, booster in enumerate(self.boosters)]
+        raw_preds = [booster._Booster__inner_predict(data_idx) for _, booster in enumerate(self.boosters)]
 
         #if shared ensembles, get the shared predictions out and reorder them for easier addition later
         if self.shared_ensembles:
-            raw_shared_preds = np.reshape(raw_preds[self.shared_start_idx:], (self.num_obs, -1))
+            raw_shared_preds = np.concatenate([arr.reshape((-1, self.num_obs[data_idx])) for arr in raw_preds[self.shared_start_idx:]]).T
             if self.shared_start_idx == 0:
-                raw_preds = [[0]*self.num_obs]*self.num_classes
+                raw_preds = [np.zeros(self.num_obs[data_idx])]*self.num_classes
             else:
                 raw_preds = raw_preds[:self.shared_start_idx]
 
@@ -416,10 +416,15 @@ class RUMBoost:
 
         #to access data
         data.construct()
-        self.num_obs = data.num_data() #saving number of observations
+        self.num_obs = [data.num_data()] #saving number of observations
+        if reduced_valid_set:
+            for valid_set in reduced_valid_set:
+                valid_set.construct()
+                self.num_obs.append(valid_set.num_data())
+
         self.labels = data.get_label()
 
-        if self.shared_ensembles is not None:
+        if self.shared_ensembles:
             shared_labels = {}
             shared_valids = {}
 
