@@ -1,7 +1,7 @@
 import biogeme.database as db
 import biogeme.biogeme as bio
 from biogeme.expressions import Beta
-from biogeme.models import loglogit, logit, lognested, nested
+from biogeme.models import loglogit, logit, lognested, nested, logcnl_avail, cnl_avail
 import biogeme.logging as blog
 import pandas as pd
 
@@ -1292,4 +1292,198 @@ def Vaccines(dataset_train: pd.DataFrame, for_prob=False):
 
         return biosim
 
+    return biogeme
+
+def MTMC_lausanne_MNL(dataset_train: pd.DataFrame, for_prob=False, results=None):
+    '''
+    Estimation of a MNL model.
+
+    Parameters
+    ----------
+    dataset_train : pandas DataFrame
+        The training dataset.
+    for_prob : bool, optional
+        If True, the function returns a BIOGEME object for probability calculation.
+    results : bio.BIOGEME, optional (default=None)
+        The biogeme model estimated.
+    Returns
+    -------
+    biogeme : bio.BIOGEME
+        The BIOGEME object containing the model.
+    '''
+    database = db.Database("mtmc_train", dataset_train)
+    globals().update(database.variables)
+    
+    #define level of verbosity
+    logger = blog.get_screen_logger(level=blog.DEBUG)
+    logger.info('LPMC MNL')
+
+    alt = 88
+    
+    ASC_c = Beta('ASC_c',0,None,None,0)
+    ASC_pt = Beta('ASC_pt',0,None,None,0)
+    ASC_act = Beta('ASC_act',0,None,None,1)
+    
+    #car specific
+    B_TIME_c = Beta('B_TIME_c', 0, None, None, 0)
+    #pt specific
+    B_TIME_pt = Beta('B_TIME_pt', 0, None, None, 0)
+    #soft modes specific
+    B_TIME_act = Beta('B_TIME_act', 0, None, None, 0)
+    
+
+    #activity specific
+    B_JobD_WORK = Beta('B_JobD_WORK', 0, None, None, 0)
+    B_PopD_EDUC = Beta('B_PopD_EDUC', 0, None, None, 0)
+    B_PopD_LEIS = Beta('B_PopD_LEIS', 0, None, None, 0)
+    B_JobD_PopD_SHOP = Beta('B_JobD_PopD_SHOP', 0, None, None, 0) 
+    B_PopD_OTHE = Beta('B_PopD_OTHE', 0, None, None, 0)
+    
+    #utilities
+    V_CAR = [ASC_c + B_TIME_c*globals()['CAR_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + escort*B_PopD_OTHE*globals()['pop_density_'+str(i)] + errands*B_PopD_OTHE*globals()['pop_density_'+str(i)] for i in range(0,alt)]
+    V_PT = [ASC_pt + B_TIME_pt*globals()['PT_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + escort*B_PopD_OTHE*globals()['pop_density_'+str(i)] + errands*B_PopD_OTHE*globals()['pop_density_'+str(i)] for i in range(0,alt)]
+    V_ACT = [ASC_act + B_TIME_act*globals()['ACT_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + escort*B_PopD_OTHE*globals()['pop_density_'+str(i)] + errands*B_PopD_OTHE*globals()['pop_density_'+str(i)] for i in range(0,alt)]
+    
+    #assignment of utility function to alternatives
+    V_car = {i: V_CAR[i] for i in range(0,alt)}
+    V_pt = {i+alt: V_PT[i]  for i in range(0,alt)}
+    V_act = {i+2*alt: V_ACT[i] for i in range(0,alt)}
+    #combining different modes together
+    V = {**V_car, **V_pt, **V_act}
+
+    #define alternatives availability -> here everything is available
+    avail = {i: 1 for i in range(0,alt*3)}
+
+    #for predicting
+    # if for_prob:
+    #     simulate ={'Prob. '+str(i):logit(V, None, i) for i in range(0, 3*alt)}
+    #     biosim = bio.BIOGEME(database, simulate)
+    #     biosim.modelName = "MTMC_Lausanne_MNL_test"
+
+    #     biosim.generate_html = False
+    #     biosim.generate_pickle = False
+
+    #     return biosim
+
+    if for_prob:
+        logprob = logit(V, avail, choice)
+        simulated_choices = logprob.getValue_c(betas=results.getBetaValues(), database=database, prepareIds=True)
+        return simulated_choices
+
+    #define model
+    logprob = loglogit(V, avail, choice)
+    #create the Biogeme object
+    biogeme = bio.BIOGEME(database, logprob)
+    biogeme.modelName = "MTMC_Lausanne_MNL"
+    
+    return biogeme
+
+def MTMC_lausanne_CNL(dataset_train: pd.DataFrame, for_prob=False):
+    '''
+    Estimation of a CNL model.
+
+    Parameters
+    ----------
+    dataset_train : pandas DataFrame
+        The training dataset.
+    for_prob : bool, optional
+        If True, the function returns a BIOGEME object for probability calculation.
+
+    Returns
+    -------
+    biogeme : bio.BIOGEME
+        The BIOGEME object containing the model.
+    '''
+    database = db.Database("mtmc_train", dataset_train)
+    globals().update(database.variables)
+
+    alt = 88
+    #defining groups of destinations for the cross-nested logit model
+    west_loz = list(range(0,25))
+    east_loz = [27, 30, 46, 50, 54] + list(range(68,88))
+    city_center = [i for i in range(0,88) if i not in west_loz if i not in east_loz]
+    
+    ASC_c = Beta('ASC_c',0,None,None,0)
+    ASC_pt = Beta('ASC_pt',0,None,None,0)
+    ASC_act = Beta('ASC_act',0,None,None,1)
+
+    #nest parameter
+    MU_CAR = Beta('MU_CAR', 1, 1, 10, 0)
+    MU_PT = Beta('MU_PT', 1, 1, 10, 0)
+    MU_ACT = Beta('MU_ACT', 1, 1, 10, 1)
+    MU_WEST = Beta('MU_WEST', 1, 1, 10, 0)
+    MU_CENTER = Beta('MU_CENTER', 1, 1, 10, 0)
+    MU_EAST = Beta('MU_EAST', 1, 1, 10, 0)
+    
+    #car specific
+    B_TIME_c = Beta('B_TIME_c', 0, None, None, 0)
+    #pt specific
+    B_TIME_pt = Beta('B_TIME_pt', 0, None, None, 0)
+    #soft modes specific
+    B_TIME_act = Beta('B_TIME_act', 0, None, None, 0)
+    
+
+    #activity specific
+    B_JobD_WORK = Beta('B_JobD_WORK', 0, None, None, 0)
+    B_PopD_EDUC = Beta('B_PopD_EDUC', 0, None, None, 0)
+    B_PopD_LEIS = Beta('B_PopD_LEIS', 0, None, None, 0)
+    B_JobD_PopD_SHOP = Beta('B_JobD_PopD_SHOP', 0, None, None, 0) 
+    B_PopD_OTHE = Beta('B_PopD_OTHE', 0, None, None, 0)
+    
+    #utilities
+    V_CAR = [ASC_c + B_TIME_c*globals()['CAR_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + other*B_PopD_OTHE*globals()['pop_density_'+str(i)] for i in range(0,alt)]
+    V_PT = [ASC_pt + B_TIME_pt*globals()['PT_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + other*B_PopD_OTHE*globals()['pop_density_'+str(i)] for i in range(0,alt)]
+    V_ACT = [ASC_act + B_TIME_act*globals()['ACT_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + other*B_PopD_OTHE*globals()['pop_density_'+str(i)] for i in range(0,alt)]
+    
+    #assignment of utility function to alternatives
+    V_car = {i: V_CAR[i] for i in range(0,alt)}
+    V_pt = {i+alt: V_PT[i]  for i in range(0,alt)}
+    V_act = {i+2*alt: V_ACT[i] for i in range(0,alt)}
+    #combining different modes together
+    V = {**V_car, **V_pt, **V_act}
+
+    #define alternatives availability -> here everything is available
+    avail = {i: 1 for i in range(0,alt*3)}
+    
+    #define which alternatives belong to which nest
+    ALPHA_CAR = {i: 0.5 if i < alt else 0.0 for i in range(0,3*alt)}
+    ALPHA_PT = {i: 0.5 if i >= alt and i < 2*alt else 0.0 for i in range(0,3*alt)}
+    ALPHA_ACT = {i: 0.5 if i >= 2*alt else 0.0 for i in range(0,3*alt)}
+    #using modulo to get zones for all 3 modes belonging to each groups
+    ALPHA_WEST = {i: 0.5 if i % alt in west_loz else 0.0 for i in range(0,3*alt)}
+    ALPHA_CENTER = {i: 0.5 if i % alt in city_center else 0.0 for i in range(0,3*alt)}
+    ALPHA_EAST = {i: 0.5 if i % alt in east_loz else 0.0 for i in range(0,3*alt)}
+
+    #nest definition
+    nest_car = MU_CAR, ALPHA_CAR
+    nest_pt = MU_PT, ALPHA_PT
+    nest_act = MU_ACT, ALPHA_ACT
+    nest_west = MU_WEST, ALPHA_WEST
+    nest_center = MU_CENTER, ALPHA_CENTER
+    nest_east = MU_EAST, ALPHA_EAST
+
+    nests = nest_car, nest_pt, nest_act, nest_west, nest_center, nest_east
+
+    #define level of verbosity
+    logger = blog.get_screen_logger(level=blog.DEBUG)
+    logger.info('LPMC CNL')
+
+    #for predicting
+    if for_prob:
+        simulate ={'Prob. '+str(i):cnl_avail(V, avail, i) for i in range(0, 3*alt)}
+        biosim = bio.BIOGEME(database, simulate)
+        biosim.modelName = "MTMC_Lausanne_CNL_test"
+
+        biosim.generate_html = False
+        biosim.generate_pickle = False
+
+        return biosim
+    
+    #define model
+    logprob = logcnl_avail(V, avail, nests, choice)
+
+    #create the Biogeme object
+    biogeme = bio.BIOGEME(database, logprob)
+    biogeme.modelName = "MTMC_Lausanne_CNL"
+    
     return biogeme
