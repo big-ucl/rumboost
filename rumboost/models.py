@@ -1306,6 +1306,7 @@ def MTMC_lausanne_MNL(dataset_train: pd.DataFrame, for_prob=False, results=None)
         If True, the function returns a BIOGEME object for probability calculation.
     results : bio.BIOGEME, optional (default=None)
         The biogeme model estimated.
+
     Returns
     -------
     biogeme : bio.BIOGEME
@@ -1337,12 +1338,13 @@ def MTMC_lausanne_MNL(dataset_train: pd.DataFrame, for_prob=False, results=None)
     B_PopD_EDUC = Beta('B_PopD_EDUC', 0, None, None, 0)
     B_PopD_LEIS = Beta('B_PopD_LEIS', 0, None, None, 0)
     B_JobD_PopD_SHOP = Beta('B_JobD_PopD_SHOP', 0, None, None, 0) 
-    B_PopD_OTHE = Beta('B_PopD_OTHE', 0, None, None, 0)
-    
+    B_PopD_ESC = Beta('B_PopD_ESC', 0, None, None, 0)
+    B_PopD_ERR = Beta('B_PopD_ERR', 0, None, None, 0)
+
     #utilities
-    V_CAR = [ASC_c + B_TIME_c*globals()['CAR_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + escort*B_PopD_OTHE*globals()['pop_density_'+str(i)] + errands*B_PopD_OTHE*globals()['pop_density_'+str(i)] for i in range(0,alt)]
-    V_PT = [ASC_pt + B_TIME_pt*globals()['PT_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + escort*B_PopD_OTHE*globals()['pop_density_'+str(i)] + errands*B_PopD_OTHE*globals()['pop_density_'+str(i)] for i in range(0,alt)]
-    V_ACT = [ASC_act + B_TIME_act*globals()['ACT_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + escort*B_PopD_OTHE*globals()['pop_density_'+str(i)] + errands*B_PopD_OTHE*globals()['pop_density_'+str(i)] for i in range(0,alt)]
+    V_CAR = [ASC_c + B_TIME_c*globals()['CAR_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + escort*B_PopD_ESC*globals()['pop_density_'+str(i)] + errands*B_PopD_ERR*globals()['pop_density_'+str(i)] for i in range(0,alt)]
+    V_PT = [ASC_pt + B_TIME_pt*globals()['PT_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + escort*B_PopD_ESC*globals()['pop_density_'+str(i)] + errands*B_PopD_ERR*globals()['pop_density_'+str(i)] for i in range(0,alt)]
+    V_ACT = [ASC_act + B_TIME_act*globals()['ACT_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + escort*B_PopD_ESC*globals()['pop_density_'+str(i)] + errands*B_PopD_ERR*globals()['pop_density_'+str(i)] for i in range(0,alt)]
     
     #assignment of utility function to alternatives
     V_car = {i: V_CAR[i] for i in range(0,alt)}
@@ -1378,7 +1380,7 @@ def MTMC_lausanne_MNL(dataset_train: pd.DataFrame, for_prob=False, results=None)
     
     return biogeme
 
-def MTMC_lausanne_CNL(dataset_train: pd.DataFrame, for_prob=False):
+def MTMC_lausanne_CNL(dataset_train: pd.DataFrame, for_prob=False, results=None):
     '''
     Estimation of a CNL model.
 
@@ -1388,6 +1390,8 @@ def MTMC_lausanne_CNL(dataset_train: pd.DataFrame, for_prob=False):
         The training dataset.
     for_prob : bool, optional
         If True, the function returns a BIOGEME object for probability calculation.
+    results : bio.BIOGEME, optional (default=None)
+        The biogeme model estimated.
 
     Returns
     -------
@@ -1428,13 +1432,14 @@ def MTMC_lausanne_CNL(dataset_train: pd.DataFrame, for_prob=False):
     B_PopD_EDUC = Beta('B_PopD_EDUC', 0, None, None, 0)
     B_PopD_LEIS = Beta('B_PopD_LEIS', 0, None, None, 0)
     B_JobD_PopD_SHOP = Beta('B_JobD_PopD_SHOP', 0, None, None, 0) 
-    B_PopD_OTHE = Beta('B_PopD_OTHE', 0, None, None, 0)
-    
+    B_PopD_ESC = Beta('B_PopD_ESC', 0, None, None, 0)
+    B_PopD_ERR = Beta('B_PopD_ERR', 0, None, None, 0)
+
     #utilities
-    V_CAR = [ASC_c + B_TIME_c*globals()['CAR_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + other*B_PopD_OTHE*globals()['pop_density_'+str(i)] for i in range(0,alt)]
-    V_PT = [ASC_pt + B_TIME_pt*globals()['PT_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + other*B_PopD_OTHE*globals()['pop_density_'+str(i)] for i in range(0,alt)]
-    V_ACT = [ASC_act + B_TIME_act*globals()['ACT_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + other*B_PopD_OTHE*globals()['pop_density_'+str(i)] for i in range(0,alt)]
-    
+    V_CAR = [ASC_c + B_TIME_c*globals()['CAR_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + escort*B_PopD_ESC*globals()['pop_density_'+str(i)] + errands*B_PopD_ERR*globals()['pop_density_'+str(i)] for i in range(0,alt)]
+    V_PT = [ASC_pt + B_TIME_pt*globals()['PT_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + escort*B_PopD_ESC*globals()['pop_density_'+str(i)] + errands*B_PopD_ERR*globals()['pop_density_'+str(i)] for i in range(0,alt)]
+    V_ACT = [ASC_act + B_TIME_act*globals()['ACT_TT_'+str(i+6334)] + work*B_JobD_WORK*globals()['job_density_'+str(i)] + education*B_PopD_EDUC*globals()['pop_density_'+str(i)] + leisure*B_PopD_LEIS*(globals()['pop_density_'+str(i)]) + shopping*B_JobD_PopD_SHOP*(globals()['pop_density_'+str(i)]+globals()['job_density_'+str(i)]) + escort*B_PopD_ESC*globals()['pop_density_'+str(i)] + errands*B_PopD_ERR*globals()['pop_density_'+str(i)] for i in range(0,alt)]
+   
     #assignment of utility function to alternatives
     V_car = {i: V_CAR[i] for i in range(0,alt)}
     V_pt = {i+alt: V_PT[i]  for i in range(0,alt)}
@@ -1469,15 +1474,20 @@ def MTMC_lausanne_CNL(dataset_train: pd.DataFrame, for_prob=False):
     logger.info('LPMC CNL')
 
     #for predicting
+    # if for_prob:
+    #     simulate ={'Prob. '+str(i):cnl_avail(V, avail, i) for i in range(0, 3*alt)}
+    #     biosim = bio.BIOGEME(database, simulate)
+    #     biosim.modelName = "MTMC_Lausanne_CNL_test"
+
+    #     biosim.generate_html = False
+    #     biosim.generate_pickle = False
+
+    #     return biosim
+    
     if for_prob:
-        simulate ={'Prob. '+str(i):cnl_avail(V, avail, i) for i in range(0, 3*alt)}
-        biosim = bio.BIOGEME(database, simulate)
-        biosim.modelName = "MTMC_Lausanne_CNL_test"
-
-        biosim.generate_html = False
-        biosim.generate_pickle = False
-
-        return biosim
+        logprob = cnl_avail(V, None, nests, choice)
+        simulated_choices = logprob.getValue_c(betas=results.getBetaValues(), database=database, prepareIds=True)
+        return simulated_choices
     
     #define model
     logprob = logcnl_avail(V, avail, nests, choice)

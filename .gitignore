@@ -7,7 +7,6 @@ dist/
 rumboost.egg-info/
 .readthedocs
 tests/test.py
-biogeme.toml
 
 #data
 data_lausanne_trips_preprocessed.csv
@@ -15,6 +14,12 @@ data_laus_trips_prep_attractions_allalt.csv
 
 #models
 models/
+
+#biogeme files
+*.iter
+*.pickle
+*.html
+biogeme.toml
 
 #debug files
 debug.*
