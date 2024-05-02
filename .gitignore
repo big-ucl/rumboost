@@ -11,6 +11,10 @@ tests/test.py
 #data
 data_lausanne_trips_preprocessed.csv
 data_laus_trips_prep_attractions_allalt.csv
+strat_group_k_fold_mtmc.pickle
+strat_group_k_fold_mtmc_all.pickle
+train_set_switzerland.pkl
+test_set_switzerland.pkl
 
 #models
 models/

@@ -411,3 +411,50 @@ def load_preprocess_MTMC(test_size: float = 0.2, random_state: int = 1):
     folds = zip(train_idx, test_idx)
 
     return df_train, df_test, folds, z_idx
+
+def load_preprocess_MTMC_all(test_size: float = 0.2, random_state: int = 1):
+    '''
+    Load and preprocess the MTMC dataset for all swiss zones.
+    '''
+
+    try:
+        z_idx = list(np.loadtxt('../choice_set_location_travelmode/Data/input/z_idx_all_wo_alps.csv'))
+        with open('Data/train_set_switzerland.pkl', 'rb') as f:
+            df_train = pickle.load(f)
+        with open('Data/test_set_switzerland.pkl', 'rb') as f:
+            df_test = pickle.load(f)
+        with open('Data/strat_group_k_fold_mtmc_all.pickle', 'rb') as f:
+            train_idx, test_idx = pickle.load(open('Data/strat_group_k_fold_mtmc_all.pickle', "rb"))
+    except FileNotFoundError:
+        #load data
+        with open('../choice_set_location_travelmode/Data/input/data_switzerland_trips_preprocessed.pkl', 'rb') as f:
+            data = pickle.load(f)
+
+        #load destination zones
+        z_idx = list(np.loadtxt('../choice_set_location_travelmode/Data/input/z_idx_all_wo_alps.csv'))
+
+        #split by household
+        gsp = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
+        train_idx, test_idx = next(gsp.split(data, groups=data['HHNR']))
+        df_train, df_test = data.iloc[train_idx], data.iloc[test_idx]
+        pickle.dump(df_train, open('Data/train_set_switzerland.pkl', "wb"))
+        pickle.dump(df_test, open('Data/test_set_switzerland.pkl', "wb"))
+
+        #get all features
+        target = 'choice'
+        features = [f for f in df_train.columns if f != target]
+
+        hh_id = df_train['HHNR']
+
+        #k folds sampled by households for cross validation
+        train_idx = []
+        test_idx = []
+        gkf = GroupKFold()
+        for (train_i, test_i) in gkf.split(df_train[features], df_train[target], hh_id):
+            train_idx.append(train_i)
+            test_idx.append(test_i)
+        pickle.dump([train_idx, test_idx], open('Data/strat_group_k_fold_mtmc_all.pickle', "wb"))
+
+    folds = zip(train_idx, test_idx)
+
+    return df_train, df_test, folds, z_idx
