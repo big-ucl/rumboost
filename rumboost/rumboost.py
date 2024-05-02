@@ -89,10 +89,13 @@ class RUMBoost:
                 The hessian with the cross-entropy loss function (second derivative approximation rather than the hessian). Calculated as factor * preds * (1 - preds).
             """
             j = self._current_j #jth booster
-            preds = self._preds[:,j] #corresponding predictions
+            if self.shared_ensembles and j >= self.shared_start_idx:
+                preds = self._preds[:,self.shared_ensembles[j]].reshape(-1, order='A') #corresponding predictions
+            else:
+                preds = self._preds[:,j] #corresponding predictions
             factor = self.num_classes/(self.num_classes-1) #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
             eps = 1e-6
-            labels = train_set.get_label()
+            labels = self.labels_j[j]
             grad = preds - labels
             hess = np.maximum(factor * preds * (1 - preds), eps) #truncate low values to avoid numerical errors
             return grad, hess
@@ -117,22 +120,46 @@ class RUMBoost:
             hess : numpy array
                 The hessian with the cross-entropy loss function and nested probabilities (second derivative approximation rather than the hessian).
             """
-            j = self._current_j
-            pred_i_m = self.preds_i_m[:,j] #prediction of choice i knowing nest m
-            pred_m = self.preds_m[:, self.nests[j]] #prediction of choosing nest m
-            factor = self.num_classes/(self.num_classes-1) #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
+            if self.shared_ensembles and self._current_j >= self.shared_start_idx:
+                grad = np.array([])
+                hess = np.array([])
+                for j in self.shared_ensembles[self._current_j]:
+                    labels = self.labels
+                    labels_nest = self.labels_nest
+                    pred_i_m = self.preds_i_m[:,j] #prediction of choice i knowing nest m
+                    pred_m = self.preds_m[:, self.nests[j]] #prediction of choosing nest m
+                    factor = self.num_classes/(self.num_classes-1) #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
 
-            #three cases: 1. choice i = j, 2. j is in the same nest than choice i, 3. j is in another nest.
-            grad = (self.labels == j) * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)) + \
-                   (self.labels_nest == self.nests[j]) * (1 - (self.labels == j)) * (self.mu[self.nests[j]] * pred_i_m - pred_i_m * (1 - pred_m)) + \
-                   (1 - (self.labels_nest == self.nests[j])) * (pred_i_m * pred_m)
-            hess = (self.labels == j) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
-                   (self.labels_nest == self.nests[j]) * (1 - (self.labels == j)) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
-                   (1 - (self.labels_nest == self.nests[j])) * (-pred_i_m * pred_m * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)))
-            
-            hess = factor * hess
+                    #three cases: 1. choice i = j, 2. j is in the same nest than choice i, 3. j is in another nest.
+                    grad = np.concatenate([grad, (labels == j) * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)) + \
+                                                 (labels_nest == self.nests[j]) * (1 - (labels == j)) * (self.mu[self.nests[j]] * pred_i_m - pred_i_m * (1 - pred_m)) + \
+                                                 (1 - (labels_nest == self.nests[j])) * (pred_i_m * pred_m)])
+                    hess = np.concatenate([hess, (labels == j) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
+                                                 (labels_nest == self.nests[j]) * (1 - (labels == j)) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
+                                                 (1 - (labels_nest == self.nests[j])) * (-pred_i_m * pred_m * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)))])
+                    
+                    hess = factor * hess
 
-            return grad, hess
+                return grad, hess
+            else:
+                j = self._current_j
+                labels = self.labels
+                labels_nest = self.labels_nest
+                pred_i_m = self.preds_i_m[:,j] #prediction of choice i knowing nest m
+                pred_m = self.preds_m[:, self.nests[j]] #prediction of choosing nest m
+                factor = self.num_classes/(self.num_classes-1) #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
+
+                #three cases: 1. choice i = j, 2. j is in the same nest than choice i, 3. j is in another nest.
+                grad = (labels == j) * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)) + \
+                    (labels_nest == self.nests[j]) * (1 - (labels == j)) * (self.mu[self.nests[j]] * pred_i_m - pred_i_m * (1 - pred_m)) + \
+                    (1 - (labels_nest == self.nests[j])) * (pred_i_m * pred_m)
+                hess = (labels == j) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
+                    (labels_nest == self.nests[j]) * (1 - (labels == j)) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
+                    (1 - (labels_nest == self.nests[j])) * (-pred_i_m * pred_m * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)))
+                
+                hess = factor * hess
+
+                return grad, hess
     
     def f_obj_cross_nested(self, _, train_set: Dataset):
         """
@@ -150,59 +177,58 @@ class RUMBoost:
         hess : numpy array
             The hessian with the cross-entropy loss function and cross-nested probabilities (second derivative approximation rather than the hessian).
         """
-        j = self._current_j
-        labels = self.labels.astype(int)
-        mu = np.array(self.mu).reshape(1, len(self.mu))
-        data_idx = np.arange(self.preds_i_m.shape[0])
-        factor = self.num_classes / (self.num_classes - 1)  # factor to correct redundancy (see Friedmann, Greedy Function Approximation)
+        if self.shared_ensembles and self._current_j >= self.shared_start_idx:
+            grad = np.array([]).reshape(0, 1)
+            hess = np.array([]).reshape(0, 1)
+            for j in self.shared_ensembles[self._current_j]:
+                labels = self.labels
+                mu = np.array(self.mu).reshape(1, len(self.mu))
+                data_idx = np.arange(self.preds_i_m.shape[0])
+                factor = self.num_classes / (self.num_classes - 1)  #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
 
-        pred_j_m = self.preds_i_m[:, j, :]  # pred of alternative j knowing nest m
-        pred_i_m = self.preds_i_m[data_idx, labels, :]  # prediction of choice i knowing nest m
-        pred_m = self.preds_m[:, j, :]  # prediction of choosing nest m
-        pred_i = self._preds[data_idx, labels]  # pred of choice i
-        pred_j = self._preds[:, j]  # pred of alt j
+                pred_j_m = self.preds_i_m[:, j, :]  #pred of alternative j knowing nest m
+                pred_i_m = self.preds_i_m[data_idx, labels, :]  #prediction of choice i knowing nest m
+                pred_m = self.preds_m[:, j, :]  #prediction of choosing nest m
+                pred_i = self._preds[data_idx, labels].reshape(-1,1)  #pred of choice i
+                pred_j = self._preds[:, j].reshape(-1,1)  #pred of alt j
 
-        d_pred_i_Vi = np.sum((pred_i_m * pred_m * (pred_i_m * (1 - mu) + mu - pred_i)), axis=1, keepdims=True)  # first derivative of pred i with respect to Vi
-        d_pred_i_Vj = np.sum((pred_i_m * pred_m * (pred_j_m * (1 - mu) - pred_j)), axis=1, keepdims=True)  # first derivative of pred i with respect to Vj
-        d_pred_j_Vj = np.sum((pred_j_m * pred_m * (pred_j_m * (1 - mu) + mu - pred_j)), axis=1, keepdims=True)  # first derivative of pred j with respect to Vj
-        d2_pred_i_Vi = np.sum((pred_i_m * pred_m * (mu ** 2 * (2 * pred_i_m ** 2 - 3 * pred_i_m + 1) + mu * (-3 * pred_i_m ** 2 + 3 * pred_i_m + 2 * pred_i * (pred_i_m - 1)) + (pred_i_m ** 2 - 2 * pred_i_m * pred_i + pred_i ** 2 - d_pred_i_Vi))), axis=1, keepdims=True)
-        d2_pred_i_Vj = np.sum((pred_i_m * pred_m * (mu ** 2 * (-pred_j_m) + mu * (-pred_j_m ** 2 + pred_j_m) + (pred_j_m - pred_j) ** 2 - d_pred_j_Vj)), axis=1, keepdims=True)
+                d_pred_i_Vi = np.sum((pred_i_m * pred_m * (pred_i_m * (1 - mu) + mu - pred_i)), axis=1, keepdims=True)  #first derivative of pred i with respect to Vi
+                d_pred_i_Vj = np.sum((pred_i_m * pred_m * (pred_j_m * (1 - mu) - pred_j)), axis=1, keepdims=True)  #first derivative of pred i with respect to Vj
+                d_pred_j_Vj = np.sum((pred_j_m * pred_m * (pred_j_m * (1 - mu) + mu - pred_j)), axis=1, keepdims=True)  #first derivative of pred j with respect to Vj
+                d2_pred_i_Vi = np.sum((pred_i_m * pred_m * (mu ** 2 * (2 * pred_i_m ** 2 - 3 * pred_i_m + 1) + mu * (-3 * pred_i_m ** 2 + 3 * pred_i_m + 2 * pred_i * (pred_i_m - 1)) + (pred_i_m ** 2 - 2 * pred_i_m * pred_i + pred_i ** 2 - d_pred_i_Vi))), axis=1, keepdims=True)
+                d2_pred_i_Vj = np.sum((pred_i_m * pred_m * (mu ** 2 * (-pred_j_m) + mu * (-pred_j_m ** 2 + pred_j_m) + (pred_j_m - pred_j) ** 2 - d_pred_j_Vj)), axis=1, keepdims=True)
 
-        # two cases: 1. alt j is choice i, 2. alt j is not choice i
-        grad = np.where(labels == j, (-1 / pred_i) * d_pred_i_Vi, (-1 / pred_i) * d_pred_i_Vj)
-        hess = np.where(labels == j, (-1 / pred_i ** 2) * (d2_pred_i_Vi * pred_i - d_pred_i_Vi ** 2), (-1 / pred_i ** 2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj ** 2))
-        hess = factor * hess
+                #two cases: 1. alt j is choice i, 2. alt j is not choice i
+                grad = np.concatenate([grad,np.where(labels.reshape(-1,1) == j, (-1 / pred_i) * d_pred_i_Vi, (-1 / pred_i) * d_pred_i_Vj)])
+                hess = np.concatenate([hess,np.where(labels.reshape(-1,1) == j, (-1 / pred_i ** 2) * (d2_pred_i_Vi * pred_i - d_pred_i_Vi ** 2), (-1 / pred_i ** 2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj ** 2))])
+                hess = factor * hess
 
-        return grad.reshape(-1), hess.reshape(-1)
-    
-    def f_obj_shared_ensembles(
-            self,
-            _,
-            train_set: Dataset
-        ):
-            """
-            Objective function of the binary classification boosters, but based on softmax predictions. This function is used for shared ensembles.
+            return grad.reshape(-1), hess.reshape(-1)
+        else:
+            j = self._current_j
+            labels = self.labels
+            mu = np.array(self.mu).reshape(1, len(self.mu))
+            data_idx = np.arange(self.preds_i_m.shape[0])
+            factor = self.num_classes / (self.num_classes - 1)  #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
 
-            Parameters
-            ----------
-            train_set : Dataset
-                Training set used to train the jth booster. It means that it is not the full training set but rather another dataset containing the relevant features for that utility. It is the jth dataset in the RUMBoost object.
+            pred_j_m = self.preds_i_m[:, j, :]  #pred of alternative j knowing nest m
+            pred_i_m = self.preds_i_m[data_idx, labels, :]  #prediction of choice i knowing nest m
+            pred_m = self.preds_m[:, j, :]  #prediction of choosing nest m
+            pred_i = self._preds[data_idx, labels]  #pred of choice i
+            pred_j = self._preds[:, j]  #pred of alt j
 
-            Returns
-            -------
-            grad : numpy array
-                The gradient with the cross-entropy loss function. It is the predictions minus the binary labels (if it is used for the jth booster, labels will be 1 if the chosen class is j, 0 if it is any other classes).
-            hess : numpy array
-                The hessian with the cross-entropy loss function (second derivative approximation rather than the hessian). Calculated as factor * preds * (1 - preds).
-            """
-            j = self._current_j #jth booster
-            preds = self._preds[:,self.shared_ensembles[j]].reshape(-1, order='A') #corresponding predictions
-            factor = self.num_classes / (self.num_classes - 1)  # factor to correct redundancy (see Friedmann, Greedy Function Approximation)
-            eps = 1e-6
-            labels = train_set.get_label()
-            grad = preds - labels
-            hess = np.maximum(factor * preds * (1 - preds), eps) #truncate low values to avoid numerical errors
-            return grad, hess
+            d_pred_i_Vi = np.sum((pred_i_m * pred_m * (pred_i_m * (1 - mu) + mu - pred_i)), axis=1, keepdims=True)  #first derivative of pred i with respect to Vi
+            d_pred_i_Vj = np.sum((pred_i_m * pred_m * (pred_j_m * (1 - mu) - pred_j)), axis=1, keepdims=True)  #first derivative of pred i with respect to Vj
+            d_pred_j_Vj = np.sum((pred_j_m * pred_m * (pred_j_m * (1 - mu) + mu - pred_j)), axis=1, keepdims=True)  #first derivative of pred j with respect to Vj
+            d2_pred_i_Vi = np.sum((pred_i_m * pred_m * (mu ** 2 * (2 * pred_i_m ** 2 - 3 * pred_i_m + 1) + mu * (-3 * pred_i_m ** 2 + 3 * pred_i_m + 2 * pred_i * (pred_i_m - 1)) + (pred_i_m ** 2 - 2 * pred_i_m * pred_i + pred_i ** 2 - d_pred_i_Vi))), axis=1, keepdims=True)
+            d2_pred_i_Vj = np.sum((pred_i_m * pred_m * (mu ** 2 * (-pred_j_m) + mu * (-pred_j_m ** 2 + pred_j_m) + (pred_j_m - pred_j) ** 2 - d_pred_j_Vj)), axis=1, keepdims=True)
+
+            #two cases: 1. alt j is choice i, 2. alt j is not choice i
+            grad = np.where(labels == j, (-1 / pred_i) * d_pred_i_Vi, (-1 / pred_i) * d_pred_i_Vj)
+            hess = np.where(labels == j, (-1 / pred_i ** 2) * (d2_pred_i_Vi * pred_i - d_pred_i_Vi ** 2), (-1 / pred_i ** 2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj ** 2))
+            hess = factor * hess
+
+            return grad.reshape(-1), hess.reshape(-1)
             
     def predict(
         self,
@@ -422,7 +448,9 @@ class RUMBoost:
                 valid_set.construct()
                 self.num_obs.append(valid_set.num_data())
 
-        self.labels = data.get_label() #saving labels
+        self.labels = data.get_label().astype('int16') #saving labels
+        self.valid_labels = []
+        self.labels_j = []
 
         if self.shared_ensembles:
             shared_labels = {}
@@ -445,15 +473,18 @@ class RUMBoost:
                             if not shared_labels:
                                 shared_labels = {a: np.where(data.get_label() == a, 1, 0) for a in range(self.num_classes)}
                             new_label = np.hstack([shared_labels[s] for s in self.shared_ensembles[l]])
+                            self.labels_j.append(new_label.astype('int8'))
                             train_set_j = Dataset(train_set_j_data.values.reshape((-1, 1), order='A'), label=new_label, free_raw_data=False, params={'verbosity':-1}) #create and build dataset
                             train_set_j.construct()
                         else:
                             new_label = np.where(data.get_label() == l, 1, 0) #new binary label, used for multiclassification
                             shared_labels[l] = new_label
+                            self.labels_j.append(new_label.astype('int8'))
                             train_set_j = Dataset(train_set_j_data, label=new_label, free_raw_data=False, params={'verbosity':-1}) #create and build dataset
                             train_set_j.construct()
                     else:
                         new_label = np.where(data.get_label() == l, 1, 0) #new binary label, used for multiclassification
+                        self.labels_j.append(new_label.astype('int8'))
                         train_set_j = Dataset(train_set_j_data, label=new_label, free_raw_data=False, params={'verbosity':-1}) #create and build dataset
                         train_set_j.construct()
                      
@@ -463,6 +494,7 @@ class RUMBoost:
                             #create and build validation sets
                             valid_set.construct()
                             valid_set_j_data = valid_set.get_data()[struct['columns']] #only relevant features for the jth booster
+                            self.valid_labels.append(valid_set.get_label().astype('int16')) #saving labels
                             
                             if self.shared_ensembles:
                                 if l >= self.shared_start_idx:
@@ -607,7 +639,7 @@ class RUMBoost:
         
     
     def _construct_boosters(self, train_data_name = "Training", is_valid_contain_train = False,
-                            name_valid_sets = None):
+                            name_valid_sets = ["Valid_0"]):
         """Construct boosters of the RUMBoost model with corresponding set of parameters, training datasets, and validation sets and store them in the RUMBoost object.
         
         Parameters
@@ -625,12 +657,14 @@ class RUMBoost:
         reduced_valid_sets_J = self.valid_sets
 
         for j, (param_j, train_set_j) in enumerate(zip(params_J, train_set_J)):
+            train_set_j._update_params(param_j) #update parameters of the jth training set
             #construct booster and perform basic preparations
             try:
                 booster = Booster(params=param_j, train_set=train_set_j)
                 if is_valid_contain_train:
                     booster.set_train_data_name(train_data_name)
                 for valid_set, name_valid_set in zip(reduced_valid_sets_J, name_valid_sets):
+                    valid_set[j]._update_params(param_j).set_reference(train_set_j)
                     booster.add_valid(valid_set[j], name_valid_set)
             finally:
                 train_set_j._reverse_update_params()
@@ -762,10 +796,10 @@ class RUMBoost:
 
 def rum_train(
     params: dict[str, Any],
-    train_set: Dataset,
+    train_set: Dataset | dict[str, Any],
     rum_structure: list[dict[str, Any]] = None,
     num_boost_round: int = 100,
-    valid_sets: Optional[list[Dataset]] = None,
+    valid_sets: Optional[list[Dataset]] | Optional[dict] = None,
     valid_names: Optional[list[str]] = None,
     feval: Optional[Union[_LGBM_CustomMetricFunction, list[_LGBM_CustomMetricFunction]]] = None,
     init_model: Optional[Union[str, Path, Booster]] = None,
@@ -786,8 +820,13 @@ def rum_train(
     params : dict
         Parameters for training. Values passed through ``params`` take precedence over those
         supplied via arguments. If num_classes > 2, please specify params['objective'] = 'multiclass'.
-    train_set : Dataset
-        Data to be trained on. Set free_raw_data=False when creating the dataset.
+    train_set : Dataset or dict[int, Any]
+        Data to be trained on. Set free_raw_data=False when creating the dataset. If it is 
+        a dictionary, the key-value pairs should be:
+            - "train_set":  the corresponding preprocessed Dataset. 
+            - "num_data": the number of observations in the dataset.
+            - "labels": the labels of the full dataset.
+            - "labels_j": the labels of the dataset for each class (binary).
     rum_structure : list[dict[str, Any]], optional (default = None)
         List of dictionaries specifying the RUM structure. 
         The list must contain one dictionary for each class, which describes the 
@@ -802,8 +841,13 @@ def rum_train(
         A biogeme model is required if rum_structure is None, otherwise should be None.
     num_boost_round : int, optional (default = 100)
         Number of boosting iterations.
-    valid_sets : list of Dataset, or None, optional (default = None)
-        List of data to be evaluated on during training.
+    valid_sets : list of Dataset, dict, or None, optional (default = None)
+        List of data to be evaluated on during training. If the train_set is passed as
+        already preprocessed, it is assumed that valid_sets are also preprocessed. Therefore it
+        should be a dictionary following this structure:
+            - "valid_sets":  a list of list of corresponding preprocessed validation Datasets. 
+            - "valid_labels": a list of the valid dataset labels.
+            - "num_data": a list of the number of data in validation datasets. 
     valid_names : list of str, or None, optional (default = None)
         Names of ``valid_sets``.
     feval : callable, list of callable, or None, optional (default = None)
@@ -931,14 +975,6 @@ def rum_train(
     elif isinstance(init_model, Booster):
         predictor = init_model._to_predictor(dict(init_model.params, **params))
     init_iteration = predictor.num_total_iteration if predictor is not None else 0
-    #check dataset
-    if not isinstance(train_set, Dataset):
-        raise TypeError("Training only accepts Dataset object")
-
-    train_set._update_params(params) \
-             ._set_predictor(predictor) \
-             .set_feature_name(feature_name) \
-             .set_categorical_feature(categorical_feature)
 
     #process callbacks
     if callbacks is None:
@@ -966,12 +1002,13 @@ def rum_train(
     callbacks_before_iter = sorted(callbacks_before_iter_set, key=attrgetter('order'))
     callbacks_after_iter = sorted(callbacks_after_iter_set, key=attrgetter('order'))
 
-    #construct boosters
+    #construct rumboost object
     rumb = RUMBoost()
 
-    #some checks
+    #check number of classes
     if 'num_classes' not in params:
         raise ValueError('Specify the number of classes in the dictionary of parameters with the key num_classes')
+    rumb.num_classes = params.get('num_classes') #saving number of classes
 
     #initialise shared ensembles if they are specified
     if shared_ensembles is not None:
@@ -986,18 +1023,48 @@ def rum_train(
         if (len(rum_structure) - rumb.shared_start_idx) == 2 * params['num_classes']:
             rumb.functional_effects = True
         else:
-            raise ValueError('Functional effects model requires a rum_structure of length 2 * num_classes')    
+            raise ValueError('Functional effects model requires a rum_structure of length 2 * num_classes (without \
+                             shared ensembles) or 2 * num_classes + number of shared ensembles (with shared ensembles)')    
     else:
         rumb.functional_effects = False
 
-    reduced_valid_sets, \
-    name_valid_sets, \
-    is_valid_contain_train, \
-    train_data_name = rumb._preprocess_valids(train_set, params, valid_sets) #prepare validation sets
+    #store usefull information in RUMBoost object
     rumb.rum_structure = rum_structure #saving utility structure
-    rumb.num_classes = params.pop('num_classes') #saving number of classes
+
+    #check dataset and preprocess it
+    if isinstance(train_set, dict):
+        if 'num_data' not in train_set:
+            raise ValueError('The dictionary must contain the number of observations with the key num_data')
+        if 'labels' not in train_set:
+            raise ValueError('The dictionary must contain the labels with the key labels')
+        rumb.train_set = train_set['train_sets'] #assign the J previously preprocessed datasets
+        rumb.labels = train_set['labels']
+        rumb.labels_j = train_set['labels_j']
+        rumb.num_obs = [train_set['num_data']]
+        if isinstance(valid_sets, dict):
+            rumb.valid_sets = valid_sets['valid_sets'] #assign the J previously preprocessed validation sets
+            rumb.valid_labels = valid_sets['valid_labels']
+            rumb.num_obs.extend(valid_sets['num_data'])
+        is_valid_contain_train = False
+        train_data_name = "training"
+        name_valid_sets = "valid_0"
+    elif not isinstance(train_set, Dataset):
+        raise TypeError("Training only accepts Dataset object")
+    else:
+        train_set._update_params(params) \
+                ._set_predictor(predictor) \
+                .set_feature_name(feature_name) \
+                .set_categorical_feature(categorical_feature)
+        reduced_valid_sets, \
+        name_valid_sets, \
+        is_valid_contain_train, \
+        train_data_name = rumb._preprocess_valids(train_set, params, valid_sets) #prepare validation sets
+        rumb._preprocess_data(train_set, reduced_valid_sets) #prepare J datasets with relevant features
+
+    #preprocess parameters
     rumb._preprocess_params(params, params_fe = params_fe) #prepare J set of parameters
-    rumb._preprocess_data(train_set, reduced_valid_sets, return_data=True) #prepare J datasets with relevant features
+    
+    #create J boosters with corresponding params and datasets
     rumb._construct_boosters(train_data_name, is_valid_contain_train, name_valid_sets) #build boosters with corresponding params and dataset
 
     #initialise nested probabilities if they are specified
@@ -1033,10 +1100,7 @@ def rum_train(
             else:
                 rumb._current_j = j
 
-            if rumb.shared_ensembles and rumb._current_j >= rumb.shared_start_idx:
-                booster.update(train_set=rumb.train_set[j], fobj=rumb.f_obj_shared_ensembles)
-            else:
-                booster.update(train_set=rumb.train_set[j], fobj=f_obj)
+            booster.update(train_set=rumb.train_set[j], fobj=f_obj)
             
             #check evaluation result. (from lightGBM initial code, check on all J binary boosters)
             evaluation_result_list = []
@@ -1067,7 +1131,7 @@ def rum_train(
         #compute cross validation on training or validation test
         if valid_sets is not None:
             if is_valid_contain_train:
-                cross_entropy_test = cross_entropy(rumb._preds, train_set.get_label().astype(int))
+                cross_entropy_test = cross_entropy(rumb._preds, rumb.labels)
             else:
                 for k, _ in enumerate(valid_sets):
                     if nests is not None:
@@ -1076,8 +1140,8 @@ def rum_train(
                         preds_valid,  _, _ = rumb._inner_predict(k+1, alphas=alphas)
                     else:
                         preds_valid = rumb._inner_predict(k+1)
-                    cross_entropy_train = cross_entropy(rumb._preds, train_set.get_label().astype(int))
-                    cross_entropy_test = cross_entropy(preds_valid, valid_sets[0].get_label().astype(int))
+                    cross_entropy_train = cross_entropy(rumb._preds, rumb.labels)
+                    cross_entropy_test = cross_entropy(preds_valid, rumb.valid_labels[k])
 
             #update best score and best iteration
             if cross_entropy_test < rumb.best_score:
@@ -1385,6 +1449,8 @@ def rum_cv(params, train_set, num_boost_round=100,
         ...}.
         If ``return_cvbooster=True``, also returns trained boosters via ``cvbooster`` key.
     """
+    raise NotImplementedError("This function is not implemented yet")
+
     if not isinstance(train_set, Dataset):
         raise TypeError("Training only accepts Dataset object")
 
