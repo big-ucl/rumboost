@@ -422,7 +422,7 @@ class RUMBoost:
                 valid_set.construct()
                 self.num_obs.append(valid_set.num_data())
 
-        self.labels = data.get_label()
+        self.labels = data.get_label() #saving labels
 
         if self.shared_ensembles:
             shared_labels = {}
@@ -972,14 +972,6 @@ def rum_train(
     #some checks
     if 'num_classes' not in params:
         raise ValueError('Specify the number of classes in the dictionary of parameters with the key num_classes')
-    
-    #initialise RUMBoost for functional effects if param_fe is passed
-    if params_fe is not None:    
-        if len(rum_structure) == 2 * params['num_classes']:
-            raise ValueError('Functional effects model requires a rum_structure of length 2 * num_classes')
-        rumb.functional_effects = True
-    else:
-        rumb.functional_effects = False
 
     #initialise shared ensembles if they are specified
     if shared_ensembles is not None:
@@ -987,6 +979,16 @@ def rum_train(
         rumb.shared_start_idx = [*shared_ensembles][0]
     else:
         rumb.shared_ensembles = None
+        rumb.shared_start_idx = 0
+
+    #initialise RUMBoost for functional effects if param_fe is passed
+    if params_fe is not None:
+        if (len(rum_structure) - rumb.shared_start_idx) == 2 * params['num_classes']:
+            rumb.functional_effects = True
+        else:
+            raise ValueError('Functional effects model requires a rum_structure of length 2 * num_classes')    
+    else:
+        rumb.functional_effects = False
 
     reduced_valid_sets, \
     name_valid_sets, \
@@ -1031,7 +1033,7 @@ def rum_train(
             else:
                 rumb._current_j = j
 
-            if rumb._current_j >= rumb.shared_start_idx:
+            if rumb.shared_ensembles and rumb._current_j >= rumb.shared_start_idx:
                 booster.update(train_set=rumb.train_set[j], fobj=rumb.f_obj_shared_ensembles)
             else:
                 booster.update(train_set=rumb.train_set[j], fobj=f_obj)
