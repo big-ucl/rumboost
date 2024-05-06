@@ -95,7 +95,10 @@ class RUMBoost:
                 preds = self._preds[:,j] #corresponding predictions
             factor = self.num_classes/(self.num_classes-1) #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
             eps = 1e-6
-            labels = self.labels_j[j]
+            if self.labels_j:
+                labels = self.labels_j[j]
+            else: 
+                labels = np.where(self.labels == j, 1, 0)
             grad = preds - labels
             hess = np.maximum(factor * preds * (1 - preds), eps) #truncate low values to avoid numerical errors
             return grad, hess
@@ -1039,15 +1042,15 @@ def rum_train(
             raise ValueError('The dictionary must contain the labels with the key labels')
         rumb.train_set = train_set['train_sets'] #assign the J previously preprocessed datasets
         rumb.labels = train_set['labels']
-        rumb.labels_j = train_set['labels_j']
+        rumb.labels_j = train_set.get('labels_j', None)
         rumb.num_obs = [train_set['num_data']]
-        if isinstance(valid_sets, dict):
-            rumb.valid_sets = valid_sets['valid_sets'] #assign the J previously preprocessed validation sets
-            rumb.valid_labels = valid_sets['valid_labels']
-            rumb.num_obs.extend(valid_sets['num_data'])
+        if isinstance(valid_sets[0], dict):
+            rumb.valid_sets = np.array(valid_sets[0]['valid_sets']).T.tolist() #assign the J previously preprocessed validation sets
+            rumb.valid_labels = valid_sets[0]['valid_labels']
+            rumb.num_obs.extend([valid_sets[0]['num_data']])
         is_valid_contain_train = False
         train_data_name = "training"
-        name_valid_sets = "valid_0"
+        name_valid_sets = ["valid_0"]
     elif not isinstance(train_set, Dataset):
         raise TypeError("Training only accepts Dataset object")
     else:

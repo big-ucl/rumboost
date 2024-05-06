@@ -15,6 +15,8 @@ strat_group_k_fold_mtmc.pickle
 strat_group_k_fold_mtmc_all.pickle
 train_set_switzerland.pkl
 test_set_switzerland.pkl
+Data/*.pkl
+Data/*.bin
 
 #models
 models/
