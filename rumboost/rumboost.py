@@ -4,6 +4,7 @@ import collections
 import copy
 import json
 import numpy as np
+import torch
 
 from scipy.special import softmax
 from operator import attrgetter
@@ -15,6 +16,7 @@ from lightgbm.basic import Booster, Dataset, LightGBMError, _ConfigAliases, _Inn
 from lightgbm.compat import SKLEARN_INSTALLED, _LGBMGroupKFold, _LGBMStratifiedKFold
 
 from rumboost.utils import bio_to_rumboost, cross_entropy, nest_probs, cross_nested_probs
+from rumboost.torch_functions import _inner_predict_torch, _inner_predict_torch_compiled, _f_obj_torch, _f_obj_torch_compiled, _f_obj_nested_torch, _f_obj_nested_torch_compiled, _f_obj_cross_nested_torch, _f_obj_cross_nested_torch_compiled, cross_entropy_torch, cross_entropy_torch_compiled
 
 _LGBM_CustomObjectiveFunction = Callable[
     [Union[List, np.ndarray], Dataset],
@@ -73,79 +75,75 @@ class RUMBoost:
             _,
             train_set: Dataset
         ):
-            """
-            Objective function of the binary classification boosters, but based on softmax predictions.
+        """
+        Objective function of the binary classification boosters, but based on softmax predictions.
 
-            Parameters
-            ----------
-            train_set : Dataset
-                Training set used to train the jth booster. It means that it is not the full training set but rather another dataset containing the relevant features for that utility. It is the jth dataset in the RUMBoost object.
+        Parameters
+        ----------
+        train_set : Dataset
+            Training set used to train the jth booster. It means that it is not the full training set but rather another dataset containing the relevant features for that utility. It is the jth dataset in the RUMBoost object.
 
-            Returns
-            -------
-            grad : numpy array
-                The gradient with the cross-entropy loss function. It is the predictions minus the binary labels (if it is used for the jth booster, labels will be 1 if the chosen class is j, 0 if it is any other classes).
-            hess : numpy array
-                The hessian with the cross-entropy loss function (second derivative approximation rather than the hessian). Calculated as factor * preds * (1 - preds).
-            """
-            j = self._current_j #jth booster
-            if self.shared_ensembles and j >= self.shared_start_idx:
-                preds = self._preds[:,self.shared_ensembles[j]].reshape(-1, order='A') #corresponding predictions
+        Returns
+        -------
+        grad : numpy array
+            The gradient with the cross-entropy loss function. It is the predictions minus the binary labels (if it is used for the jth booster, labels will be 1 if the chosen class is j, 0 if it is any other classes).
+        hess : numpy array
+            The hessian with the cross-entropy loss function (second derivative approximation rather than the hessian). Calculated as factor * preds * (1 - preds).
+        """
+        #call torch functions if required
+        if self.device:
+            if self.torch_compile:
+                grad, hess = _f_obj_torch_compiled(self._current_j, self._preds, self.num_classes, self.device, self.shared_ensembles, self.shared_start_idx, self.labels_j, self.labels)
             else:
-                preds = self._preds[:,j] #corresponding predictions
-            factor = self.num_classes/(self.num_classes-1) #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
-            eps = 1e-6
-            if self.labels_j:
-                labels = self.labels_j[j]
-            else: 
-                labels = np.where(self.labels == j, 1, 0)
-            grad = preds - labels
-            hess = np.maximum(factor * preds * (1 - preds), eps) #truncate low values to avoid numerical errors
-            return grad, hess
+                grad, hess = _f_obj_torch(self._current_j, self._preds, self.num_classes, self.device, self.shared_ensembles, self.shared_start_idx, self.labels_j, self.labels)
+            return grad.numpy(force=True), hess.numpy(force=True)
+        
+        j = self._current_j #jth booster
+        if self.shared_ensembles and j >= self.shared_start_idx:
+            preds = self._preds[:,self.shared_ensembles[j]].reshape(-1, order='A') #corresponding predictions
+        else:
+            preds = self._preds[:,j] #corresponding predictions
+        factor = self.num_classes/(self.num_classes-1) #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
+        eps = 1e-6
+        if self.labels_j:
+            labels = self.labels_j[j]
+        else: 
+            labels = np.where(self.labels == j, 1, 0)
+        grad = preds - labels
+        hess = np.maximum(factor * preds * (1 - preds), eps) #truncate low values to avoid numerical errors
+        return grad, hess
     
     def f_obj_nest(
             self,
             _,
             train_set: Dataset
         ):
-            """
-            Objective function of the binary classification boosters, for a nested rumboost.
+        """
+        Objective function of the binary classification boosters, for a nested rumboost.
 
-            Parameters
-            ----------
-            train_set : Dataset
-                Training set used to train the jth booster. It means that it is not the full training set but rather another dataset containing the relevant features for that utility. It is the jth dataset in the RUMBoost object.
+        Parameters
+        ----------
+        train_set : Dataset
+            Training set used to train the jth booster. It means that it is not the full training set but rather another dataset containing the relevant features for that utility. It is the jth dataset in the RUMBoost object.
 
-            Returns
-            -------
-            grad : numpy array
-                The gradient with the cross-entropy loss function and nested probabilities.
-            hess : numpy array
-                The hessian with the cross-entropy loss function and nested probabilities (second derivative approximation rather than the hessian).
-            """
-            if self.shared_ensembles and self._current_j >= self.shared_start_idx:
-                grad = np.array([])
-                hess = np.array([])
-                for j in self.shared_ensembles[self._current_j]:
-                    labels = self.labels
-                    labels_nest = self.labels_nest
-                    pred_i_m = self.preds_i_m[:,j] #prediction of choice i knowing nest m
-                    pred_m = self.preds_m[:, self.nests[j]] #prediction of choosing nest m
-                    factor = self.num_classes/(self.num_classes-1) #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
-
-                    #three cases: 1. choice i = j, 2. j is in the same nest than choice i, 3. j is in another nest.
-                    grad = np.concatenate([grad, (labels == j) * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)) + \
-                                                 (labels_nest == self.nests[j]) * (1 - (labels == j)) * (self.mu[self.nests[j]] * pred_i_m - pred_i_m * (1 - pred_m)) + \
-                                                 (1 - (labels_nest == self.nests[j])) * (pred_i_m * pred_m)])
-                    hess = np.concatenate([hess, (labels == j) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
-                                                 (labels_nest == self.nests[j]) * (1 - (labels == j)) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
-                                                 (1 - (labels_nest == self.nests[j])) * (-pred_i_m * pred_m * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)))])
-                    
-                    hess = factor * hess
-
-                return grad, hess
+        Returns
+        -------
+        grad : numpy array
+            The gradient with the cross-entropy loss function and nested probabilities.
+        hess : numpy array
+            The hessian with the cross-entropy loss function and nested probabilities (second derivative approximation rather than the hessian).
+        """
+        if self.device:
+            if self.torch_compile:
+                grad, hess = _f_obj_nested_torch_compiled(self._current_j, self.labels, self.preds_i_m, self.preds_m, self.num_classes, self.mu, self.nests, self.device, self.shared_ensembles, self.shared_start_idx)
             else:
-                j = self._current_j
+                grad, hess = _f_obj_nested_torch(self._current_j, self.labels, self.preds_i_m, self.preds_m, self.num_classes, self.mu, self.nests, self.device, self.shared_ensembles, self.shared_start_idx)
+            return grad.numpy(force=True), hess.numpy(force=True)
+
+        if self.shared_ensembles and self._current_j >= self.shared_start_idx:
+            grad = np.array([])
+            hess = np.array([])
+            for j in self.shared_ensembles[self._current_j]:
                 labels = self.labels
                 labels_nest = self.labels_nest
                 pred_i_m = self.preds_i_m[:,j] #prediction of choice i knowing nest m
@@ -153,16 +151,35 @@ class RUMBoost:
                 factor = self.num_classes/(self.num_classes-1) #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
 
                 #three cases: 1. choice i = j, 2. j is in the same nest than choice i, 3. j is in another nest.
-                grad = (labels == j) * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)) + \
-                    (labels_nest == self.nests[j]) * (1 - (labels == j)) * (self.mu[self.nests[j]] * pred_i_m - pred_i_m * (1 - pred_m)) + \
-                    (1 - (labels_nest == self.nests[j])) * (pred_i_m * pred_m)
-                hess = (labels == j) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
-                    (labels_nest == self.nests[j]) * (1 - (labels == j)) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
-                    (1 - (labels_nest == self.nests[j])) * (-pred_i_m * pred_m * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)))
+                grad = np.concatenate([grad, (labels == j) * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)) + \
+                                                (labels_nest == self.nests[j]) * (1 - (labels == j)) * (self.mu[self.nests[j]] * pred_i_m - pred_i_m * (1 - pred_m)) + \
+                                                (1 - (labels_nest == self.nests[j])) * (pred_i_m * pred_m)])
+                hess = np.concatenate([hess, (labels == j) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
+                                                (labels_nest == self.nests[j]) * (1 - (labels == j)) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
+                                                (1 - (labels_nest == self.nests[j])) * (-pred_i_m * pred_m * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)))])
                 
-                hess = factor * hess
+            hess = factor * hess
 
-                return grad, hess
+            return grad, hess
+        else:
+            j = self._current_j
+            labels = self.labels
+            labels_nest = self.labels_nest
+            pred_i_m = self.preds_i_m[:,j] #prediction of choice i knowing nest m
+            pred_m = self.preds_m[:, self.nests[j]] #prediction of choosing nest m
+            factor = self.num_classes/(self.num_classes-1) #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
+
+            #three cases: 1. choice i = j, 2. j is in the same nest than choice i, 3. j is in another nest.
+            grad = (labels == j) * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)) + \
+                (labels_nest == self.nests[j]) * (1 - (labels == j)) * (self.mu[self.nests[j]] * pred_i_m - pred_i_m * (1 - pred_m)) + \
+                (1 - (labels_nest == self.nests[j])) * (pred_i_m * pred_m)
+            hess = (labels == j) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
+                (labels_nest == self.nests[j]) * (1 - (labels == j)) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
+                (1 - (labels_nest == self.nests[j])) * (-pred_i_m * pred_m * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)))
+            
+            hess = factor * hess
+
+            return grad, hess
     
     def f_obj_cross_nested(self, _, train_set: Dataset):
         """
@@ -180,6 +197,13 @@ class RUMBoost:
         hess : numpy array
             The hessian with the cross-entropy loss function and cross-nested probabilities (second derivative approximation rather than the hessian).
         """
+        if self.device:
+            if self.torch_compile:
+                grad, hess = _f_obj_cross_nested_torch_compiled(self._current_j, self.labels, self.preds_i_m, self.preds_m, self.num_classes, self.mu, self.nests, self.device, self.shared_ensembles, self.shared_start_idx)
+            else:
+                grad, hess = _f_obj_cross_nested_torch(self._current_j, self.labels, self.preds_i_m, self.preds_m, self._preds, self.num_classes, self.mu, self.device, self.shared_ensembles, self.shared_start_idx)
+            return grad.numpy(force=True), hess.numpy(force=True)
+
         if self.shared_ensembles and self._current_j >= self.shared_start_idx:
             grad = np.array([]).reshape(0, 1)
             hess = np.array([]).reshape(0, 1)
@@ -204,7 +228,7 @@ class RUMBoost:
                 #two cases: 1. alt j is choice i, 2. alt j is not choice i
                 grad = np.concatenate([grad,np.where(labels.reshape(-1,1) == j, (-1 / pred_i) * d_pred_i_Vi, (-1 / pred_i) * d_pred_i_Vj)])
                 hess = np.concatenate([hess,np.where(labels.reshape(-1,1) == j, (-1 / pred_i ** 2) * (d2_pred_i_Vi * pred_i - d_pred_i_Vi ** 2), (-1 / pred_i ** 2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj ** 2))])
-                hess = factor * hess
+            hess = factor * hess
 
             return grad.reshape(-1), hess.reshape(-1)
         else:
@@ -344,9 +368,6 @@ class RUMBoost:
         self,
         data_idx: int = 0,
         utilities: bool = False,
-        nests: bool = False,
-        mu = None,
-        alphas: np.array = None
     ):
         """
         Predict logic for training RUMBoost object. This _inner_predict function is much faster than the predict function.
@@ -359,15 +380,6 @@ class RUMBoost:
             The index of the dataset. 0 means training set, and following numbers are validation sets, in the specified order.
         utilities : bool, optional (default=True)
             If True, return raw utilities for each class, without generating probabilities.
-        nests : bool, optional (default=False)
-            If True, compute predictions with the nested probability function.
-        mu : list, optional (default=None)
-            Only used, and required, if nests is True. It is the list of mu values for each nest.
-            The first value correspond to the first nest and so on.
-        alphas : ndarray, optional (default=None)
-            An array of J (alternatives) by M (nests).
-            alpha_jn represents the degree of membership of alternative j to nest n
-            By example, alpha_12 = 0.5 means that alternative one belongs 50% to nest 2.
 
         Returns
         -------
@@ -375,6 +387,20 @@ class RUMBoost:
             Prediction result.
             Can be sparse or a list of sparse objects (each element represents predictions for one class) for feature contributions (when ``pred_contrib=True``).
         """
+        #using pytorch if required
+        if self.device:
+            raw_preds = [torch.from_numpy(booster._Booster__inner_predict(data_idx)).to(self.device) for booster in self.boosters]
+            if self.torch_compile:
+                preds, pred_i_m, pred_m = _inner_predict_torch_compiled(raw_preds, self.shared_ensembles, self.num_obs, self.num_classes, self.device, self.shared_start_idx, self.functional_effects, self.nests, self.mu, self.alphas, data_idx, utilities)
+            else:
+                preds, pred_i_m, pred_m = _inner_predict_torch(raw_preds, self.shared_ensembles, self.num_obs, self.num_classes, self.device, self.shared_start_idx, self.functional_effects, self.nests, self.mu, self.alphas, data_idx, utilities)
+            if self.nests:
+                return preds, pred_i_m, pred_m
+            elif self.alphas:
+                return preds, pred_i_m, pred_m
+            else:
+                return preds
+
         #getting raw prediction from lightGBM booster's inner predict
         raw_preds = [booster._Booster__inner_predict(data_idx) for _, booster in enumerate(self.boosters)]
 
@@ -399,18 +425,13 @@ class RUMBoost:
                 raw_shared_preds = raw_shared_preds[:,len(shared_ensembles):]
             
         #compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
-        if nests:
-            if self.mu:
-                mu = self.mu
-            nest = self.nests
-            preds, pred_i_m, pred_m = nest_probs(raw_preds, mu=mu, nests=nest)
+        if self.nests:
+            preds, pred_i_m, pred_m = nest_probs(raw_preds, mu=self.mu, nests=self.nests)
             return preds, pred_i_m, pred_m
         
         #compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
-        if alphas is not None:
-            if self.mu:
-                mu = self.mu
-            preds, pred_i_m, pred_m = cross_nested_probs(raw_preds, mu=mu, alphas=alphas)
+        if self.alphas:
+            preds, pred_i_m, pred_m = cross_nested_probs(raw_preds, mu=self.mu, alphas=self.alphas)
             return preds, pred_i_m, pred_m
 
         #softmax
@@ -814,7 +835,9 @@ def rum_train(
     mu: list = None,
     params_fe: dict = None,
     alphas: np.array = None,
-    shared_ensembles: dict = None
+    shared_ensembles: dict = None,
+    torch_tensors: dict = None,
+    torch_compile: bool = False,
 ) -> RUMBoost:
     """Perform the RUM training with given parameters.
 
@@ -913,6 +936,13 @@ def rum_train(
     shared_ensembles : dict, optional (default=None)
         Dictionary of shared ensembles. Keys are the index of position in the rum_structure list of the shared ensembles, 
         and values are the list of alternatives that share the parameter.
+    torch_tensors : dict, optional (default=None)
+        If a dictionary is passed, torch.Tensors will be used for computing prediction, objective function and cross-entropy calculations.
+        The dictionary should follow the following form:
+            {'device': 'cpu', 'gpu' or 'cuda'}
+    torch_compile: bool, optional (default=False)
+        If True, the prediction, objective function and cross-entropy calculations will be compiled with torch.compile.
+        If used with GPU or cuda, it requires to be on a linux os.
         
 
     Note
@@ -1008,6 +1038,21 @@ def rum_train(
     #construct rumboost object
     rumb = RUMBoost()
 
+    if torch_tensors:
+        dev_str = torch_tensors.get('device', 'cpu')
+        if dev_str == 'cuda':
+            rumb.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        elif dev_str == 'gpu':
+            rumb.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        else:
+            rumb.device = torch.device('cpu')
+        if torch_compile:
+            rumb.torch_compile = True
+        else:
+            rumb.torch_compile = False
+    else:
+        rumb.device = None
+
     #check number of classes
     if 'num_classes' not in params:
         raise ValueError('Specify the number of classes in the dictionary of parameters with the key num_classes')
@@ -1048,6 +1093,9 @@ def rum_train(
             rumb.valid_sets = np.array(valid_sets[0]['valid_sets']).T.tolist() #assign the J previously preprocessed validation sets
             rumb.valid_labels = valid_sets[0]['valid_labels']
             rumb.num_obs.extend([valid_sets[0]['num_data']])
+        else:
+            rumb.valid_sets = []
+            rumb.valid_labels = []
         is_valid_contain_train = False
         train_data_name = "training"
         name_valid_sets = ["valid_0"]
@@ -1074,16 +1122,36 @@ def rum_train(
     if nests is not None:
         rumb.mu = mu
         rumb.nests = nests
+        rumb.alphas = None
         f_obj = rumb.f_obj_nest
-        rumb.labels_nest = np.array([nests[l] for l in rumb.labels])
-        rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict(nests=True)
+        if not torch_tensors:
+            rumb.labels_nest = np.array([nests[l] for l in rumb.labels])
     elif alphas is not None:
         rumb.mu = mu
+        rumb.nests = None
+        rumb.alphas = alphas
         f_obj = rumb.f_obj_cross_nested
-        rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict(alphas=alphas)
     else:
+        rumb.mu = None
+        rumb.nests = None
+        rumb.alphas = None
         f_obj = rumb.f_obj
+
+    if torch_tensors:
+        rumb.labels = torch.from_numpy(rumb.labels).to(rumb.device)
+        if rumb.labels_j:
+            rumb.labels_j = [torch.from_numpy(lab).to(rumb.device) for lab in rumb.labels_j]
+        if rumb.valid_labels:
+            rumb.valid_labels = [torch.from_numpy(valid_labs).to(rumb.device) for valid_labs in rumb.valid_labels]
+        if rumb.mu:
+            rumb.mu = torch.from_numpy(rumb.mu).to(rumb.device)
+        if rumb.alphas:
+            rumb.alphas = torch.from_numpy(rumb.alphas).to(rumb.device)
+
+    if (not rumb.nests) and (not rumb.alphas):
         rumb._preds = rumb._inner_predict()
+    else:
+        rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict()
 
     #start training
     for i in range(init_iteration, init_iteration + num_boost_round):
@@ -1124,27 +1192,37 @@ def rum_train(
                 evaluation_result_list = earlyStopException.best_score
 
         #make predictions after boosting round to compute new cross entropy and for next iteration grad and hess
-        if nests is not None:
-            rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict(nests=True)
-        elif alphas is not None:
-            rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict(alphas=alphas)
-        else:
+        if (not rumb.nests) and (not rumb.alphas):
             rumb._preds = rumb._inner_predict()
+        else:
+            rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict()
 
         #compute cross validation on training or validation test
         if valid_sets is not None:
             if is_valid_contain_train:
-                cross_entropy_test = cross_entropy(rumb._preds, rumb.labels)
+                if torch_tensors:
+                    if torch_compile:
+                        cross_entropy_test = cross_entropy_torch_compiled(rumb._preds, rumb.labels)
+                    else:
+                        cross_entropy_test = cross_entropy_torch(rumb._preds, rumb.labels)
+                else:
+                    cross_entropy_test = cross_entropy(rumb._preds, rumb.labels)
             else:
                 for k, _ in enumerate(valid_sets):
-                    if nests is not None:
-                        preds_valid, _, _ = rumb._inner_predict(k+1, nests=True)
-                    elif alphas is not None:
-                        preds_valid,  _, _ = rumb._inner_predict(k+1, alphas=alphas)
-                    else:
+                    if (not rumb.nests) and (not rumb.alphas):
                         preds_valid = rumb._inner_predict(k+1)
-                    cross_entropy_train = cross_entropy(rumb._preds, rumb.labels)
-                    cross_entropy_test = cross_entropy(preds_valid, rumb.valid_labels[k])
+                    else:
+                        preds_valid, _, _ = rumb._inner_predict(k+1)
+                    if torch_tensors:
+                        if torch_compile:
+                            cross_entropy_train = cross_entropy_torch_compiled(rumb._preds, rumb.labels)
+                            cross_entropy_test = cross_entropy_torch_compiled(preds_valid, rumb.valid_labels[k])
+                        else:
+                            cross_entropy_train = cross_entropy_torch(rumb._preds, rumb.labels)
+                            cross_entropy_test = cross_entropy_torch(preds_valid, rumb.valid_labels[k])
+                    else:
+                        cross_entropy_train = cross_entropy(rumb._preds, rumb.labels)
+                        cross_entropy_test = cross_entropy(preds_valid, rumb.valid_labels[k])
 
             #update best score and best iteration
             if cross_entropy_test < rumb.best_score:
