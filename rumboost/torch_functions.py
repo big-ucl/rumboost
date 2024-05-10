@@ -41,7 +41,7 @@ def _inner_predict_torch(raw_preds,
         return preds, pred_i_m, pred_m
 
     #compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
-    if alphas:
+    if alphas is not None:
         preds, pred_i_m, pred_m = _cross_nested_probs_torch(raw_preds, mu=mu, alphas=alphas)
 
         return preds, pred_i_m, pred_m
@@ -741,7 +741,8 @@ def cross_entropy_torch(preds, labels):
     Cross entropy : float
         The negative cross-entropy, as float.
     """
-    return - torch.mean(torch.log(preds[range(preds.shape[0]), labels.int()]))
+    data_idx = torch.arange(preds.shape[0])
+    return - torch.mean(torch.log(preds[data_idx, labels]))
 
 @torch.compile
 def cross_entropy_torch_compiled(preds, labels):
@@ -761,4 +762,5 @@ def cross_entropy_torch_compiled(preds, labels):
     Cross entropy : float
         The negative cross-entropy, as float.
     """
-    return - torch.mean(torch.log(preds[range(preds.shape[0]), labels.int()]))
+    data_idx = torch.arange(preds.shape[0])
+    return - torch.mean(torch.log(preds[data_idx, labels]))

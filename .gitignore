@@ -18,6 +18,9 @@ test_set_switzerland.pkl
 *.bin
 *.pkl
 
+#vs_code
+*.deb
+
 #models
 models/
 
@@ -28,7 +31,7 @@ models/
 biogeme.toml
 
 #debug files
-debug.*
+debug*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

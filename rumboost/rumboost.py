@@ -91,7 +91,7 @@ class RUMBoost:
             The hessian with the cross-entropy loss function (second derivative approximation rather than the hessian). Calculated as factor * preds * (1 - preds).
         """
         #call torch functions if required
-        if self.device:
+        if self.device is not None:
             if self.torch_compile:
                 grad, hess = _f_obj_torch_compiled(self._current_j, self._preds, self.num_classes, self.device, self.shared_ensembles, self.shared_start_idx, self.labels_j, self.labels)
             else:
@@ -133,7 +133,7 @@ class RUMBoost:
         hess : numpy array
             The hessian with the cross-entropy loss function and nested probabilities (second derivative approximation rather than the hessian).
         """
-        if self.device:
+        if self.device is not None:
             if self.torch_compile:
                 grad, hess = _f_obj_nested_torch_compiled(self._current_j, self.labels, self.preds_i_m, self.preds_m, self.num_classes, self.mu, self.nests, self.device, self.shared_ensembles, self.shared_start_idx)
             else:
@@ -197,7 +197,7 @@ class RUMBoost:
         hess : numpy array
             The hessian with the cross-entropy loss function and cross-nested probabilities (second derivative approximation rather than the hessian).
         """
-        if self.device:
+        if self.device is not None:
             if self.torch_compile:
                 grad, hess = _f_obj_cross_nested_torch_compiled(self._current_j, self.labels, self.preds_i_m, self.preds_m, self.num_classes, self.mu, self.nests, self.device, self.shared_ensembles, self.shared_start_idx)
             else:
@@ -388,15 +388,13 @@ class RUMBoost:
             Can be sparse or a list of sparse objects (each element represents predictions for one class) for feature contributions (when ``pred_contrib=True``).
         """
         #using pytorch if required
-        if self.device:
+        if self.device is not None:
             raw_preds = [torch.from_numpy(booster._Booster__inner_predict(data_idx)).to(self.device) for booster in self.boosters]
             if self.torch_compile:
                 preds, pred_i_m, pred_m = _inner_predict_torch_compiled(raw_preds, self.shared_ensembles, self.num_obs, self.num_classes, self.device, self.shared_start_idx, self.functional_effects, self.nests, self.mu, self.alphas, data_idx, utilities)
             else:
                 preds, pred_i_m, pred_m = _inner_predict_torch(raw_preds, self.shared_ensembles, self.num_obs, self.num_classes, self.device, self.shared_start_idx, self.functional_effects, self.nests, self.mu, self.alphas, data_idx, utilities)
-            if self.nests:
-                return preds, pred_i_m, pred_m
-            elif self.alphas:
+            if self.mu is not None:
                 return preds, pred_i_m, pred_m
             else:
                 return preds
@@ -430,7 +428,7 @@ class RUMBoost:
             return preds, pred_i_m, pred_m
         
         #compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
-        if self.alphas:
+        if self.alphas is not None:
             preds, pred_i_m, pred_m = cross_nested_probs(raw_preds, mu=self.mu, alphas=self.alphas)
             return preds, pred_i_m, pred_m
 
@@ -472,7 +470,7 @@ class RUMBoost:
                 valid_set.construct()
                 self.num_obs.append(valid_set.num_data())
 
-        self.labels = data.get_label().astype('int16') #saving labels
+        self.labels = data.get_label() #saving labels
         self.valid_labels = []
         self.labels_j = []
 
@@ -497,18 +495,18 @@ class RUMBoost:
                             if not shared_labels:
                                 shared_labels = {a: np.where(data.get_label() == a, 1, 0) for a in range(self.num_classes)}
                             new_label = np.hstack([shared_labels[s] for s in self.shared_ensembles[l]])
-                            self.labels_j.append(new_label.astype('int8'))
+                            self.labels_j.append(new_label)
                             train_set_j = Dataset(train_set_j_data.values.reshape((-1, 1), order='A'), label=new_label, free_raw_data=False, params={'verbosity':-1}) #create and build dataset
                             train_set_j.construct()
                         else:
                             new_label = np.where(data.get_label() == l, 1, 0) #new binary label, used for multiclassification
                             shared_labels[l] = new_label
-                            self.labels_j.append(new_label.astype('int8'))
+                            self.labels_j.append(new_label)
                             train_set_j = Dataset(train_set_j_data, label=new_label, free_raw_data=False, params={'verbosity':-1}) #create and build dataset
                             train_set_j.construct()
                     else:
                         new_label = np.where(data.get_label() == l, 1, 0) #new binary label, used for multiclassification
-                        self.labels_j.append(new_label.astype('int8'))
+                        self.labels_j.append(new_label)
                         train_set_j = Dataset(train_set_j_data, label=new_label, free_raw_data=False, params={'verbosity':-1}) #create and build dataset
                         train_set_j.construct()
                      
@@ -518,7 +516,7 @@ class RUMBoost:
                             #create and build validation sets
                             valid_set.construct()
                             valid_set_j_data = valid_set.get_data()[struct['columns']] #only relevant features for the jth booster
-                            self.valid_labels.append(valid_set.get_label().astype('int16')) #saving labels
+                            self.valid_labels.append(valid_set.get_label()) #saving labels
                             
                             if self.shared_ensembles:
                                 if l >= self.shared_start_idx:
@@ -1144,14 +1142,14 @@ def rum_train(
         if rumb.valid_labels:
             rumb.valid_labels = [torch.from_numpy(valid_labs).to(rumb.device) for valid_labs in rumb.valid_labels]
         if rumb.mu:
-            rumb.mu = torch.from_numpy(rumb.mu).to(rumb.device)
-        if rumb.alphas:
+            rumb.mu = torch.from_numpy(np.array(rumb.mu)).to(rumb.device)
+        if rumb.alphas is not None:
             rumb.alphas = torch.from_numpy(rumb.alphas).to(rumb.device)
 
-    if (not rumb.nests) and (not rumb.alphas):
-        rumb._preds = rumb._inner_predict()
-    else:
+    if rumb.mu is not None:
         rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict()
+    else:
+        rumb._preds = rumb._inner_predict()
 
     #start training
     for i in range(init_iteration, init_iteration + num_boost_round):
@@ -1192,37 +1190,37 @@ def rum_train(
                 evaluation_result_list = earlyStopException.best_score
 
         #make predictions after boosting round to compute new cross entropy and for next iteration grad and hess
-        if (not rumb.nests) and (not rumb.alphas):
-            rumb._preds = rumb._inner_predict()
-        else:
+        if rumb.mu is not None:
             rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict()
+        else:
+            rumb._preds = rumb._inner_predict()
 
         #compute cross validation on training or validation test
         if valid_sets is not None:
             if is_valid_contain_train:
                 if torch_tensors:
                     if torch_compile:
-                        cross_entropy_test = cross_entropy_torch_compiled(rumb._preds, rumb.labels)
+                        cross_entropy_test = cross_entropy_torch_compiled(rumb._preds, rumb.labels.int())
                     else:
-                        cross_entropy_test = cross_entropy_torch(rumb._preds, rumb.labels)
+                        cross_entropy_test = cross_entropy_torch(rumb._preds, rumb.labels.int())
                 else:
-                    cross_entropy_test = cross_entropy(rumb._preds, rumb.labels)
+                    cross_entropy_test = cross_entropy(rumb._preds, rumb.labels.astype(int))
             else:
                 for k, _ in enumerate(valid_sets):
-                    if (not rumb.nests) and (not rumb.alphas):
-                        preds_valid = rumb._inner_predict(k+1)
-                    else:
+                    if rumb.mu is not None:
                         preds_valid, _, _ = rumb._inner_predict(k+1)
+                    else:
+                        preds_valid = rumb._inner_predict(k+1)                        
                     if torch_tensors:
                         if torch_compile:
-                            cross_entropy_train = cross_entropy_torch_compiled(rumb._preds, rumb.labels)
-                            cross_entropy_test = cross_entropy_torch_compiled(preds_valid, rumb.valid_labels[k])
+                            cross_entropy_train = cross_entropy_torch_compiled(rumb._preds, rumb.labels.int())
+                            cross_entropy_test = cross_entropy_torch_compiled(preds_valid, rumb.valid_labels[k].int())
                         else:
-                            cross_entropy_train = cross_entropy_torch(rumb._preds, rumb.labels)
-                            cross_entropy_test = cross_entropy_torch(preds_valid, rumb.valid_labels[k])
+                            cross_entropy_train = cross_entropy_torch(rumb._preds, rumb.labels.int())
+                            cross_entropy_test = cross_entropy_torch(preds_valid, rumb.valid_labels[k].int())
                     else:
-                        cross_entropy_train = cross_entropy(rumb._preds, rumb.labels)
-                        cross_entropy_test = cross_entropy(preds_valid, rumb.valid_labels[k])
+                        cross_entropy_train = cross_entropy(rumb._preds, rumb.labels.astype(int))
+                        cross_entropy_test = cross_entropy(preds_valid, rumb.valid_labels[k].astype(int))
 
             #update best score and best iteration
             if cross_entropy_test < rumb.best_score:
