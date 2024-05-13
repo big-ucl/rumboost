@@ -121,8 +121,8 @@ def plot_2d(model, feature1: str, feature2: str, min1: int, max1: int, min2: int
 
             plt.show()
 
-def plot_parameters(model, X, utility_names, save_figure=False, asc_normalised = True, with_asc = False, 
-                    only_tt = False, only_1d = False, with_fit = False, sm_tt_cost=False, save_file=''):
+def plot_parameters(model, X, utility_names, feature_names=None, save_figure=False, asc_normalised = True, with_asc = False, 
+                    xlabel_max=None, only_tt = False, only_1d = False, with_fit = False, sm_tt_cost=False, save_file=''):
     """
     Plot the non linear impact of parameters on the utility function.
 
@@ -134,12 +134,16 @@ def plot_parameters(model, X, utility_names, save_figure=False, asc_normalised =
         Features used to train the model, in a pandas dataframe.
     utility_name : dict
         Dictionary mapping utilities indices to their names.
+    feature_names : list, optional (default = None)
+        List of feature names.
     save_figure : bool, optional (default = False)
         If True, save the plot as a png file.
     asc_normalised : bool, optional (default = False)
         If True, scale down utilities to be zero at the y axis.
     with_asc : bool, optional (default = False)
         If True, add the ASCs to all graphs (one is normalised, and asc_normalised must be True).
+    xlabel_max : dict, optional (default = None)
+        Dictionary mapping feature names to their maximum value on the x axis.
     only_tt : bool, optional (default = False)
         If True, plot only travel time and distance.
     only_1d : bool, optional (default = False)
@@ -427,6 +431,8 @@ def plot_parameters(model, X, utility_names, save_figure=False, asc_normalised =
                 #create nonlinear plot
                 if f in list(X.columns):
                     x, non_lin_func = non_lin_function(weights_arranged[u][f], 0, 1.05*max(X[f]), 10000)
+                elif xlabel_max:
+                    x, non_lin_func = non_lin_function(weights_arranged[u][f], 0, 1.05*xlabel_max[u], 10000)
                 else:
                     x, non_lin_func = non_lin_function(weights_arranged[u][f], 0, 1.05*weights_arranged[u][f]['Splitting points'][-1], 10000)
 
@@ -442,8 +448,9 @@ def plot_parameters(model, X, utility_names, save_figure=False, asc_normalised =
                 #plt.title('Influence of {} on the predictive function ({} utility)'.format(f, utility_names[u]), fontdict={'fontsize':  16})
                 plt.ylabel('{} utility'.format(utility_names[u]))
 
-                                    
-                if 'dur' in f:
+                if feature_names:
+                    plt.xlabel('{}'.format(feature_names[u]))
+                elif 'dur' in f:
                     plt.xlabel('{} [h]'.format(f))
                 elif 'TIME' in f:
                     plt.xlabel('{} [min]'.format(f))
@@ -461,6 +468,8 @@ def plot_parameters(model, X, utility_names, save_figure=False, asc_normalised =
 
                 if f in list(X.columns):
                     plt.xlim([0-0.05*np.max(X[f]), np.max(X[f])*1.05])
+                elif xlabel_max:
+                    plt.xlim([0-0.05*xlabel_max[u], xlabel_max[u]*1.05])
                 else:
                     plt.xlim([0-0.05*weights_arranged[u][f]['Splitting points'][-1], weights_arranged[u][f]['Splitting points'][-1]*1.05])
                 plt.ylim([np.min(non_lin_func) - 0.05*(np.max(non_lin_func)-np.min(non_lin_func)), np.max(non_lin_func) + 0.05*(np.max(non_lin_func)-np.min(non_lin_func))])
@@ -468,7 +477,7 @@ def plot_parameters(model, X, utility_names, save_figure=False, asc_normalised =
                 plt.tight_layout()
                     
                 if save_figure:
-                    plt.savefig('Figures/{}{} utility, {} feature.png'.format(save_file, utility_names[u], f))
+                    plt.savefig('{}{} utility, {} feature.png'.format(save_file, utility_names[u], f))
 
                 plt.show()
 

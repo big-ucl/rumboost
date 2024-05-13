@@ -36,13 +36,13 @@ def _inner_predict_torch(raw_preds,
 
     #compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
     if nests:
-        preds, pred_i_m, pred_m = _nest_probs_torch(raw_preds, mu=mu, nests=nests)
+        preds, pred_i_m, pred_m = _nest_probs_torch(raw_preds, mu=mu, nests=nests, device=device)
 
         return preds, pred_i_m, pred_m
 
     #compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
     if alphas is not None:
-        preds, pred_i_m, pred_m = _cross_nested_probs_torch(raw_preds, mu=mu, alphas=alphas)
+        preds, pred_i_m, pred_m = _cross_nested_probs_torch(raw_preds, mu=mu, alphas=alphas, device=device)
 
         return preds, pred_i_m, pred_m
 
@@ -88,13 +88,13 @@ def _inner_predict_torch_compiled(raw_preds,
 
     #compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
     if nests:
-        preds, pred_i_m, pred_m = _nest_probs_torch_compiled(raw_preds, mu=mu, nests=nests)
+        preds, pred_i_m, pred_m = _nest_probs_torch_compiled(raw_preds, mu=mu, nests=nests, device=device)
 
         return preds, pred_i_m, pred_m
 
     #compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
     if alphas:
-        preds, pred_i_m, pred_m = _cross_nested_probs_torch_compiled(raw_preds, mu=mu, alphas=alphas)
+        preds, pred_i_m, pred_m = _cross_nested_probs_torch_compiled(raw_preds, mu=mu, alphas=alphas, device=device)
 
         return preds, pred_i_m, pred_m
 
@@ -532,9 +532,9 @@ def _f_obj_cross_nested_torch(current_j, labels, preds_i_m, preds_m, preds, num_
 
     if shared_ensembles and j >= shared_start_idx:
         pred_j_m = preds_i_m[:, shared_ensembles[j], :] #pred of alternative j knowing nest m
-        pred_i_m = preds_i_m[data_idx, label, :][:, None, :] #prediction of choice i knowing nest m
+        pred_i_m = preds_i_m[data_idx, label.int(), :][:, None, :] #prediction of choice i knowing nest m
         pred_m = preds_m[:, None, :]  #prediction of choosing nest m
-        pred_i = preds[data_idx, label][:, None, None]  #pred of choice i
+        pred_i = preds[data_idx, label.int()][:, None, None]  #pred of choice i
         pred_j = preds[:, shared_ensembles[j]][:, :, None]  #pred of alt j
 
         pred_i_m_pred_m = pred_i_m * pred_m
@@ -572,9 +572,9 @@ def _f_obj_cross_nested_torch(current_j, labels, preds_i_m, preds_m, preds, num_
         hess = hess.T.reshape(-1)
     else:
         pred_j_m = preds_i_m[:, j, :]  #pred of alternative j knowing nest m
-        pred_i_m = preds_i_m[data_idx, label, :]  #prediction of choice i knowing nest m
+        pred_i_m = preds_i_m[data_idx, label.int(), :]  #prediction of choice i knowing nest m
         pred_m = preds_m[:, :]  #prediction of choosing nest m
-        pred_i = preds[data_idx, label][:, None]  #pred of choice i
+        pred_i = preds[data_idx, label.int()][:, None]  #pred of choice i
         pred_j = preds[:, j][:, None]  #pred of alt j
 
         pred_i_m_pred_m = pred_i_m * pred_m

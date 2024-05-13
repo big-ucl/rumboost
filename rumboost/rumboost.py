@@ -470,7 +470,7 @@ class RUMBoost:
                 valid_set.construct()
                 self.num_obs.append(valid_set.num_data())
 
-        self.labels = data.get_label() #saving labels
+        self.labels = data.get_label().astype(int) #saving labels
         self.valid_labels = []
         self.labels_j = []
 
