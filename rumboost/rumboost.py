@@ -96,7 +96,7 @@ class RUMBoost:
                 grad, hess = _f_obj_torch_compiled(self._current_j, self._preds, self.num_classes, self.device, self.shared_ensembles, self.shared_start_idx, self.labels_j, self.labels)
             else:
                 grad, hess = _f_obj_torch(self._current_j, self._preds, self.num_classes, self.device, self.shared_ensembles, self.shared_start_idx, self.labels_j, self.labels)
-            return grad.numpy(force=True), hess.numpy(force=True)
+            return grad.cpu().numpy(), hess.cpu().numpy()
         
         j = self._current_j #jth booster
         if self.shared_ensembles and j >= self.shared_start_idx:
@@ -1136,11 +1136,11 @@ def rum_train(
         f_obj = rumb.f_obj
 
     if torch_tensors:
-        rumb.labels = torch.from_numpy(rumb.labels).to(rumb.device)
+        rumb.labels = torch.from_numpy(rumb.labels).type(torch.LongTensor).to(rumb.device)
         if rumb.labels_j:
-            rumb.labels_j = [torch.from_numpy(lab).to(rumb.device) for lab in rumb.labels_j]
+            rumb.labels_j = [torch.from_numpy(lab).type(torch.LongTensor).to(rumb.device) for lab in rumb.labels_j]
         if rumb.valid_labels:
-            rumb.valid_labels = [torch.from_numpy(valid_labs).to(rumb.device) for valid_labs in rumb.valid_labels]
+            rumb.valid_labels = [torch.from_numpy(valid_labs).type(torch.LongTensor).to(rumb.device) for valid_labs in rumb.valid_labels]
         if rumb.mu:
             rumb.mu = torch.from_numpy(np.array(rumb.mu)).to(rumb.device)
         if rumb.alphas is not None:
@@ -1200,9 +1200,9 @@ def rum_train(
             if is_valid_contain_train:
                 if torch_tensors:
                     if torch_compile:
-                        cross_entropy_test = cross_entropy_torch_compiled(rumb._preds, rumb.labels.int())
+                        cross_entropy_test = cross_entropy_torch_compiled(rumb._preds, rumb.labels)
                     else:
-                        cross_entropy_test = cross_entropy_torch(rumb._preds, rumb.labels.int())
+                        cross_entropy_test = cross_entropy_torch(rumb._preds, rumb.labels)
                 else:
                     cross_entropy_test = cross_entropy(rumb._preds, rumb.labels.astype(int))
             else:
@@ -1213,11 +1213,11 @@ def rum_train(
                         preds_valid = rumb._inner_predict(k+1)                        
                     if torch_tensors:
                         if torch_compile:
-                            cross_entropy_train = cross_entropy_torch_compiled(rumb._preds, rumb.labels.int())
-                            cross_entropy_test = cross_entropy_torch_compiled(preds_valid, rumb.valid_labels[k].int())
+                            cross_entropy_train = cross_entropy_torch_compiled(rumb._preds, rumb.labels)
+                            cross_entropy_test = cross_entropy_torch_compiled(preds_valid, rumb.valid_labels[k])
                         else:
-                            cross_entropy_train = cross_entropy_torch(rumb._preds, rumb.labels.int())
-                            cross_entropy_test = cross_entropy_torch(preds_valid, rumb.valid_labels[k].int())
+                            cross_entropy_train = cross_entropy_torch(rumb._preds, rumb.labels)
+                            cross_entropy_test = cross_entropy_torch(preds_valid, rumb.valid_labels[k])
                     else:
                         cross_entropy_train = cross_entropy(rumb._preds, rumb.labels.astype(int))
                         cross_entropy_test = cross_entropy(preds_valid, rumb.valid_labels[k].astype(int))

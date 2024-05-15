@@ -1,4 +1,5 @@
 import torch
+from torch.nn.functional import cross_entropy
 import numpy as np
 
 def _inner_predict_torch(raw_preds, 
@@ -702,28 +703,6 @@ def _f_obj_cross_nested_torch_compiled(current_j, labels, preds_i_m, preds_m, pr
 
     return grad, hess
 
-def cross_entropy(preds, labels):
-    """
-    Compute negative cross entropy for given predictions and data.
-    
-    Parameters
-    ----------
-    preds: numpy array
-        Predictions for all data points and each classes from a softmax function. preds[i, j] correspond
-        to the prediction of data point i to belong to class j.
-    labels: numpy array
-        The labels of the original dataset, as int.
-
-    Returns
-    -------
-    Cross entropy : float
-        The negative cross-entropy, as float.
-    """
-    num_data = len(labels)
-    data_idx = np.arange(num_data)
-
-    return - np.mean(np.log(preds[data_idx, labels]))
-
 def cross_entropy_torch(preds, labels):
     """
     Compute negative cross entropy for given predictions and data.
@@ -741,8 +720,7 @@ def cross_entropy_torch(preds, labels):
     Cross entropy : float
         The negative cross-entropy, as float.
     """
-    data_idx = torch.arange(preds.shape[0])
-    return - torch.mean(torch.log(preds[data_idx, labels]))
+    return cross_entropy(preds, labels)
 
 @torch.compile
 def cross_entropy_torch_compiled(preds, labels):
@@ -762,5 +740,4 @@ def cross_entropy_torch_compiled(preds, labels):
     Cross entropy : float
         The negative cross-entropy, as float.
     """
-    data_idx = torch.arange(preds.shape[0])
-    return - torch.mean(torch.log(preds[data_idx, labels]))
+    return cross_entropy(preds, labels)
