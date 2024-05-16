@@ -100,7 +100,7 @@ class RUMBoost:
         
         j = self._current_j #jth booster
         if self.shared_ensembles and j >= self.shared_start_idx:
-            preds = self._preds[:,self.shared_ensembles[j]].reshape(-1, order='A') #corresponding predictions
+            preds = self._preds.T[self.shared_ensembles[j], :].reshape(-1) #corresponding predictions
         else:
             preds = self._preds[:,j] #corresponding predictions
         factor = self.num_classes/(self.num_classes-1) #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
@@ -1043,7 +1043,7 @@ def rum_train(
         elif dev_str == 'gpu':
             rumb.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         else:
-            rumb.device = torch.device('cpu')
+            rumb.device = torch.cpu.current_device()
         if torch_compile:
             rumb.torch_compile = True
         else:

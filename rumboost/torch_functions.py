@@ -720,7 +720,7 @@ def cross_entropy_torch(preds, labels):
     Cross entropy : float
         The negative cross-entropy, as float.
     """
-    return cross_entropy(preds, labels)
+    return -torch.mean(torch.log(preds[torch.arange(labels.shape[0], device=labels.device), labels]))
 
 @torch.compile
 def cross_entropy_torch_compiled(preds, labels):
@@ -740,4 +740,4 @@ def cross_entropy_torch_compiled(preds, labels):
     Cross entropy : float
         The negative cross-entropy, as float.
     """
-    return cross_entropy(preds, labels)
+    return -torch.mean(torch.log(preds[torch.arange(labels.shape[0], device=labels.device), labels]))

@@ -20,8 +20,8 @@ def load_preprocess_LPMC():
         5 folds of indices grouped by household for CV.
     '''
     #source: https://github.com/JoseAngelMartinB/prediction-behavioural-analysis-ml-travel-mode-choice
-    data_train = pd.read_csv('../Data/LPMC_train.csv')
-    data_test = pd.read_csv('../Data/LPMC_test.csv')
+    data_train = pd.read_csv('Data/LPMC_train.csv')
+    data_test = pd.read_csv('Data/LPMC_test.csv')
 
     # data_train_2 = pd.read_csv('Data/LTDS_train.csv')
     # data_test_2 = pd.read_csv('Data/LTDS_test.csv')
@@ -62,12 +62,12 @@ def load_preprocess_LPMC():
     train_idx = []
     test_idx = []
     try:
-        train_idx, test_idx = pickle.load(open('../Data/strat_group_k_fold_london.pickle', "rb"))
+        train_idx, test_idx = pickle.load(open('Data/strat_group_k_fold_london.pickle', "rb"))
     except FileNotFoundError:
         for (train_i, test_i) in stratified_group_k_fold(data_train[features], data_train['travel_mode'], hh_id, k=5):
             train_idx.append(train_i)
             test_idx.append(test_i)
-        pickle.dump([train_idx, test_idx], open('../Data/strat_group_k_fold_london.pickle', "wb"))
+        pickle.dump([train_idx, test_idx], open('Data/strat_group_k_fold_london.pickle', "wb"))
 
     folds = zip(train_idx, test_idx)
 
