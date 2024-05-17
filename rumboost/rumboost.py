@@ -7,6 +7,7 @@ import numpy as np
 import torch
 
 from scipy.special import softmax
+from scipy.optimize import minimize
 from operator import attrgetter
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -15,8 +16,8 @@ from lightgbm import callback
 from lightgbm.basic import Booster, Dataset, LightGBMError, _ConfigAliases, _InnerPredictor, _choose_param_value, _log_warning
 from lightgbm.compat import SKLEARN_INSTALLED, _LGBMGroupKFold, _LGBMStratifiedKFold
 
-from rumboost.utils import bio_to_rumboost, cross_entropy, nest_probs, cross_nested_probs
-from rumboost.torch_functions import _inner_predict_torch, _inner_predict_torch_compiled, _f_obj_torch, _f_obj_torch_compiled, _f_obj_nested_torch, _f_obj_nested_torch_compiled, _f_obj_cross_nested_torch, _f_obj_cross_nested_torch_compiled, cross_entropy_torch, cross_entropy_torch_compiled
+from rumboost.utils import bio_to_rumboost, cross_entropy, nest_probs, cross_nested_probs, optimise_mu_or_alpha
+from rumboost.torch_functions import _predict_torch, _predict_torch_compiled, _inner_predict_torch, _inner_predict_torch_compiled, _f_obj_torch, _f_obj_torch_compiled, _f_obj_nested_torch, _f_obj_nested_torch_compiled, _f_obj_cross_nested_torch, _f_obj_cross_nested_torch_compiled, cross_entropy_torch, cross_entropy_torch_compiled
 
 _LGBM_CustomObjectiveFunction = Callable[
     [Union[List, np.ndarray], Dataset],
@@ -138,48 +139,71 @@ class RUMBoost:
                 grad, hess = _f_obj_nested_torch_compiled(self._current_j, self.labels, self.preds_i_m, self.preds_m, self.num_classes, self.mu, self.nests, self.device, self.shared_ensembles, self.shared_start_idx)
             else:
                 grad, hess = _f_obj_nested_torch(self._current_j, self.labels, self.preds_i_m, self.preds_m, self.num_classes, self.mu, self.nests, self.device, self.shared_ensembles, self.shared_start_idx)
-            return grad.numpy(force=True), hess.numpy(force=True)
+            return grad.cpu().numpy(), hess.cpu().numpy()
 
-        if self.shared_ensembles and self._current_j >= self.shared_start_idx:
-            grad = np.array([])
-            hess = np.array([])
-            for j in self.shared_ensembles[self._current_j]:
-                labels = self.labels
-                labels_nest = self.labels_nest
-                pred_i_m = self.preds_i_m[:,j] #prediction of choice i knowing nest m
-                pred_m = self.preds_m[:, self.nests[j]] #prediction of choosing nest m
-                factor = self.num_classes/(self.num_classes-1) #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
 
-                #three cases: 1. choice i = j, 2. j is in the same nest than choice i, 3. j is in another nest.
-                grad = np.concatenate([grad, (labels == j) * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)) + \
-                                                (labels_nest == self.nests[j]) * (1 - (labels == j)) * (self.mu[self.nests[j]] * pred_i_m - pred_i_m * (1 - pred_m)) + \
-                                                (1 - (labels_nest == self.nests[j])) * (pred_i_m * pred_m)])
-                hess = np.concatenate([hess, (labels == j) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
-                                                (labels_nest == self.nests[j]) * (1 - (labels == j)) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
-                                                (1 - (labels_nest == self.nests[j])) * (-pred_i_m * pred_m * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)))])
-                
-            hess = factor * hess
+        j = self._current_j
+        label = self.labels
+        n_obs = self.preds_i_m.shape[0]
+        factor = self.num_classes / (self.num_classes - 1)
+        label_nest = self.nest_alt[label]
 
-            return grad, hess
+        if self.shared_ensembles and j >= self.shared_start_idx:
+            
+            shared_ensemble = np.array(self.shared_ensembles[j])
+
+            pred_i_m = self.preds_i_m[:, shared_ensemble] #pred of alternative j knowing nest m
+            pred_m = self.preds_m[:, self.nest_alt[shared_ensemble]] #prediction of choosing nest m
+
+            grad = np.where(
+                label[:,None] == shared_ensemble[None, :], 
+                -self.mu[self.nest_alt[shared_ensemble]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m),
+                np.where(
+                    label_nest[:,None] == self.nest_alt[shared_ensemble][None, :],
+                    self.mu[self.nest_alt[shared_ensemble]] * pred_i_m - pred_i_m * (1 - pred_m),
+                    pred_i_m * pred_m
+                )
+            )
+            hess = np.where(
+                label[:,None] == shared_ensemble[None, :], 
+                -self.mu[self.nest_alt[shared_ensemble]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nest_alt[shared_ensemble]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m),
+                np.where(
+                    label_nest[:,None] == self.nest_alt[shared_ensemble][None, :],
+                    -self.mu[self.nest_alt[shared_ensemble]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nest_alt[shared_ensemble]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m),
+                    -pred_i_m * pred_m * (-self.mu[self.nest_alt[shared_ensemble]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m))
+                )
+            )
+            hess *= factor
+
+            grad = grad.T.reshape(-1)
+            hess = hess.T.reshape(-1)
         else:
-            j = self._current_j
-            labels = self.labels
-            labels_nest = self.labels_nest
             pred_i_m = self.preds_i_m[:,j] #prediction of choice i knowing nest m
-            pred_m = self.preds_m[:, self.nests[j]] #prediction of choosing nest m
-            factor = self.num_classes/(self.num_classes-1) #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
+            pred_m = self.preds_m[:, self.nest_alt[j]] #prediction of choosing nest m
+            mu = self.mu
 
-            #three cases: 1. choice i = j, 2. j is in the same nest than choice i, 3. j is in another nest.
-            grad = (labels == j) * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)) + \
-                (labels_nest == self.nests[j]) * (1 - (labels == j)) * (self.mu[self.nests[j]] * pred_i_m - pred_i_m * (1 - pred_m)) + \
-                (1 - (labels_nest == self.nests[j])) * (pred_i_m * pred_m)
-            hess = (labels == j) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
-                (labels_nest == self.nests[j]) * (1 - (labels == j)) * (-self.mu[self.nests[j]] * pred_i_m * (1 - pred_i_m) * (1 - self.mu[self.nests[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m)) + \
-                (1 - (labels_nest == self.nests[j])) * (-pred_i_m * pred_m * (-self.mu[self.nests[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m)))
+            grad = torch.where(
+                label == j, 
+                -mu[self.nest_alt[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m),
+                torch.where(
+                    label_nest == self.nest_alt[j],
+                    mu[self.nest_alt[j]] * pred_i_m - pred_i_m * (1 - pred_m),
+                    pred_i_m * pred_m
+                )
+            )
+            hess = torch.where(
+                label == j, 
+                -mu[self.nest_alt[j]] * pred_i_m * (1 - pred_i_m) * (1 - mu[self.nest_alt[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m),
+                torch.where(
+                    label_nest == self.nest_alt[j],
+                    -mu[self.nest_alt[j]] * pred_i_m * (1 - pred_i_m) * (1 - mu[self.nest_alt[j]] - pred_m) + pred_i_m**2 * pred_m * (1 - pred_m),
+                    -pred_i_m * pred_m * (-mu[self.nest_alt[j]] * (1 - pred_i_m) - pred_i_m * (1 - pred_m))
+                )
+            )
             
             hess = factor * hess
 
-            return grad, hess
+        return grad, hess
     
     def f_obj_cross_nested(self, _, train_set: Dataset):
         """
@@ -199,63 +223,97 @@ class RUMBoost:
         """
         if self.device is not None:
             if self.torch_compile:
-                grad, hess = _f_obj_cross_nested_torch_compiled(self._current_j, self.labels, self.preds_i_m, self.preds_m, self.num_classes, self.mu, self.nests, self.device, self.shared_ensembles, self.shared_start_idx)
+                grad, hess = _f_obj_cross_nested_torch_compiled(self._current_j, self.labels, self.preds_i_m, self.preds_m, self._preds, self.num_classes, self.mu, self.device, self.shared_ensembles, self.shared_start_idx)
             else:
                 grad, hess = _f_obj_cross_nested_torch(self._current_j, self.labels, self.preds_i_m, self.preds_m, self._preds, self.num_classes, self.mu, self.device, self.shared_ensembles, self.shared_start_idx)
-            return grad.numpy(force=True), hess.numpy(force=True)
+            return grad.cpu().numpy(), hess.cpu().numpy()
 
-        if self.shared_ensembles and self._current_j >= self.shared_start_idx:
-            grad = np.array([]).reshape(0, 1)
-            hess = np.array([]).reshape(0, 1)
-            for j in self.shared_ensembles[self._current_j]:
-                labels = self.labels
-                mu = np.array(self.mu).reshape(1, len(self.mu))
-                data_idx = np.arange(self.preds_i_m.shape[0])
-                factor = self.num_classes / (self.num_classes - 1)  #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
+        j = self._current_j
+        label = self.labels
+        data_idx = np.arange(self.preds_i_m.shape[0])
+        factor = self.num_classes / (self.num_classes - 1)
 
-                pred_j_m = self.preds_i_m[:, j, :]  #pred of alternative j knowing nest m
-                pred_i_m = self.preds_i_m[data_idx, labels, :]  #prediction of choice i knowing nest m
-                pred_m = self.preds_m[:, j, :]  #prediction of choosing nest m
-                pred_i = self._preds[data_idx, labels].reshape(-1,1)  #pred of choice i
-                pred_j = self._preds[:, j].reshape(-1,1)  #pred of alt j
+        if self.shared_ensembles and j >= self.shared_start_idx:
+            pred_j_m = self.preds_i_m[:, self.shared_ensembles[j], :] #pred of alternative j knowing nest m
+            pred_i_m = self.preds_i_m[data_idx, label, :][:, None, :] #prediction of choice i knowing nest m
+            pred_m = self.preds_m[:, None, :]  #prediction of choosing nest m
+            pred_i = self._preds[data_idx, label][:, None, None]  #pred of choice i
+            pred_j = self._preds[:, self.shared_ensembles[j]][:, :, None]  #pred of alt j
 
-                d_pred_i_Vi = np.sum((pred_i_m * pred_m * (pred_i_m * (1 - mu) + mu - pred_i)), axis=1, keepdims=True)  #first derivative of pred i with respect to Vi
-                d_pred_i_Vj = np.sum((pred_i_m * pred_m * (pred_j_m * (1 - mu) - pred_j)), axis=1, keepdims=True)  #first derivative of pred i with respect to Vj
-                d_pred_j_Vj = np.sum((pred_j_m * pred_m * (pred_j_m * (1 - mu) + mu - pred_j)), axis=1, keepdims=True)  #first derivative of pred j with respect to Vj
-                d2_pred_i_Vi = np.sum((pred_i_m * pred_m * (mu ** 2 * (2 * pred_i_m ** 2 - 3 * pred_i_m + 1) + mu * (-3 * pred_i_m ** 2 + 3 * pred_i_m + 2 * pred_i * (pred_i_m - 1)) + (pred_i_m ** 2 - 2 * pred_i_m * pred_i + pred_i ** 2 - d_pred_i_Vi))), axis=1, keepdims=True)
-                d2_pred_i_Vj = np.sum((pred_i_m * pred_m * (mu ** 2 * (-pred_j_m) + mu * (-pred_j_m ** 2 + pred_j_m) + (pred_j_m - pred_j) ** 2 - d_pred_j_Vj)), axis=1, keepdims=True)
+            pred_i_m_pred_m = pred_i_m * pred_m
+            pred_j_m_pred_m = pred_j_m * pred_m
+            pred_i_m_pred_i = pred_i_m * pred_i
+            pred_i_m_squared = pred_i_m ** 2
+            pred_j_m_squared = pred_j_m ** 2
+            pred_i_squared = pred_i ** 2
+            pred_j_m_pred_j_squared = (pred_j_m - pred_j) ** 2
+            pred_i_m_1_mu_mu_pred_i = (pred_i_m * (1 - self.mu) + self.mu - pred_i)
+            pred_j_m_1_mu_pred_j = (pred_j_m * (1 - self.mu) - pred_j)
 
-                #two cases: 1. alt j is choice i, 2. alt j is not choice i
-                grad = np.concatenate([grad,np.where(labels.reshape(-1,1) == j, (-1 / pred_i) * d_pred_i_Vi, (-1 / pred_i) * d_pred_i_Vj)])
-                hess = np.concatenate([hess,np.where(labels.reshape(-1,1) == j, (-1 / pred_i ** 2) * (d2_pred_i_Vi * pred_i - d_pred_i_Vi ** 2), (-1 / pred_i ** 2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj ** 2))])
-            hess = factor * hess
+            mu_squared = self.mu ** 2
 
-            return grad.reshape(-1), hess.reshape(-1)
+            d_pred_i_Vi = np.sum((pred_i_m_pred_m * pred_i_m_1_mu_mu_pred_i), axis=2, keepdims=True)  #first derivative of pred i with respect to Vi
+            d_pred_i_Vj = np.sum((pred_i_m_pred_m * pred_j_m_1_mu_pred_j), axis=2, keepdims=True)  #first derivative of pred i with respect to Vj
+            d_pred_j_Vj = np.sum((pred_j_m_pred_m * (pred_j_m_1_mu_pred_j + self.mu)), axis=2, keepdims=True)  #first derivative of pred j with respect to Vj
+
+            mu_3pim2_3pim_2pimpi_pi = self.mu * (-3 * pred_i_m_squared + 3 * pred_i_m + 2 * (pred_i_m_pred_i - pred_i))
+            pim2_2pimpi_pi2_dpiVi = (pred_i_m_squared - 2 * pred_i_m_pred_i + pred_i_squared - d_pred_i_Vi)
+            mu2_2pim2_3pim_1 = mu_squared * (2 * pred_i_m_squared - 3 * pred_i_m + 1)
+            mu2_pjm = mu_squared * (-pred_j_m)
+            mu_pjm2_pjm = self.mu * (-pred_j_m_squared + pred_j_m)
+
+            d2_pred_i_Vi = np.sum((pred_i_m_pred_m * (mu2_2pim2_3pim_1 + mu_3pim2_3pim_2pimpi_pi + pim2_2pimpi_pi2_dpiVi)), axis=2, keepdims=True)
+            d2_pred_i_Vj = np.sum((pred_i_m_pred_m * (mu2_pjm + mu_pjm2_pjm + pred_j_m_pred_j_squared - d_pred_j_Vj)), axis=2, keepdims=True)
+
+            #print(d2_pred_i_Vi)
+            mask = np.array(self.shared_ensembles[j])[None, :] == label[:, None]
+            grad = np.where(mask[:, :, None], ((-1 / pred_i) * d_pred_i_Vi), ((-1 / pred_i) * d_pred_i_Vj))
+            hess = np.where(mask[:, :, None], ((-1 / pred_i ** 2) * (d2_pred_i_Vi * pred_i - d_pred_i_Vi ** 2)), ((-1 / pred_i ** 2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj ** 2)))
+            hess *= factor
+
+            grad = grad.T.reshape(-1)
+            hess = hess.T.reshape(-1)
         else:
-            j = self._current_j
-            labels = self.labels
-            mu = np.array(self.mu).reshape(1, len(self.mu))
-            data_idx = np.arange(self.preds_i_m.shape[0])
-            factor = self.num_classes / (self.num_classes - 1)  #factor to correct redundancy (see Friedmann, Greedy Function Approximation)
-
             pred_j_m = self.preds_i_m[:, j, :]  #pred of alternative j knowing nest m
-            pred_i_m = self.preds_i_m[data_idx, labels, :]  #prediction of choice i knowing nest m
-            pred_m = self.preds_m[:, j, :]  #prediction of choosing nest m
-            pred_i = self._preds[data_idx, labels]  #pred of choice i
-            pred_j = self._preds[:, j]  #pred of alt j
+            pred_i_m = self.preds_i_m[data_idx, label, :]  #prediction of choice i knowing nest m
+            pred_m = self.preds_m[:, :]  #prediction of choosing nest m
+            pred_i = self._preds[data_idx, label][:, None]  #pred of choice i
+            pred_j = self._preds[:, j][:, None]  #pred of alt j
 
-            d_pred_i_Vi = np.sum((pred_i_m * pred_m * (pred_i_m * (1 - mu) + mu - pred_i)), axis=1, keepdims=True)  #first derivative of pred i with respect to Vi
-            d_pred_i_Vj = np.sum((pred_i_m * pred_m * (pred_j_m * (1 - mu) - pred_j)), axis=1, keepdims=True)  #first derivative of pred i with respect to Vj
-            d_pred_j_Vj = np.sum((pred_j_m * pred_m * (pred_j_m * (1 - mu) + mu - pred_j)), axis=1, keepdims=True)  #first derivative of pred j with respect to Vj
-            d2_pred_i_Vi = np.sum((pred_i_m * pred_m * (mu ** 2 * (2 * pred_i_m ** 2 - 3 * pred_i_m + 1) + mu * (-3 * pred_i_m ** 2 + 3 * pred_i_m + 2 * pred_i * (pred_i_m - 1)) + (pred_i_m ** 2 - 2 * pred_i_m * pred_i + pred_i ** 2 - d_pred_i_Vi))), axis=1, keepdims=True)
-            d2_pred_i_Vj = np.sum((pred_i_m * pred_m * (mu ** 2 * (-pred_j_m) + mu * (-pred_j_m ** 2 + pred_j_m) + (pred_j_m - pred_j) ** 2 - d_pred_j_Vj)), axis=1, keepdims=True)
+            pred_i_m_pred_m = pred_i_m * pred_m
+            pred_j_m_pred_m = pred_j_m * pred_m
+            pred_i_m_pred_i = pred_i_m * pred_i
+            pred_i_m_squared = pred_i_m ** 2
+            pred_j_m_squared = pred_j_m ** 2
+            pred_i_squared = pred_i ** 2
+            pred_j_m_pred_j_squared = (pred_j_m - pred_j) ** 2
+            pred_i_m_1_mu_mu_pred_i = (pred_i_m * (1 - self.mu) + self.mu - pred_i)
+            pred_j_m_1_mu_pred_j = (pred_j_m * (1 - self.mu) - pred_j)
+
+            mu_squared = self.mu ** 2
+
+            d_pred_i_Vi = np.sum((pred_i_m_pred_m * pred_i_m_1_mu_mu_pred_i), axis=1, keepdims=True)  #first derivative of pred i with respect to Vi
+            d_pred_i_Vj = np.sum((pred_i_m_pred_m * pred_j_m_1_mu_pred_j), axis=1, keepdims=True)  #first derivative of pred i with respect to Vj
+            d_pred_j_Vj = np.sum((pred_j_m_pred_m * (pred_j_m_1_mu_pred_j + self.mu)), axis=1, keepdims=True)  #first derivative of pred j with respect to Vj
+
+            mu_3pim2_3pim_2pimpi_pi = self.mu * (-3 * pred_i_m_squared + 3 * pred_i_m + 2 * (pred_i_m_pred_i - pred_i))
+            pim2_2pimpi_pi2_dpiVi = (pred_i_m_squared - 2 * pred_i_m_pred_i + pred_i_squared - d_pred_i_Vi)
+            mu2_2pim2_3pim_1 = mu_squared * (2 * pred_i_m_squared - 3 * pred_i_m + 1)
+            mu2_pjm = mu_squared * (-pred_j_m)
+            mu_pjm2_pjm = self.mu * (-pred_j_m_squared + pred_j_m)
+
+            d2_pred_i_Vi = np.sum((pred_i_m_pred_m * (mu2_2pim2_3pim_1 + mu_3pim2_3pim_2pimpi_pi + pim2_2pimpi_pi2_dpiVi)), axis=1, keepdims=True)
+            d2_pred_i_Vj = np.sum((pred_i_m_pred_m * (mu2_pjm + mu_pjm2_pjm + pred_j_m_pred_j_squared - d_pred_j_Vj)), axis=1, keepdims=True)
 
             #two cases: 1. alt j is choice i, 2. alt j is not choice i
-            grad = np.where(labels == j, (-1 / pred_i) * d_pred_i_Vi, (-1 / pred_i) * d_pred_i_Vj)
-            hess = np.where(labels == j, (-1 / pred_i ** 2) * (d2_pred_i_Vi * pred_i - d_pred_i_Vi ** 2), (-1 / pred_i ** 2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj ** 2))
-            hess = factor * hess
+            grad = np.where(label == j, (-1 / pred_i) * d_pred_i_Vi, (-1 / pred_i) * d_pred_i_Vj)
+            hess = np.where(label == j, (-1 / pred_i ** 2) * (d2_pred_i_Vi * pred_i - d_pred_i_Vi ** 2), (-1 / pred_i ** 2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj ** 2))
+            hess *= factor
 
-            return grad.reshape(-1), hess.reshape(-1)
+            grad = grad.view(-1)
+            hess = hess.view(-1)
+
+        return grad, hess
             
     def predict(
         self,
@@ -318,6 +376,26 @@ class RUMBoost:
         #split data
         new_data, _ = self._preprocess_data(data, return_data=True)
         #compute U
+        
+        #using pytorch if required
+        if self.device is not None:
+            raw_preds = [torch.from_numpy(booster.predict(new_data[k].get_data(), 
+                                start_iteration, 
+                                num_iteration, 
+                                raw_score, 
+                                pred_leaf, 
+                                pred_contrib,
+                                data_has_header,
+                                validate_features)).to(self.device) for k, booster in enumerate(self.boosters)]
+            if self.torch_compile:
+                preds, pred_i_m, pred_m = _predict_torch_compiled(raw_preds, self.shared_ensembles, data.num_data(), self.num_classes, self.device, self.shared_start_idx, self.functional_effects, self.nests, self.mu, self.alphas, utilities)
+            else:
+                preds, pred_i_m, pred_m = _predict_torch(raw_preds, self.shared_ensembles, data.num_data(), self.num_classes, self.device, self.shared_start_idx, self.functional_effects, self.nests, self.mu, self.alphas, utilities)
+            if self.mu is not None:
+                return preds, pred_i_m, pred_m
+            else:
+                return preds
+        
         raw_preds = [booster.predict(new_data[k].get_data(), 
                                 start_iteration, 
                                 num_iteration, 
@@ -329,7 +407,7 @@ class RUMBoost:
 
         #if shared ensembles, get the shared predictions out and reorder them for easier addition later
         if self.shared_ensembles:
-            raw_shared_preds = np.concatenate([arr.reshape((data.num_data(), -1)) for arr in raw_preds[self.shared_start_idx:]], axis=1)
+            raw_shared_preds = np.concatenate([arr.reshape((-1, data.num_data())) for arr in raw_preds[self.shared_start_idx:]]).T
             if self.shared_start_idx == 0:
                 raw_preds = [np.zeros(data.num_data())]*self.num_classes
             else:
@@ -346,22 +424,22 @@ class RUMBoost:
             for shared_ensembles in self.shared_ensembles.values():
                 raw_preds[:, shared_ensembles] += raw_shared_preds[:,:len(shared_ensembles)]
                 raw_shared_preds = raw_shared_preds[:,len(shared_ensembles):]
-
+            
         #compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
-        if nests:
-            preds, pred_i_m, pred_m = nest_probs(raw_preds, mu=mu, nests=nests)
+        if self.nests:
+            preds, pred_i_m, pred_m = nest_probs(raw_preds, mu=self.mu, nests=self.nests, nest_alt=self.nest_alt)
             return preds, pred_i_m, pred_m
         
         #compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
-        if alphas is not None:
-            preds, pred_i_m, pred_m = cross_nested_probs(raw_preds, mu=mu, alphas=alphas)
+        if self.alphas is not None:
+            preds, pred_i_m, pred_m = cross_nested_probs(raw_preds, mu=self.mu, alphas=self.alphas)
             return preds, pred_i_m, pred_m
 
         #softmax
         if not utilities:
             preds = softmax(raw_preds, axis=1)
             return preds
-   
+
         return raw_preds
     
     def _inner_predict(
@@ -424,7 +502,7 @@ class RUMBoost:
             
         #compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
         if self.nests:
-            preds, pred_i_m, pred_m = nest_probs(raw_preds, mu=self.mu, nests=self.nests)
+            preds, pred_i_m, pred_m = nest_probs(raw_preds, mu=self.mu, nests=self.nests, nest_alt=self.nest_alt)
             return preds, pred_i_m, pred_m
         
         #compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
@@ -819,7 +897,7 @@ class RUMBoost:
 def rum_train(
     params: dict[str, Any],
     train_set: Dataset | dict[str, Any],
-    rum_structure: list[dict[str, Any]] = None,
+    model_specification: dict[str, Any],
     num_boost_round: int = 100,
     valid_sets: Optional[list[Dataset]] | Optional[dict] = None,
     valid_names: Optional[list[str]] = None,
@@ -829,13 +907,7 @@ def rum_train(
     categorical_feature: Union[list[str], list[int], str] = 'auto',
     keep_training_booster: bool = False,
     callbacks: Optional[list[Callable]] = None,
-    nests: dict = None,
-    mu: list = None,
-    params_fe: dict = None,
-    alphas: np.array = None,
-    shared_ensembles: dict = None,
     torch_tensors: dict = None,
-    torch_compile: bool = False,
 ) -> RUMBoost:
     """Perform the RUM training with given parameters.
 
@@ -851,18 +923,83 @@ def rum_train(
             - "num_data": the number of observations in the dataset.
             - "labels": the labels of the full dataset.
             - "labels_j": the labels of the dataset for each class (binary).
-    rum_structure : list[dict[str, Any]], optional (default = None)
-        List of dictionaries specifying the RUM structure. 
-        The list must contain one dictionary for each class, which describes the 
-        utility structure for that class. 
-        Each dictionary has three allowed keys. 
-        'cols': list of columns included in that class
-        'monotone_constraints': list of monotonic constraints on parameters
-        'interaction_constraints': list of interaction constraints on features
-        if None, a biogeme_model must be specified
-    biogeme_model : BIOGEME, optional (default = None)
-        A BIOGEME object representing a biogeme model, used to create the rum_structure.
-        A biogeme model is required if rum_structure is None, otherwise should be None.
+    model_specification : dict
+        Dictionary specifying the model specification. The first key should be:
+            
+            -'rum_structure' : list[dict[str, Any]]
+                List of dictionaries specifying the variable in each of the class utilities, 
+                and their monotonicity or interaction. The list must contain one dictionary for each class.
+                Each dictionary has three allowed keys: 
+        
+                    'cols': list of columns from the train_set included in that class
+                    'monotone_constraints': list of monotonic constraints on parameters
+                    'interaction_constraints': list of interaction constraints on features
+
+        The other keys are optional and can be:
+
+            - 'nested_logit': dict
+                Nested logit model specification. The dictionary must contain:
+                    - 'mu': ndarray
+                        An array of mu values, the scaling parameters, for each nest. 
+                        The first value of the array correspond to nest 0, and so on.
+                    - 'nests': dict
+                        A dictionary representing the nesting structure.
+                        Keys are nests, and values are the the list of alternatives in the nest.
+                        For example {0: [0, 1], 1: [2, 3]} means that alternative 0 and 1 
+                        are in nest 0, and alternative 2 and 3 are in nest 1.
+
+                and can contain the following keys:
+                    - 'optimise_mu': bool, optional (default = False)
+                        If True, the mu values are optimised during training. If the mu value of a nest
+                        is initially equal to 1, the mu value is assumed to be fixed.
+                    - 'optimise_it': int, optional (default = 100)
+                        The number of iterations between each optimisation of the mu values.
+                    - 'data_to_optimise': str, optional (default = 'train set')
+                        The dataset used for the optimisation of the mu values.
+                        Can be 'train set' or 'test set'.
+                    - 'optimisation_method': str, optional (default = None)
+                        The method used for the optimisation of the mu values with scipy.optimize.minimize.
+
+            - 'cross_nested_logit': dict
+                Cross-nested logit model specification. The dictionary must contain:
+                    - 'mu': ndarray
+                        An array of mu values, the scaling parameters, for each nest.
+                        The first value of the array correspond to nest 0, and so on.
+                    - 'alphas': ndarray
+                        An array of J (alternatives) by M (nests).
+                        alpha_jn represents the degree of membership of alternative j to nest n
+                        By example, alpha_12 = 0.5 means that alternative one belongs 50% to nest 2.
+                and can contain the following keys:
+                    - 'optimise_mu': bool, optional (default = False)
+                        If True, the mu values are optimised during training. If the mu value of a nest
+                        is initially equal to 1, the mu value is assumed to be fixed.
+                    - 'optimise_alphas': bool, optional (default = False)
+                        If True, the alpha values are optimised during training. If the alpha value of an alternative
+                        is initially equal to 1 or 0, the alpha value is assumed to be fixed.
+                    - 'optimise_it': int, optional (default = 100)
+                        The number of iterations between each optimisation.
+                    - 'data_to_optimise': str, optional (default = 'train set')
+                        The dataset used for the optimisation of the mu values.
+                        Can be 'train set' or 'test set'.
+                    - 'optimisation_method': str, optional (default = None)
+                        The method used for the optimisation of the mu values with scipy.optimize.minimize.
+                        
+            - 'functional_effect': dict
+                Functional effect model specification. The dictionary must contain:
+                    - 'params_fe': dict
+                        Parameters for training the socio-economic part of a functional effect model.
+                
+                Note that the rum_structure must contain two dictionaries for each class, 
+                one for the attributes and one for the socio-economic characteristics. They must be
+                in the order attributes, socio-economic characteristics, attributes, socio-economic characteristics, etc.
+
+            - 'shared_ensembles': dict
+                Dictionary of shared ensembles. Keys are the index of position 
+                in the rum_structure list of the shared ensembles, and values are the list of alternatives
+                that share the parameter.
+
+        These keys are optional and can be combined, apart for the nested_logit and cross_nested_logit keys.
+
     num_boost_round : int, optional (default = 100)
         Number of boosting iterations.
     valid_sets : list of Dataset, dict, or None, optional (default = None)
@@ -920,28 +1057,15 @@ def rum_train(
     callbacks : list of callable, or None, optional (default = None)
         List of callback functions that are applied at each iteration.
         See Callbacks in Python API for more information.
-    mu : list, optional (default=None)
-        List of mu values, the scaling parameter, for each nest. The first value of the list correspond to nest 0, and so on.
-    nest : dict, optional (default=None)
-        Dictionary representing the nesting structure. Keys are alternatives, and values are the nest they belong to. By example,
-        {0:0, 1:1, 2:0} means alt 0 and 2 belong to nest 0 and alt 1 belongs to nest 1. 
-    params_fe : dict, optional (default=None)
-        Parameters for training the socio-economic part of a functional effect model.
-    alphas : ndarray, optional (default=None)
-        An array of J (alternatives) by M (nests).
-        alpha_jn represents the degree of membership of alternative j to nest n
-        By example, alpha_12 = 0.5 means that alternative one belongs 50% to nest 2.
-    shared_ensembles : dict, optional (default=None)
-        Dictionary of shared ensembles. Keys are the index of position in the rum_structure list of the shared ensembles, 
-        and values are the list of alternatives that share the parameter.
     torch_tensors : dict, optional (default=None)
         If a dictionary is passed, torch.Tensors will be used for computing prediction, objective function and cross-entropy calculations.
         The dictionary should follow the following form:
-            {'device': 'cpu', 'gpu' or 'cuda'}
-    torch_compile: bool, optional (default=False)
-        If True, the prediction, objective function and cross-entropy calculations will be compiled with torch.compile.
-        If used with GPU or cuda, it requires to be on a linux os.
-        
+
+            'device': 'cpu', 'gpu' or 'cuda'
+                The device on which the calculations will be performed.
+            'torch_compile': bool
+                If True, the prediction, objective function and cross-entropy calculations will be compiled with torch.compile.
+                If used with GPU or cuda, it requires to be on a linux os.
 
     Note
     ----
@@ -1015,19 +1139,6 @@ def rum_train(
             cb.__dict__.setdefault('order', i - len(callbacks))
         callbacks_set = set(callbacks)
 
-    # if "early_stopping_round" in params:
-    #    callbacks_set.add(
-    #        callback.early_stopping(
-    #            stopping_rounds=params["early_stopping_round"],
-    #            first_metric_only=first_metric_only,
-    #            verbose=_choose_param_value(
-    #                main_param_name="verbosity",
-    #                params=params,
-    #                default_value=1
-    #            ).pop("verbosity") > 0
-    #        )
-    #    )
-
     callbacks_before_iter_set = {cb for cb in callbacks_set if getattr(cb, 'before_iteration', False)}
     callbacks_after_iter_set = callbacks_set - callbacks_before_iter_set
     callbacks_before_iter = sorted(callbacks_before_iter_set, key=attrgetter('order'))
@@ -1038,16 +1149,13 @@ def rum_train(
 
     if torch_tensors:
         dev_str = torch_tensors.get('device', 'cpu')
+        rumb.torch_compile = torch_tensors.get('torch_compile', False)
         if dev_str == 'cuda':
             rumb.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         elif dev_str == 'gpu':
             rumb.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         else:
             rumb.device = torch.cpu.current_device()
-        if torch_compile:
-            rumb.torch_compile = True
-        else:
-            rumb.torch_compile = False
     else:
         rumb.device = None
 
@@ -1056,26 +1164,86 @@ def rum_train(
         raise ValueError('Specify the number of classes in the dictionary of parameters with the key num_classes')
     rumb.num_classes = params.get('num_classes') #saving number of classes
 
-    #initialise shared ensembles if they are specified
-    if shared_ensembles is not None:
-        rumb.shared_ensembles = shared_ensembles
-        rumb.shared_start_idx = [*shared_ensembles][0]
+    #checking model specification
+    if 'rum_structure' not in model_specification:
+        raise ValueError('Model specification must contain rum_structure key')
+    rumb.rum_structure = model_specification['rum_structure']
+    if not isinstance(rumb.rum_structure, list):
+        raise ValueError('rum_structure must be a list')
+    
+    if 'nested_logit' in model_specification and 'cross_nested_logit' in model_specification:
+        raise ValueError('Cannot specify both nested_logit and cross_nested_logit')
+    
+    #nested logit or cross nested logit or mnl
+    if 'nested_logit' in model_specification:
+        if 'nests' not in model_specification['nested_logit'] or 'mu' not in model_specification['nested_logit']:
+            raise ValueError('Nested logit must contain nests key and mu key')
+        rumb.nests = model_specification['nested_logit']['nests']
+        rumb.mu = model_specification['nested_logit']['mu']
+        rumb.alphas = None
+        f_obj = rumb.f_obj_nest
+        if not torch_tensors:
+            nest_alt = np.zeros(rumb.num_classes)
+            for n, alts in rumb.nests.items():
+                nest_alt[alts] = n
+            rumb.nest_alt = nest_alt.astype(int)
+        if not isinstance(rumb.mu, np.ndarray):
+            raise ValueError('Mu must be a numpy array')
+        if not isinstance(rumb.nests, dict):
+            raise ValueError('Nests must be a dictionary')
+        optimise_mu = model_specification['nested_logit'].get('optimise_mu', False)
+        optimise_it = model_specification['nested_logit'].get('optimise_it', 100)
+        data_to_optimise = model_specification['nested_logit'].get('data_to_optimise', 'train set')
+        optimisation_method = model_specification['nested_logit'].get('optimisation_method', None)
+        if optimise_mu:
+            optimisation_bounds_mu = [(1, 10) if m != 1 else (1, 1) for m in rumb.mu]
+    elif 'cross_nested_logit' in model_specification:
+        if 'alphas' not in model_specification['cross_nested_logit'] or 'mu' not in model_specification['cross_nested_logit']:
+            raise ValueError('Cross nested logit must contain alphas key and mu key')
+        rumb.mu = model_specification['cross_nested_logit']['mu']
+        rumb.alphas = model_specification['cross_nested_logit']['alphas']
+        rumb.nests = None
+        f_obj = rumb.f_obj_cross_nested
+        if not isinstance(rumb.mu, np.ndarray):
+            raise ValueError('Mu must be a numpy array')
+        if not isinstance(rumb.alphas, np.ndarray):
+            raise ValueError('Alphas must be a numpy array')
+        optimise_mu = model_specification['cross_nested_logit'].get('optimise_mu', False)
+        optimise_alphas = model_specification['cross_nested_logit'].get('optimise_alphas', False)
+        optimise_it = model_specification['cross_nested_logit'].get('optimise_it', 100)
+        data_to_optimise = model_specification['cross_nested_logit'].get('data_to_optimise', 'train set')
+        optimisation_method = model_specification['cross_nested_logit'].get('optimisation_method', None)
+        if optimise_mu:
+            optimisation_bounds_mu = [(1, 10) if m != 1 else (1, 1) for m in rumb.mu]
+        if optimise_alphas:
+            optimisation_bounds_alphas = [(0, 0) if a == 0 else (1, 1) if a == 1 else (0, 1) for a in list(rumb.alphas.flatten())]
+
+    else:
+        rumb.mu = None
+        rumb.nests = None
+        rumb.alphas = None
+        f_obj = rumb.f_obj
+
+    #check and store shared ensembles
+    if 'shared_ensembles' in model_specification:
+        rumb.shared_ensembles = model_specification['shared_ensembles']
+        if not isinstance(rumb.shared_ensembles, dict):
+            raise ValueError('Shared ensembles must be a dictionary')
+        rumb.shared_start_idx = [*rumb.shared_ensembles][0]
     else:
         rumb.shared_ensembles = None
         rumb.shared_start_idx = 0
-
-    #initialise RUMBoost for functional effects if param_fe is passed
-    if params_fe is not None:
-        if (len(rum_structure) - rumb.shared_start_idx) == 2 * params['num_classes']:
-            rumb.functional_effects = True
-        else:
-            raise ValueError('Functional effects model requires a rum_structure of length 2 * num_classes (without \
-                             shared ensembles) or 2 * num_classes + number of shared ensembles (with shared ensembles)')    
+    
+    #check and store functional effects
+    if 'functional_effect' in model_specification and (len(rumb.rum_structure) - rumb.shared_start_idx) != 2 * params['num_classes']:
+        raise ValueError('Functional effects model requires a rum_structure of length 2 * num_classes (without \
+                            shared ensembles) or 2 * num_classes + number of shared ensembles (with shared ensembles)')
+    if 'functional_effect' in model_specification:
+        rumb.functional_effects = True
+        params_fe = model_specification['functional_effect'].get('params_fe', None)
     else:
         rumb.functional_effects = False
-
-    #store usefull information in RUMBoost object
-    rumb.rum_structure = rum_structure #saving utility structure
+        params_fe = None
 
     #check dataset and preprocess it
     if isinstance(train_set, dict):
@@ -1116,36 +1284,19 @@ def rum_train(
     #create J boosters with corresponding params and datasets
     rumb._construct_boosters(train_data_name, is_valid_contain_train, name_valid_sets) #build boosters with corresponding params and dataset
 
-    #initialise nested probabilities if they are specified
-    if nests is not None:
-        rumb.mu = mu
-        rumb.nests = nests
-        rumb.alphas = None
-        f_obj = rumb.f_obj_nest
-        if not torch_tensors:
-            rumb.labels_nest = np.array([nests[l] for l in rumb.labels])
-    elif alphas is not None:
-        rumb.mu = mu
-        rumb.nests = None
-        rumb.alphas = alphas
-        f_obj = rumb.f_obj_cross_nested
-    else:
-        rumb.mu = None
-        rumb.nests = None
-        rumb.alphas = None
-        f_obj = rumb.f_obj
-
+    #convert a few numpy arrays to torch tensors if needed
     if torch_tensors:
         rumb.labels = torch.from_numpy(rumb.labels).type(torch.LongTensor).to(rumb.device)
         if rumb.labels_j:
             rumb.labels_j = [torch.from_numpy(lab).type(torch.LongTensor).to(rumb.device) for lab in rumb.labels_j]
         if rumb.valid_labels:
             rumb.valid_labels = [torch.from_numpy(valid_labs).type(torch.LongTensor).to(rumb.device) for valid_labs in rumb.valid_labels]
-        if rumb.mu:
-            rumb.mu = torch.from_numpy(np.array(rumb.mu)).to(rumb.device)
+        if rumb.mu is not None:
+            rumb.mu = torch.from_numpy(rumb.mu).to(rumb.device)
         if rumb.alphas is not None:
             rumb.alphas = torch.from_numpy(rumb.alphas).to(rumb.device)
 
+    #initial predictions
     if rumb.mu is not None:
         rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict()
     else:
@@ -1199,7 +1350,7 @@ def rum_train(
         if valid_sets is not None:
             if is_valid_contain_train:
                 if torch_tensors:
-                    if torch_compile:
+                    if rumb.torch_compile:
                         cross_entropy_test = cross_entropy_torch_compiled(rumb._preds, rumb.labels)
                     else:
                         cross_entropy_test = cross_entropy_torch(rumb._preds, rumb.labels)
@@ -1212,7 +1363,7 @@ def rum_train(
                     else:
                         preds_valid = rumb._inner_predict(k+1)                        
                     if torch_tensors:
-                        if torch_compile:
+                        if rumb.torch_compile:
                             cross_entropy_train = cross_entropy_torch_compiled(rumb._preds, rumb.labels)
                             cross_entropy_test = cross_entropy_torch_compiled(preds_valid, rumb.valid_labels[k])
                         else:
@@ -1237,6 +1388,39 @@ def rum_train(
                     print('[{}] -- NCE value on train set: {}'.format(i + 1, cross_entropy_test))
                 else:
                     print('[{}] -- NCE value on train set: {} \n     --  NCE value on test set: {}'.format(i + 1, cross_entropy_train, cross_entropy_test))      
+
+        #if specified, reoptimise nest parameters
+        if (optimise_mu or optimise_alphas) and (i+1)%optimise_it == 0:
+            print(f'-- Re-optimising nest parameters at iteration {i+1} --\n')
+            params_to_optimise = []
+            bounds = []
+            alpha_shape = None
+            if optimise_mu:
+                if rumb.device is not None:
+                    params_to_optimise += rumb.mu.cpu().numpy().tolist()
+                else:
+                    params_to_optimise += rumb.mu.tolist()
+                bounds += optimisation_bounds_mu
+            if optimise_alphas:
+                alpha_shape = rumb.alphas.shape
+                if rumb.device is not None:
+                    params_to_optimise += rumb.alphas.cpu().numpy().flatten().tolist()
+                else:
+                    params_to_optimise += rumb.alphas.flatten().tolist()
+                bounds += optimisation_bounds_alphas
+            if data_to_optimise == 'train set':
+                labels = rumb.labels
+                d_idx = 0
+            elif data_to_optimise == 'test set':
+                labels = rumb.valid_labels[0]
+                d_idx = 1
+            res = minimize(optimise_mu_or_alpha, np.array(params_to_optimise), args=(labels, rumb, optimise_mu, optimise_alphas, alpha_shape, d_idx), method=optimisation_method, bounds=bounds)
+            print(f'-- Optimisation results: {res.fun} --\n')
+            if optimise_mu:
+                print(f'-- New mu: {rumb.mu} --\n')
+            if optimise_alphas:
+                print(f'-- New alphas: {rumb.alphas} --\n')
+            print(f'optimal sol {res.x}')
     
         #early stopping
         if (params["early_stopping_round"] != 0) and (rumb.best_iteration + params["early_stopping_round"] < i + 1):

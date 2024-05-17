@@ -2,6 +2,108 @@ import torch
 from torch.nn.functional import cross_entropy
 import numpy as np
 
+def _predict_torch(raw_preds, 
+                         shared_ensembles = None, 
+                         num_obs = None, 
+                         num_classes = None, 
+                         device = None, 
+                         shared_start_idx = None, 
+                         functional_effects = False, 
+                         nests = None, 
+                         mu = None, 
+                         alphas = None, 
+                         utilities = False):
+
+    #if shared ensembles, get the shared predictions out and reorder them for easier addition later
+    if shared_ensembles:
+        raw_shared_preds = torch.zeros(size=(num_obs, num_classes), dtype=torch.float64, device=device)
+        for i, arr in enumerate(raw_preds[shared_start_idx:]):
+            raw_shared_preds[:,shared_ensembles[i+shared_start_idx]] = raw_shared_preds[:,shared_ensembles[i+shared_start_idx]].add(arr.view(-1, num_obs).T)
+        if shared_start_idx == 0:
+            raw_preds = torch.zeros(size=(num_obs, num_classes), dtype=torch.float64, device=device)
+        else:
+            raw_preds = torch.stack(raw_preds[:shared_start_idx]).T
+    else:
+        raw_preds = torch.stack(raw_preds).T
+
+    #if functional effect, sum the two ensembles (of attributes and socio-economic characteristics) of each alternative
+    if functional_effects:
+        raw_preds = raw_preds.view(-1, num_classes, 2).sum(dim=2)
+
+    #if shared ensembles, add the shared ensembles to the individual specific ensembles
+    if shared_ensembles:
+        raw_preds.add_(raw_shared_preds)
+
+    #compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
+    if nests:
+        preds, pred_i_m, pred_m = _nest_probs_torch(raw_preds, mu=mu, nests=nests, device=device)
+
+        return preds, pred_i_m, pred_m
+
+    #compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
+    if alphas is not None:
+        preds, pred_i_m, pred_m = _cross_nested_probs_torch(raw_preds, mu=mu, alphas=alphas, device=device)
+
+        return preds, pred_i_m, pred_m
+
+    #softmax
+    if not utilities:
+        preds = torch.nn.functional.softmax(raw_preds, dim=1)
+
+    return preds, None, None
+
+@torch.compile
+def _predict_torch_compiled(raw_preds, 
+                         shared_ensembles = None, 
+                         num_obs = None, 
+                         num_classes = None, 
+                         device = None, 
+                         shared_start_idx = None, 
+                         functional_effects = False, 
+                         nests = None, 
+                         mu = None, 
+                         alphas = None, 
+                         utilities = False):
+
+    #if shared ensembles, get the shared predictions out and reorder them for easier addition later
+    if shared_ensembles:
+        raw_shared_preds = torch.zeros(size=(num_obs, num_classes), dtype=torch.float64, device=device)
+        for i, arr in enumerate(raw_preds[shared_start_idx:]):
+            raw_shared_preds[:,shared_ensembles[i+shared_start_idx]] = raw_shared_preds[:,shared_ensembles[i+shared_start_idx]].add(arr.view(-1, num_obs).T)
+        if shared_start_idx == 0:
+            raw_preds = torch.zeros(size=(num_obs, num_classes), dtype=torch.float64, device=device)
+        else:
+            raw_preds = torch.stack(raw_preds[:shared_start_idx]).T
+    else:
+        raw_preds = torch.stack(raw_preds).T
+
+    #if functional effect, sum the two ensembles (of attributes and socio-economic characteristics) of each alternative
+    if functional_effects:
+        raw_preds = raw_preds.view(-1, num_classes, 2).sum(dim=2)
+
+    #if shared ensembles, add the shared ensembles to the individual specific ensembles
+    if shared_ensembles:
+        raw_preds.add_(raw_shared_preds)
+
+    #compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
+    if nests:
+        preds, pred_i_m, pred_m = _nest_probs_torch(raw_preds, mu=mu, nests=nests, device=device)
+
+        return preds, pred_i_m, pred_m
+
+    #compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
+    if alphas is not None:
+        preds, pred_i_m, pred_m = _cross_nested_probs_torch(raw_preds, mu=mu, alphas=alphas, device=device)
+
+        return preds, pred_i_m, pred_m
+
+    #softmax
+    if not utilities:
+        preds = torch.nn.functional.softmax(raw_preds, dim=1)
+
+    return preds, None, None
+
+
 def _inner_predict_torch(raw_preds, 
                          shared_ensembles = None, 
                          num_obs = None, 
@@ -94,7 +196,7 @@ def _inner_predict_torch_compiled(raw_preds,
         return preds, pred_i_m, pred_m
 
     #compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
-    if alphas:
+    if alphas is not None:
         preds, pred_i_m, pred_m = _cross_nested_probs_torch_compiled(raw_preds, mu=mu, alphas=alphas, device=device)
 
         return preds, pred_i_m, pred_m
@@ -370,7 +472,7 @@ def _f_obj_torch_compiled(current_j,
 
     return grad, hess
 
-def _f_obj_nested_torch(current_j,labels, preds_i_m, preds_m, num_classes, nests, mu, device, shared_ensembles = None, shared_start_idx = None):
+def _f_obj_nested_torch(current_j,labels, preds_i_m, preds_m, num_classes, mu, nests, device, shared_ensembles = None, shared_start_idx = None):
 
     j = current_j
     label = labels
@@ -388,10 +490,9 @@ def _f_obj_nested_torch(current_j,labels, preds_i_m, preds_m, num_classes, nests
         shared_ensembles_tensor = torch.from_numpy(np.array(shared_ensembles[j])).to(device)
 
         pred_i_m = preds_i_m[:, shared_ensembles_tensor] #pred of alternative j knowing nest m
-        # pred_i_m = preds_i_m[data_idx, label][:, None] #prediction of choice i knowing nest m
-        pred_m = preds_m[:,:,None].repeat(1, 1, shared_ensembles_tensor.shape[0])[:, nest_alt[shared_ensembles_tensor], shared_ensembles_tensor] #prediction of choosing nest m
+        pred_m = preds_m[:,:,None].repeat(1, 1, n_alt)[:, nest_alt[shared_ensembles_tensor], shared_ensembles_tensor] #prediction of choosing nest m
 
-        mu_reps = mu[:, None].repeat(1, shared_ensembles_tensor.shape[0])
+        mu_reps = mu[:, None].repeat(1, n_alt)
 
         grad = torch.where(
             label[:,None] == shared_ensembles_tensor[None, :], 
@@ -447,11 +548,10 @@ def _f_obj_nested_torch(current_j,labels, preds_i_m, preds_m, num_classes, nests
     return grad, hess
 
 @torch.compile
-def _f_obj_nested_torch_compiled(current_j,labels, preds_i_m, preds_m, num_classes, nests, mu, device, shared_ensembles = None, shared_start_idx = None):
+def _f_obj_nested_torch_compiled(current_j,labels, preds_i_m, preds_m, num_classes, mu, nests, device, shared_ensembles = None, shared_start_idx = None):
 
     j = current_j
     label = labels
-    mu = mu
     n_obs = preds_i_m.shape[0]
     data_idx = torch.arange(n_obs, device=device)
     factor = num_classes / (num_classes - 1)
@@ -466,10 +566,9 @@ def _f_obj_nested_torch_compiled(current_j,labels, preds_i_m, preds_m, num_class
         shared_ensembles_tensor = torch.from_numpy(np.array(shared_ensembles[j])).to(device)
 
         pred_i_m = preds_i_m[:, shared_ensembles_tensor] #pred of alternative j knowing nest m
-        # pred_i_m = preds_i_m[data_idx, label][:, None] #prediction of choice i knowing nest m
-        pred_m = preds_m[:,:,None].repeat(1, 1, shared_ensembles_tensor.shape[0])[:, nest_alt[shared_ensembles_tensor], shared_ensembles_tensor] #prediction of choosing nest m
+        pred_m = preds_m[:,:,None].repeat(1, 1, n_alt)[:, nest_alt[shared_ensembles_tensor], shared_ensembles_tensor] #prediction of choosing nest m
 
-        mu_reps = mu[:, None].repeat(1, shared_ensembles_tensor.shape[0])
+        mu_reps = mu[:, None].repeat(1, n_alt)
 
         grad = torch.where(
             label[:,None] == shared_ensembles_tensor[None, :], 
@@ -533,9 +632,9 @@ def _f_obj_cross_nested_torch(current_j, labels, preds_i_m, preds_m, preds, num_
 
     if shared_ensembles and j >= shared_start_idx:
         pred_j_m = preds_i_m[:, shared_ensembles[j], :] #pred of alternative j knowing nest m
-        pred_i_m = preds_i_m[data_idx, label.int(), :][:, None, :] #prediction of choice i knowing nest m
+        pred_i_m = preds_i_m[data_idx, label, :][:, None, :] #prediction of choice i knowing nest m
         pred_m = preds_m[:, None, :]  #prediction of choosing nest m
-        pred_i = preds[data_idx, label.int()][:, None, None]  #pred of choice i
+        pred_i = preds[data_idx, label][:, None, None]  #pred of choice i
         pred_j = preds[:, shared_ensembles[j]][:, :, None]  #pred of alt j
 
         pred_i_m_pred_m = pred_i_m * pred_m
@@ -573,9 +672,9 @@ def _f_obj_cross_nested_torch(current_j, labels, preds_i_m, preds_m, preds, num_
         hess = hess.T.reshape(-1)
     else:
         pred_j_m = preds_i_m[:, j, :]  #pred of alternative j knowing nest m
-        pred_i_m = preds_i_m[data_idx, label.int(), :]  #prediction of choice i knowing nest m
+        pred_i_m = preds_i_m[data_idx, label, :]  #prediction of choice i knowing nest m
         pred_m = preds_m[:, :]  #prediction of choosing nest m
-        pred_i = preds[data_idx, label.int()][:, None]  #pred of choice i
+        pred_i = preds[data_idx, label][:, None]  #pred of choice i
         pred_j = preds[:, j][:, None]  #pred of alt j
 
         pred_i_m_pred_m = pred_i_m * pred_m
@@ -593,6 +692,8 @@ def _f_obj_cross_nested_torch(current_j, labels, preds_i_m, preds_m, preds, num_
         d_pred_i_Vi = torch.sum((pred_i_m_pred_m * pred_i_m_1_mu_mu_pred_i), dim=1, keepdim=True)  #first derivative of pred i with respect to Vi
         d_pred_i_Vj = torch.sum((pred_i_m_pred_m * pred_j_m_1_mu_pred_j), dim=1, keepdim=True)  #first derivative of pred i with respect to Vj
         d_pred_j_Vj = torch.sum((pred_j_m_pred_m * (pred_j_m_1_mu_pred_j + mu)), dim=1, keepdim=True)  #first derivative of pred j with respect to Vj
+
+        print(d_pred_i_Vi.shape, d_pred_i_Vj.shape, d_pred_j_Vj.shape)
 
         mu_3pim2_3pim_2pimpi_pi = mu * (-3 * pred_i_m_squared + 3 * pred_i_m + 2 * (pred_i_m_pred_i - pred_i))
         pim2_2pimpi_pi2_dpiVi = (pred_i_m_squared - 2 * pred_i_m_pred_i + pred_i_squared - d_pred_i_Vi)

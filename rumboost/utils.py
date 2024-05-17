@@ -1,9 +1,11 @@
 import numpy as np
 import pandas as pd
 import random
+import torch
 
 from collections import Counter, defaultdict
 from scipy.special import softmax
+from rumboost.torch_functions import cross_entropy_torch, cross_entropy_torch_compiled
 
 def process_parent(parent, pairs):
     '''
@@ -413,10 +415,9 @@ def cross_entropy(preds, labels):
     """
     num_data = len(labels)
     data_idx = np.arange(num_data)
-
     return - np.mean(np.log(preds[data_idx, labels]))
 
-def nest_probs(raw_preds, mu, nests):
+def nest_probs(raw_preds, mu, nests, nest_alt):
     """compute nested predictions.
     
     Parameters
@@ -430,6 +431,8 @@ def nest_probs(raw_preds, mu, nests):
     nests :
         The dictionary keys are alternatives number and their values are their nest number. 
         By example, {0:0, 1:1, 2:0} means that alt 0 and 2 are in nest 0 and alt 1 is in nest 1.
+    nest_alt :
+        The nest of each alternative. By example, [0, 1, 0] means that alt 0 and 2 are in nest 0 and alt 1 is in nest 1.
 
     Returns
     -------
@@ -442,31 +445,27 @@ def nest_probs(raw_preds, mu, nests):
         The prediction of choosing nest m
     """
     #initialisation
-    n_obs = np.size(raw_preds, 0)
-    data_idx = np.arange(n_obs)
-    n_alt = np.size(raw_preds, 1)
-    pred_i_m = np.array(np.zeros((n_obs, n_alt)))
-    V_tilde_m = np.array(np.zeros((n_obs, len(mu))))
+    n_obs, n_alt = raw_preds.shape
+    mu_obs = mu[nest_alt]
+    nests_array = np.array(list(nests.keys()))
+    n_mu = nests_array.shape[0]
 
-    #for each alternative and their nest
-    for alt, nest in nests.items():
+    mu_raw_preds_3d = np.exp(mu_obs * raw_preds)[:, :, None]
+    #sum_in_nest = np.sum(mu_raw_preds_3d * mask_3d, axis=1)
+    mask_3d = (nest_alt[:,None]==nests_array[None, :])[None, :, :]
+    sum_in_nest = np.sum(mu_raw_preds_3d * mask_3d, axis=1)
 
-        #compute the list of alternative in nests
-        nest_alt = [a for a, n in nests.items() if n == nest]
+    pred_i_m = np.exp(mu_obs * raw_preds) / np.sum(sum_in_nest[:, None, :] * mask_3d, axis=2)
 
-        #pred of choosing i knowing m. Softmax within the nest (raw_preds[data_idx, :][:, nest_alt]) to get prediction of alternatives within the nest)
-        pred_i_m[:, alt] = np.exp(mu[nest] * raw_preds[data_idx, alt]) / np.sum(np.exp(mu[nest] * raw_preds[data_idx, :][:, nest_alt]), axis=1)
+    V_tilde_m = 1 / mu * np.log(sum_in_nest)
 
-        #maximum expectation of utility within nest m
-        V_tilde_m[:, nest] = 1/mu[nest] * np.log(np.sum(np.exp(mu[nest] * raw_preds[data_idx, :][:, nest_alt]), axis=1))
-
-    #pred of choosing nest m
+    # Pred of choosing nest m
     pred_m = softmax(V_tilde_m, axis=1)
 
-    #final predictions for choosing i
-    preds = np.array([pred_i_m[:, i] * pred_m[:, nests[i]] for i in nests.keys()])
+    # Final predictions for choosing i
+    preds = pred_i_m * np.sum(pred_m[:, None, :] * mask_3d, axis=2)
 
-    return preds.T, pred_i_m, pred_m
+    return preds, pred_i_m, pred_m
 
 def cross_nested_probs(raw_preds, mu, alphas):
     """Compute nested predictions.
@@ -492,29 +491,69 @@ def cross_nested_probs(raw_preds, mu, alphas):
     pred_m : numpy.ndarray
         The prediction of choosing nest m
     """
-   #initialisation
-    n_obs, n_alt = raw_preds.shape[0], raw_preds.shape[1]
-    pred_i_m = np.array(np.zeros((n_obs, n_alt, len(mu))))
-    pred_m = np.array(np.zeros((n_obs, n_alt, len(mu))))
-    sum_of_nest = []
+    #scaling and exponential of raw_preds, following by degree of memberships
+    raw_preds_mu_alpha_3d = (alphas** mu)[None,:,:] * np.exp(mu[None, None, :] * raw_preds[:, :, None])
+    #storing sum of utilities in nests
+    sum_in_nest = np.sum(raw_preds_mu_alpha_3d, axis=1) ** (1/mu)[None, :]
 
-    #for each nest
-    for m, mu_m in enumerate(mu):
+    #pred of choosing i knowing m.
+    pred_i_m = raw_preds_mu_alpha_3d / np.sum(raw_preds_mu_alpha_3d, axis=1, keepdims=True)
 
-        #pred of choosing i knowing m.
-        pred_i_m[:, :, m] = (alphas[:, m] ** mu_m * np.exp(mu_m * raw_preds)) / np.sum(alphas[:, m] ** mu_m * np.exp(mu_m * raw_preds), axis=1, keepdims=True)
-
-        #storing sum of nest for computing pred of choosing m easily
-        sum_of_nest.append([np.sum(alphas[:, m] ** mu_m * np.exp(mu_m * raw_preds), axis=1) ** (1/mu_m)]*n_alt)
-
-    sum_of_nest = np.array(sum_of_nest).T
     #pred of choosing m
-    pred_m[:, :, :] =  sum_of_nest / np.sum(sum_of_nest, axis=2, keepdims=True)
+    pred_m = sum_in_nest / np.sum(sum_in_nest, axis=1, keepdims=True)
 
     #final predictions for choosing i
-    preds = np.sum(pred_i_m * pred_m, axis=2)
+    preds = np.sum(pred_i_m * pred_m[:, None, :], axis=2)
 
     return preds, pred_i_m, pred_m
+
+def optimise_mu_or_alpha(params_to_optimise, labels, rumb, optimise_mu, optimise_alpha, alpha_shape, data_idx):
+    """
+    Optimize mu or alpha values for a given dataset.
+
+    Parameters
+    ----------
+    params_to_optimise : list
+        The list of mu or alpha values to optimize.
+    labels : numpy.ndarray, optional (default=None)
+        The labels of the original dataset, as int.
+    rumb : RUMBoost, optional (default=None)
+        A trained RUMBoost object.
+
+    Returns
+    -------
+    loss : int
+        The loss according to the optimization of mu or alpha values.
+    """
+    if rumb.device is not None:
+        if optimise_mu:
+            rumb.mu = torch.from_numpy(params_to_optimise[:rumb.mu.shape[0]]).to(rumb.device)
+            if optimise_alpha:
+                rumb.alpha = torch.from_numpy(params_to_optimise[rumb.mu.shape[0]]).view(alpha_shape).to(rumb.device)
+                rumb.alpha = rumb.alpha / rumb.alpha.sum(dim=1, keepdim=True)
+        elif optimise_alpha:
+            rumb.alpha = torch.from_numpy(params_to_optimise).view(alpha_shape).to(rumb.device)
+            rumb.alpha = rumb.alpha / rumb.alpha.sum(dim=1, keepdim=True)
+    else:
+        if optimise_mu:
+            rumb.mu = params_to_optimise[:rumb.mu.shape[0]]
+            if optimise_alpha:
+                rumb.alpha = params_to_optimise[rumb.mu.shape[0]].reshape(alpha_shape)
+                rumb.alpha = rumb.alpha / rumb.alpha.sum(axis=1, keepdims=True)
+        elif optimise_alpha:
+            rumb.alpha = params_to_optimise.reshape(alpha_shape)
+            rumb.alpha = rumb.alpha / rumb.alpha.sum(axis=1, keepdims=True)
+
+    new_preds, _, _ = rumb._inner_predict(data_idx)
+    if rumb.device is not None:
+        if rumb.torch_compile:
+            loss = cross_entropy_torch_compiled(new_preds, labels).cpu().numpy()
+        else:
+            loss = cross_entropy_torch(new_preds, labels).cpu().numpy()
+    else:
+        loss = cross_entropy(new_preds, labels)
+
+    return loss
 
 def create_name(features):
     """Create new feature names from a list of feature names"""

@@ -380,10 +380,10 @@ def load_preprocess_MTMC(test_size: float = 0.2, random_state: int = 1):
     Load and preprocess the MTMC dataset.
     '''
     #load data
-    data = pd.read_csv('Data/data_laus_trips_prep_attractions_allalt.csv')
+    data = pd.read_csv('/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/data_laus_trips_prep_attractions_allalt.csv')
 
     #load destination zones
-    z_idx = list(np.loadtxt('Data/z_idx.csv'))
+    z_idx = list(np.loadtxt('/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/z_idx.csv'))
 
     #split by household
     gsp = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
@@ -400,13 +400,13 @@ def load_preprocess_MTMC(test_size: float = 0.2, random_state: int = 1):
     train_idx = []
     test_idx = []
     try:
-        train_idx, test_idx = pickle.load(open('Data/strat_group_k_fold_mtmc.pickle', "rb"))
+        train_idx, test_idx = pickle.load(open('/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/strat_group_k_fold_mtmc.pickle', "rb"))
     except FileNotFoundError:
         gkf = GroupKFold()
         for (train_i, test_i) in gkf.split(df_train[features], df_train[target], hh_id):
             train_idx.append(train_i)
             test_idx.append(test_i)
-        pickle.dump([train_idx, test_idx], open('Data/strat_group_k_fold_mtmc.pickle', "wb"))
+        pickle.dump([train_idx, test_idx], open('/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/strat_group_k_fold_mtmc.pickle', "wb"))
 
     folds = zip(train_idx, test_idx)
 
@@ -418,27 +418,27 @@ def load_preprocess_MTMC_all(test_size: float = 0.2, random_state: int = 1):
     '''
 
     try:
-        z_idx = list(np.loadtxt('../choice_set_location_travelmode/Data/input/z_idx_all_wo_alps.csv'))
-        with open('Data/train_set_switzerland.pkl', 'rb') as f:
+        z_idx = list(np.loadtxt('/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/choice_set_location_travelmode/Data/input/z_idx_all_wo_alps.csv'))
+        with open('/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/train_set_switzerland.pkl', 'rb') as f:
             df_train = pickle.load(f)
-        with open('Data/test_set_switzerland.pkl', 'rb') as f:
+        with open('/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/test_set_switzerland.pkl', 'rb') as f:
             df_test = pickle.load(f)
-        with open('Data/strat_group_k_fold_mtmc_all.pickle', 'rb') as f:
-            train_idx, test_idx = pickle.load(open('Data/strat_group_k_fold_mtmc_all.pickle', "rb"))
+        with open('/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/strat_group_k_fold_mtmc_all.pickle', 'rb') as f:
+            train_idx, test_idx = pickle.load(open('/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/strat_group_k_fold_mtmc_all.pickle', "rb"))
     except FileNotFoundError:
         #load data
-        with open('../choice_set_location_travelmode/Data/input/data_switzerland_trips_preprocessed.pkl', 'rb') as f:
+        with open('/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/choice_set_location_travelmode/Data/input/data_switzerland_trips_preprocessed.pkl', 'rb') as f:
             data = pickle.load(f)
 
         #load destination zones
-        z_idx = list(np.loadtxt('../choice_set_location_travelmode/Data/input/z_idx_all_wo_alps.csv'))
+        z_idx = list(np.loadtxt('/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/choice_set_location_travelmode/Data/input/z_idx_all_wo_alps.csv'))
 
         #split by household
         gsp = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
         train_idx, test_idx = next(gsp.split(data, groups=data['HHNR']))
         df_train, df_test = data.iloc[train_idx], data.iloc[test_idx]
-        pickle.dump(df_train, open('Data/train_set_switzerland.pkl', "wb"))
-        pickle.dump(df_test, open('Data/test_set_switzerland.pkl', "wb"))
+        pickle.dump(df_train, open('/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/train_set_switzerland.pkl', "wb"))
+        pickle.dump(df_test, open('/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/test_set_switzerland.pkl', "wb"))
 
         #get all features
         target = 'choice'
@@ -453,7 +453,7 @@ def load_preprocess_MTMC_all(test_size: float = 0.2, random_state: int = 1):
         for (train_i, test_i) in gkf.split(df_train[features], df_train[target], hh_id):
             train_idx.append(train_i)
             test_idx.append(test_i)
-        pickle.dump([train_idx, test_idx], open('Data/strat_group_k_fold_mtmc_all.pickle', "wb"))
+        pickle.dump([train_idx, test_idx], open('/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/strat_group_k_fold_mtmc_all.pickle', "wb"))
 
     folds = zip(train_idx, test_idx)
 
