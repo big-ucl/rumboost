@@ -18,6 +18,9 @@ test_set_switzerland.pkl
 *.bin
 *.pkl
 
+#experiments
+experiment/
+
 #vs_code
 *.deb
 
