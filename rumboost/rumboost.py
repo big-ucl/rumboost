@@ -4,7 +4,6 @@ import collections
 import copy
 import json
 import numpy as np
-import torch
 
 from scipy.special import softmax
 from scipy.optimize import minimize
@@ -24,27 +23,31 @@ from lightgbm.basic import (
 )
 from lightgbm.compat import SKLEARN_INSTALLED, _LGBMGroupKFold, _LGBMStratifiedKFold
 
-from rumboost.utils import (
-    bio_to_rumboost,
-    cross_entropy,
+from rumboost.metrics import cross_entropy
+from rumboost.nested_cross_nested import (
     nest_probs,
     cross_nested_probs,
     optimise_mu_or_alpha,
 )
-from rumboost.torch_functions import (
-    _predict_torch,
-    _predict_torch_compiled,
-    _inner_predict_torch,
-    _inner_predict_torch_compiled,
-    _f_obj_torch,
-    _f_obj_torch_compiled,
-    _f_obj_nested_torch,
-    _f_obj_nested_torch_compiled,
-    _f_obj_cross_nested_torch,
-    _f_obj_cross_nested_torch_compiled,
-    cross_entropy_torch,
-    cross_entropy_torch_compiled,
-)
+try:
+    import torch
+    from rumboost.torch_functions import (
+        _predict_torch,
+        _predict_torch_compiled,
+        _inner_predict_torch,
+        _inner_predict_torch_compiled,
+        _f_obj_torch,
+        _f_obj_torch_compiled,
+        _f_obj_nested_torch,
+        _f_obj_nested_torch_compiled,
+        _f_obj_cross_nested_torch,
+        _f_obj_cross_nested_torch_compiled,
+        cross_entropy_torch,
+        cross_entropy_torch_compiled,
+    )
+    torch_installed = True
+except ImportError:
+    torch_installed = False
 
 _LGBM_CustomObjectiveFunction = Callable[
     [Union[List, np.ndarray], Dataset],
@@ -501,10 +504,12 @@ class RUMBoost:
 
             # two cases: 1. alt j is choice i, 2. alt j is not choice i
             grad = np.where(
-                (label == j).reshape(-1,1), (-1 / pred_i) * d_pred_i_Vi, (-1 / pred_i) * d_pred_i_Vj
+                (label == j).reshape(-1, 1),
+                (-1 / pred_i) * d_pred_i_Vi,
+                (-1 / pred_i) * d_pred_i_Vj,
             )
             hess = np.where(
-                (label == j).reshape(-1,1),
+                (label == j).reshape(-1, 1),
                 (-1 / pred_i**2) * (d2_pred_i_Vi * pred_i - d_pred_i_Vi**2),
                 (-1 / pred_i**2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj**2),
             )
@@ -644,12 +649,14 @@ class RUMBoost:
         # if shared ensembles, get the shared predictions out and reorder them for easier addition later
         if self.shared_ensembles:
             raw_shared_preds = np.zeros((data.num_data(), self.num_classes))
-            for i, arr in enumerate(raw_preds[self.shared_start_idx:]):
-                raw_shared_preds[:, self.shared_ensembles[i + self.shared_start_idx]] += arr.reshape(-1, data.num_data()).T
+            for i, arr in enumerate(raw_preds[self.shared_start_idx :]):
+                raw_shared_preds[
+                    :, self.shared_ensembles[i + self.shared_start_idx]
+                ] += arr.reshape(-1, data.num_data()).T
             if self.shared_start_idx == 0:
                 raw_preds = np.zeros((self.num_classes, data.num_data()))
             else:
-                raw_preds = np.array(raw_preds[:self.shared_start_idx]).T
+                raw_preds = np.array(raw_preds[: self.shared_start_idx]).T
         else:
             raw_preds = np.array(raw_preds).T
 
@@ -754,15 +761,17 @@ class RUMBoost:
             for _, booster in enumerate(self.boosters)
         ]
 
-        #if shared ensembles, get the shared predictions out and reorder them for easier addition later
+        # if shared ensembles, get the shared predictions out and reorder them for easier addition later
         if self.shared_ensembles:
             raw_shared_preds = np.zeros((self.num_obs[data_idx], self.num_classes))
-            for i, arr in enumerate(raw_preds[self.shared_start_idx:]):
-                raw_shared_preds[:, self.shared_ensembles[i + self.shared_start_idx]] += arr.reshape(-1, self.num_obs[data_idx]).T
+            for i, arr in enumerate(raw_preds[self.shared_start_idx :]):
+                raw_shared_preds[
+                    :, self.shared_ensembles[i + self.shared_start_idx]
+                ] += arr.reshape(-1, self.num_obs[data_idx]).T
             if self.shared_start_idx == 0:
                 raw_preds = np.zeros((self.num_classes, self.num_obs[data_idx]))
             else:
-                raw_preds = np.array(raw_preds[:self.shared_start_idx]).T
+                raw_preds = np.array(raw_preds[: self.shared_start_idx]).T
         else:
             raw_preds = np.array(raw_preds).T
 
@@ -1474,6 +1483,7 @@ def rum_train(
         See Callbacks in Python API for more information.
     torch_tensors : dict, optional (default=None)
         If a dictionary is passed, torch.Tensors will be used for computing prediction, objective function and cross-entropy calculations.
+        This require pytorch to be installed.
         The dictionary should follow the following form:
 
             'device': 'cpu', 'gpu' or 'cuda'
@@ -1561,6 +1571,10 @@ def rum_train(
     rumb = RUMBoost()
 
     if torch_tensors:
+        if not torch_installed:
+            raise ImportError(
+                "PyTorch is not installed. Please install PyTorch to use torch tensors."
+            )
         dev_str = torch_tensors.get("device", "cpu")
         rumb.torch_compile = torch_tensors.get("torch_compile", False)
         if dev_str == "cuda":
@@ -1652,20 +1666,20 @@ def rum_train(
         optimisation_method = model_specification["cross_nested_logit"].get(
             "optimisation_method", None
         )
-        #create bounds for optimisation if needed
+        # create bounds for optimisation if needed
         if optimise_mu:
             bounds = [(1, 10) if m != 1 else (1, 1) for m in rumb.mu]
         if optimise_alphas:
             try:
                 bounds += [
-                (0, 0) if a == 0 else (1, 1) if a == 1 else (0, 1)
-                for a in list(rumb.alphas.flatten())
-            ]
+                    (0, 0) if a == 0 else (1, 1) if a == 1 else (0, 1)
+                    for a in list(rumb.alphas.flatten())
+                ]
             except:
                 bounds = [
-                (0, 0) if a == 0 else (1, 1) if a == 1 else (0, 1)
-                for a in list(rumb.alphas.flatten())
-            ]
+                    (0, 0) if a == 0 else (1, 1) if a == 1 else (0, 1)
+                    for a in list(rumb.alphas.flatten())
+                ]
         alpha_shape = rumb.alphas.shape
     else:
         rumb.mu = None
@@ -1844,9 +1858,7 @@ def rum_train(
                             rumb._preds, rumb.labels
                         )
                 else:
-                    cross_entropy_test = cross_entropy(
-                        rumb._preds, rumb.labels
-                    )
+                    cross_entropy_test = cross_entropy(rumb._preds, rumb.labels)
             else:
                 for k, _ in enumerate(valid_sets):
                     if rumb.mu is not None:
@@ -1869,9 +1881,7 @@ def rum_train(
                                 preds_valid, rumb.valid_labels[k]
                             )
                     else:
-                        cross_entropy_train = cross_entropy(
-                            rumb._preds, rumb.labels
-                        )
+                        cross_entropy_train = cross_entropy(rumb._preds, rumb.labels)
                         cross_entropy_test = cross_entropy(
                             preds_valid, rumb.valid_labels[k]
                         )
@@ -2089,14 +2099,8 @@ def _make_n_folds(
         cvbooster = RUMBoost()
         if rum_structure is not None:
             cvbooster.rum_structure = rum_structure  # save utility structure
-        elif biogeme_model is not None:
-            cvbooster.rum_structure = bio_to_rumboost(
-                biogeme_model, max_depth=params["max_depth"]
-            )
         else:
-            raise ValueError(
-                "Either one of rum_structure or biogeme_model arguments must be passed"
-            )
+            raise ValueError("rum_structure has to be declared")
         reduced_valid_sets, name_valid_sets, is_valid_contain_train, train_data_name = (
             cvbooster._preprocess_valids(train_set, params, valid_set)
         )

@@ -1,19 +1,18 @@
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+try:
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    matplotlib_seaborn_installed = True
+except ImportError:
+    matplotlib_seaborn_installed = False
 
-from rumboost.utils import (
-    function_2d,
-    weights_to_plot_v2,
-    get_asc,
-    non_lin_function,
-    data_leaf_value,
-    get_weights,
-)
 from rumboost.utility_smoothing import monotone_spline, mean_monotone_spline
 
-
+if not matplotlib_seaborn_installed:
+    raise ImportError(
+        "Please install matplotlib and seaborn to use this module. You can do so by running 'pip install matplotlib seaborn'"
+    )
 def plot_2d(
     model,
     feature1: str,
@@ -1707,3 +1706,558 @@ def plot_bootstrap(models: list, dataset: pd.DataFrame, features: dict[list[str]
                     linewidth=0.5,
                 )
             g.ax_joint.set(xlabel=f"{f}", ylabel="Utility")
+
+def compute_VoT(util_collection, u, f1, f2):
+    """
+    The function compute the Value of Time of the attributes specified in attribute_VoT.
+
+    Parameters
+    ----------
+    util_collection : dict
+        A dictionary containing the type of utility to use for all features in all utilities.
+    u : str
+        The utility number, as a str (e.g. '0', '1', ...).
+    f1 : str
+        The time related attribtue name.
+    f2 : str
+        The cost related attribtue name.
+
+    Return
+    ------
+    VoT : lamda function
+        The function calculating value of time for attribute1 and attribute2.
+    """
+
+    VoT = lambda x1, x2, u1=util_collection[u][f1], u2=util_collection[u][
+        f2
+    ]: u1.derivative()(x1) / u2.derivative()(x2)
+
+    return VoT
+
+def create_name(features):
+    """Create new feature names from a list of feature names"""
+    new_name = features[0]
+    for f_name in features[1:]:
+        new_name += "-" + f_name
+    return new_name
+
+
+def get_child(
+    model,
+    weights,
+    weights_2d,
+    weights_market,
+    tree,
+    split_points,
+    features,
+    feature_names,
+    i,
+    market_segm,
+    direction=None,
+):
+    """Dig into the tree to get splitting points, features, left and right leaves values"""
+    min_r = 0
+    max_r = 10000
+
+    if feature_names[tree["split_feature"]] not in features:
+        features.append(feature_names[tree["split_feature"]])
+
+    split_points.append(tree["threshold"])
+
+    if "leaf_value" in tree["left_child"] and "leaf_value" in tree["right_child"]:
+        if direction is None:
+            weights.append(
+                [
+                    feature_names[tree["split_feature"]],
+                    tree["threshold"],
+                    tree["left_child"]["leaf_value"],
+                    tree["right_child"]["leaf_value"],
+                    i,
+                ]
+            )
+        elif direction == "left":
+            if len(features) == 1:
+                weights.append(
+                    [
+                        feature_names[tree["split_feature"]],
+                        tree["threshold"],
+                        tree["left_child"]["leaf_value"],
+                        tree["right_child"]["leaf_value"],
+                        i,
+                    ]
+                )
+                weights.append(
+                    [
+                        feature_names[tree["split_feature"]],
+                        split_points[0],
+                        0,
+                        -tree["right_child"]["leaf_value"],
+                        i,
+                    ]
+                )
+            elif market_segm:
+                feature_name = create_name(features)
+                if features[0] in model.rum_structure[i]["categorical_feature"]:
+                    weights_market.append(
+                        [
+                            features[-1] + "-0",
+                            tree["threshold"],
+                            tree["left_child"]["leaf_value"],
+                            tree["right_child"]["leaf_value"],
+                            i,
+                        ]
+                    )
+                else:
+                    weights_market.append(
+                        [
+                            features[0] + "-0",
+                            split_points[0],
+                            tree["left_child"]["leaf_value"],
+                            0,
+                            i,
+                        ]
+                    )
+                    weights_market.append(
+                        [
+                            features[0] + "-1",
+                            split_points[0],
+                            tree["right_child"]["leaf_value"],
+                            0,
+                            i,
+                        ]
+                    )
+            else:
+                feature_name = create_name(features)
+                weights_2d.append(
+                    [
+                        feature_name,
+                        (min_r, split_points[0]),
+                        (min_r, tree["threshold"]),
+                        tree["left_child"]["leaf_value"],
+                        i,
+                    ]
+                )
+                weights_2d.append(
+                    [
+                        feature_name,
+                        (min_r, split_points[0]),
+                        (tree["threshold"], max_r),
+                        tree["right_child"]["leaf_value"],
+                        i,
+                    ]
+                )
+                if len(features) > 1:
+                    features.pop(-1)
+                    split_points.pop(-1)
+        elif direction == "right":
+            if len(features) == 1:
+                weights.append(
+                    [
+                        feature_names[tree["split_feature"]],
+                        tree["threshold"],
+                        tree["left_child"]["leaf_value"],
+                        tree["right_child"]["leaf_value"],
+                        i,
+                    ]
+                )
+                weights.append(
+                    [
+                        feature_names[tree["split_feature"]],
+                        split_points[0],
+                        -tree["left_child"]["leaf_value"],
+                        0,
+                        i,
+                    ]
+                )
+            elif market_segm:
+                feature_name = create_name(features)
+                if features[0] in model.rum_structure[i]["categorical_feature"]:
+                    weights_market.append(
+                        [
+                            features[-1] + "-1",
+                            tree["threshold"],
+                            tree["left_child"]["leaf_value"],
+                            tree["right_child"]["leaf_value"],
+                            i,
+                        ]
+                    )
+                else:
+                    weights_market.append(
+                        [
+                            features[0] + "-0",
+                            split_points[0],
+                            0,
+                            tree["left_child"]["leaf_value"],
+                            i,
+                        ]
+                    )
+                    weights_market.append(
+                        [
+                            features[0] + "-1",
+                            split_points[0],
+                            0,
+                            tree["right_child"]["leaf_value"],
+                            i,
+                        ]
+                    )
+            else:
+                feature_name = create_name(features)
+                weights_2d.append(
+                    [
+                        feature_name,
+                        (split_points[0], max_r),
+                        (min_r, tree["threshold"]),
+                        tree["left_child"]["leaf_value"],
+                        i,
+                    ]
+                )
+                weights_2d.append(
+                    [
+                        feature_name,
+                        (split_points[0], max_r),
+                        (tree["threshold"], max_r),
+                        tree["right_child"]["leaf_value"],
+                        i,
+                    ]
+                )
+    elif "leaf_value" in tree["left_child"]:
+        weights.append(
+            [
+                feature_names[tree["split_feature"]],
+                tree["threshold"],
+                tree["left_child"]["leaf_value"],
+                0,
+                i,
+            ]
+        )
+        get_child(
+            model,
+            weights,
+            weights_2d,
+            weights_market,
+            tree["right_child"],
+            split_points,
+            features,
+            feature_names,
+            i,
+            market_segm,
+            direction="right",
+        )
+    elif "leaf_value" in tree["right_child"]:
+        weights.append(
+            [
+                feature_names[tree["split_feature"]],
+                tree["threshold"],
+                0,
+                tree["right_child"]["leaf_value"],
+                i,
+            ]
+        )
+        get_child(
+            model,
+            weights,
+            weights_2d,
+            weights_market,
+            tree["left_child"],
+            split_points,
+            features,
+            feature_names,
+            i,
+            market_segm,
+            direction="left",
+        )
+    else:
+        get_child(
+            model,
+            weights,
+            weights_2d,
+            weights_market,
+            tree["left_child"],
+            split_points,
+            features,
+            feature_names,
+            i,
+            market_segm,
+            direction="left",
+        )
+        get_child(
+            model,
+            weights,
+            weights_2d,
+            weights_market,
+            tree["right_child"],
+            split_points,
+            features,
+            feature_names,
+            i,
+            market_segm,
+            direction="right",
+        )
+
+
+def get_weights(model):
+    """
+    Get leaf values from a RUMBoost model.
+
+    Parameters
+    ----------
+    model : RUMBoost
+        A trained RUMBoost object.
+
+    Returns
+    -------
+    weights_df : pandas DataFrame
+        DataFrame containing all split points and their corresponding left and right leaves value,
+        for all features.
+    weights_2d_df : pandas DataFrame
+        Dataframe with weights arranged for a 2d plot, used in the case of 2d feature interaction.
+    weights_market : pandas DataFrame
+        Dataframe with weights arranged for market segmentation, used in the case of market segmentation.
+
+    """
+    # using self object or a given model
+    model_json = model.dump_model()
+
+    weights = []
+    weights_2d = []
+    weights_market = []
+
+    for i, b in enumerate(model_json):
+        feature_names = b["feature_names"]
+        for trees in b["tree_info"]:
+            features = []
+            split_points = []
+            market_segm = False
+
+            get_child(
+                model,
+                weights,
+                weights_2d,
+                weights_market,
+                trees["tree_structure"],
+                split_points,
+                features,
+                feature_names,
+                i,
+                market_segm,
+            )
+
+    weights_df = pd.DataFrame(
+        weights,
+        columns=[
+            "Feature",
+            "Split point",
+            "Left leaf value",
+            "Right leaf value",
+            "Utility",
+        ],
+    )
+    weights_2d_df = pd.DataFrame(
+        weights_2d,
+        columns=[
+            "Feature",
+            "higher_lvl_range",
+            "lower_lvl_range",
+            "area_value",
+            "Utility",
+        ],
+    )
+    weights_market_df = pd.DataFrame(
+        weights_market,
+        columns=[
+            "Feature",
+            "Cat value",
+            "Split point",
+            "Left leaf value",
+            "Right leaf value",
+            "Utility",
+        ],
+    )
+    return weights_df, weights_2d_df, weights_market_df
+
+
+def weights_to_plot_v2(model, market_segm=False):
+    """
+    Arrange weights by ascending splitting points and cumulative sum of weights.
+
+    Parameters
+    ----------
+    model : RUMBoost
+        A trained RUMBoost object.
+
+    Returns
+    -------
+    weights_for_plot : dict
+        Dictionary containing splitting points and corresponding cumulative weights value for all features.
+
+    """
+
+    # get raw weights
+    if market_segm:
+        _, _, weights = get_weights(model)
+    else:
+        weights, _, _ = get_weights(model)
+
+    weights_for_plot = {}
+    # for all features
+    for i in weights.Utility.unique():
+        weights_for_plot[str(i)] = {}
+
+        for f in weights[weights.Utility == i].Feature.unique():
+
+            split_points = []
+            function_value = [0]
+
+            # getting values related to the corresponding utility
+            weights_util = weights[weights.Utility == i]
+
+            # sort by ascending order
+            feature_data = weights_util[weights_util.Feature == f]
+            ordered_data = feature_data.sort_values(
+                by=["Split point"], ignore_index=True
+            )
+            for j, s in enumerate(ordered_data["Split point"]):
+                # new split point
+                if s not in split_points:
+                    split_points.append(s)
+                    # add a new right leaf value to the current right side value
+                    function_value.append(
+                        function_value[-1]
+                        + float(ordered_data.loc[j, "Right leaf value"])
+                    )
+                    # add left leaf value to all other current left leaf values
+                    function_value[:-1] = [
+                        h + float(ordered_data.loc[j, "Left leaf value"])
+                        for h in function_value[:-1]
+                    ]
+                else:
+                    # add right leaf value to the current right side value
+                    function_value[-1] += float(ordered_data.loc[j, "Right leaf value"])
+                    # add left leaf value to all other current left leaf values
+                    function_value[:-1] = [
+                        h + float(ordered_data.loc[j, "Left leaf value"])
+                        for h in function_value[:-1]
+                    ]
+
+            weights_for_plot[str(i)][f] = {
+                "Splitting points": split_points,
+                "Histogram values": function_value,
+            }
+
+    return weights_for_plot
+
+def non_lin_function(weights_ordered, x_min, x_max, num_points):
+    """
+    Create the nonlinear function for parameters, from weights ordered by ascending splitting points.
+
+    Parameters
+    ----------
+    weights_ordered : dict
+        Dictionary containing splitting points and corresponding cumulative weights value for a specific
+        feature's parameter.
+    x_min : float, int
+        Minimum x value for which the nonlinear function is computed.
+    x_max : float, int
+        Maximum x value for which the nonlinear function is computed.
+    num_points : int
+        Number of points used to draw the nonlinear function line.
+
+    Returns
+    -------
+    x_values : list
+        X values for which the function will be plotted.
+    nonlin_function : list
+        Values of the function at the corresponding x points.
+    """
+    # create x points
+    x_values = np.linspace(x_min, x_max, num_points)
+    nonlin_function = []
+    i = 0
+    max_i = len(weights_ordered["Splitting points"])  # all splitting points
+
+    # handling no split points
+    if max_i == 0:
+        return x_values, float(weights_ordered["Histogram values"][i]) * x_values
+
+    for x in x_values:
+        # compute the value of the function at x according to the weights value in between splitting points
+        if x < float(weights_ordered["Splitting points"][i]):
+            nonlin_function += [float(weights_ordered["Histogram values"][i])]
+        else:
+            nonlin_function += [float(weights_ordered["Histogram values"][i + 1])]
+            # go to next splitting points
+            if i < max_i - 1:
+                i += 1
+
+    return x_values, nonlin_function
+
+
+def get_asc(
+    weights,
+    alt_to_normalise="Driving",
+    alternatives={
+        "Walking": "0",
+        "Cycling": "1",
+        "Public Transport": "2",
+        "Driving": "3",
+    },
+):
+    """Retrieve ASCs from a dictionary of all values from a dictionary of leaves values per alternative per feature"""
+    ASCs = []
+    for k, alt in alternatives.items():
+        asc_temp = 0
+        for feat in weights[alt]:
+            asc_temp += weights[alt][feat]["Histogram values"][0]
+        ASCs.append(asc_temp)
+
+    return [a - ASCs[int(alternatives[alt_to_normalise])] for a in ASCs]
+
+
+def function_2d(weights_2d, x_vect, y_vect):
+    """
+    Create the nonlinear contour plot for parameters, from weights gathered in getweights_v2
+
+    Parameters
+    ----------
+    weights_2d : dict
+        Pandas DataFrame containing all possible rectangles with their corresponding area values, for the given feature and utility.
+    x_vect : numpy array
+        Vector of higher level feature.
+    y_vect : numpy array
+        Vector of lower level feature.
+
+    Returns
+    -------
+    contour_plot_values : numpy array
+        Array with values at (x,y) points.
+    """
+    contour_plot_values = np.zeros(shape=(len(x_vect), len(y_vect)))
+
+    for k in range(len(weights_2d.index)):
+        if (weights_2d["lower_lvl_range"].iloc[k][1] == 10000) and (
+            weights_2d["higher_lvl_range"].iloc[k][1] == 10000
+        ):
+            i_x = np.searchsorted(x_vect, weights_2d["higher_lvl_range"].iloc[k][0])
+            i_y = np.searchsorted(y_vect, weights_2d["lower_lvl_range"].iloc[k][0])
+
+            contour_plot_values[i_x:, i_y:] += weights_2d["area_value"].iloc[k]
+
+        elif weights_2d["lower_lvl_range"].iloc[k][1] == 10000:
+            i_x = np.searchsorted(x_vect, weights_2d["higher_lvl_range"].iloc[k][1])
+            i_y = np.searchsorted(y_vect, weights_2d["lower_lvl_range"].iloc[k][0])
+
+            contour_plot_values[:i_x, i_y:] += weights_2d["area_value"].iloc[k]
+
+        elif weights_2d["higher_lvl_range"].iloc[k][1] == 10000:
+            i_x = np.searchsorted(x_vect, weights_2d["higher_lvl_range"].iloc[k][0])
+            i_y = np.searchsorted(y_vect, weights_2d["lower_lvl_range"].iloc[k][1])
+
+            contour_plot_values[i_x:, :i_y] += weights_2d["area_value"].iloc[k]
+
+        else:
+            i_x = np.searchsorted(x_vect, weights_2d["higher_lvl_range"].iloc[k][1])
+            i_y = np.searchsorted(y_vect, weights_2d["lower_lvl_range"].iloc[k][1])
+
+            contour_plot_values[:i_x, :i_y] += weights_2d["area_value"].iloc[k]
+
+    return contour_plot_values

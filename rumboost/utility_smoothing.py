@@ -3,14 +3,12 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.interpolate import interp1d, PchipInterpolator
 from scipy.special import softmax
-from copy import deepcopy
 from lightgbm import Dataset
 
+from rumboost.metrics import cross_entropy
+from rumboost.nested_cross_nested import nest_probs, cross_nested_probs
 from rumboost.utils import (
     data_leaf_value,
-    cross_entropy,
-    utility_ranking,
-    nest_probs,
     map_x_knots,
 )
 
@@ -229,6 +227,7 @@ def smooth_predict(
     utilities=False,
     mu=None,
     nests=None,
+    alphas=None,
     fe_model=None,
     target="choice",
 ):
@@ -250,6 +249,9 @@ def smooth_predict(
     nests : dict, optional (default=False)
         If not none, compute predictions with the nested probability function. The dictionary keys are alternatives number and their values are
         their nest number. By example {0:0, 1:1, 2:0} means that alt 0 and 2 are in nest 0 and alt 1 is in nest 1.
+    alphas : numpy.ndarray, optional (default=None)
+        An array of J (alternatives) by M (nests).
+        alpha_jn represents the degree of membership of alternative j to nest n.
     fe_model : RUMBoost, optional (default=None)
         The socio-economic characteristics part of the functional effect model.
 
@@ -271,7 +273,11 @@ def smooth_predict(
             utilities=True,
         )
 
-    # softmax
+    #probabilities
+    if alphas is not None:
+        preds, _, _ = cross_nested_probs(raw_preds, mu, alphas)
+        return preds
+
     if mu is not None:
         preds, _, _ = nest_probs(raw_preds, mu, nests)
         return preds
@@ -296,6 +302,7 @@ def optimise_splines(
     deg_freedom=None,
     mu=None,
     nests=None,
+    alphas=None,
     fe_model=None,
 ):
     """
@@ -333,6 +340,9 @@ def optimise_splines(
     nests : dict, optional (default=False)
         If not none, compute predictions with the nested probability function. The dictionary keys are alternatives number and their values are
         their nest number. By example {0:0, 1:1, 2:0} means that alt 0 and 2 are in nest 0 and alt 1 is in nest 1.
+    alphas : numpy.ndarray, optional (default=None)
+        An array of J (alternatives) by M (nests).
+        alpha_jn represents the degree of membership of alternative j to nest n.
     fe_model : RUMBoost, optional (default=None)
         The socio-economic characteristics part of the functional effect model.
 
@@ -352,7 +362,12 @@ def optimise_splines(
         x_knots=x_knots_dict,
     )
     smooth_preds_final = smooth_predict(
-        data_test, utility_collection, mu=mu, nests=nests, fe_model=fe_model
+        data_test,
+        utility_collection,
+        mu=mu,
+        nests=nests,
+        alphas=alphas,
+        fe_model=fe_model,
     )
     loss = cross_entropy(smooth_preds_final, label_test)
     # BIC
@@ -377,6 +392,7 @@ def optimal_knots_position(
     x_last=None,
     mu=None,
     nests=None,
+    alphas=None,
     fe_model=None,
 ):
     """
@@ -417,6 +433,9 @@ def optimal_knots_position(
     nests : dict, optional (default=False)
         If not none, compute predictions with the nested probability function. The dictionary keys are alternatives number and their values are
         their nest number. By example {0:0, 1:1, 2:0} means that alt 0 and 2 are in nest 0 and alt 1 is in nest 1.
+    alphas : numpy.ndarray, optional (default=None)
+        An array of J (alternatives) by M (nests).
+        alpha_jn represents the degree of membership of alternative j to nest n.
     fe_model : RUMBoost, optional (default=None)
         The socio-economic characteristics part of the functional effect model.
 
@@ -514,6 +533,7 @@ def optimal_knots_position(
                     deg_freedom,
                     mu,
                     nests,
+                    alphas,
                     fe_model,
                 ),
                 bounds=all_bounds,
@@ -536,6 +556,7 @@ def optimal_knots_position(
                 deg_freedom,
                 mu=mu,
                 nests=nests,
+                alphas=alphas,
                 fe_model=fe_model,
             )
 
@@ -561,6 +582,7 @@ def optimal_knots_position(
                 deg_freedom,
                 mu=mu,
                 nests=nests,
+                alphas=alphas,
                 fe_model=fe_model,
             )
 
@@ -574,175 +596,3 @@ def optimal_knots_position(
         return x_opt_best, x_first_best, x_last_best, ce
 
     return x_opt_best, x_first, x_last, ce
-
-
-def find_best_num_splines(
-    weights,
-    data_train,
-    data_test,
-    label_test,
-    spline_utilities,
-    mean_splines=False,
-    search_technique="greedy",
-):
-    """
-    DEPRECATED
-    Find the best number of splines fro each features prespecified.
-
-    Parameters
-    ----------
-    weights : dict
-        A dictionary containing all leaf values for all utilities and all features.
-    data_train : pandas DataFrame
-        The pandas DataFrame used for training.
-    data_test : pandas DataFrame
-        The pandas DataFrame used for testing.
-    label_test : pandas Series or numpy array
-        The labels of the dataset used for testing.
-    spline_utilities : dict[list[str]]
-        A dictionary of lists. The dictionary should contain the index of alternatives as a str (i.e., '0', '1', ...).
-        The list contains features where splines will be applied.
-    mean_splines : bool, optional (default = False)
-        If True, the splines are computed at the mean distribution of data for stairs.
-    search_technique : str, optional (default = 'greedy')
-        The technique used to search for the best number of splines. It can be 'greedy' (i.e., optimise one feature after each other, while storing the feature value),
-        'greedy_ranked' (i.e., same as 'greedy' but starts with the feature with the largest utility range) or 'feature_independant'.
-
-    Returns
-    -------
-    best_splines : dict
-        A dictionary containing the optimal number of splines for each feature interpolated of each utility
-    ce : int
-        The negative cross-entropy on the test set
-    """
-    # initialisation
-    spline_range = np.arange(3, 50)
-    num_splines = {}
-    best_splines = {}
-    ce = 1000
-
-    #'greedy_ranked' search
-    if search_technique == "greedy_ranked":
-        util_ranked = utility_ranking(weights, spline_utilities)
-        for rank in util_ranked:
-            if num_splines.get(rank[0], None) is None:
-                num_splines[rank[0]] = {}
-                best_splines[rank[0]] = {}
-            for s in spline_range:
-                num_splines[rank[0]][rank[1]] = s
-                # compute new utility collection
-                utility_collection = updated_utility_collection(
-                    weights,
-                    data_train,
-                    num_splines_feat=num_splines,
-                    mean_splines=mean_splines,
-                )
-
-                # get new predictions
-                smooth_preds = smooth_predict(data_test, utility_collection)
-
-                # compute new CE
-                ce_knot = cross_entropy(smooth_preds, label_test)
-
-                # store best one
-                if ce_knot < ce:
-                    ce = ce_knot
-                    best_splines[rank[0]][rank[1]] = s
-
-                print(
-                    "CE = {} at iteration {} for feature {} ---- best CE = {} with best knots: {}".format(
-                        ce_knot, s - 2, rank[1], ce, best_splines
-                    )
-                )
-
-            # keep best values for next features
-            num_splines = deepcopy(best_splines)
-
-        return best_splines, ce
-    #'greedy' search
-    elif search_technique == "greedy":
-        for u in spline_utilities:
-            best_splines[u] = {}
-            num_splines[u] = {}
-            for f in spline_utilities[u]:
-                for s in spline_range:
-                    num_splines[u][f] = s
-                    # compute new utility collection
-                    utility_collection = updated_utility_collection(
-                        weights,
-                        data_train,
-                        num_splines_feat=num_splines,
-                        mean_splines=mean_splines,
-                    )
-
-                    # get new predictions
-                    smooth_preds = smooth_predict(data_test, utility_collection)
-
-                    # compute new CE
-                    ce_knot = cross_entropy(smooth_preds, label_test)
-
-                    # store best one
-                    if ce_knot < ce:
-                        ce = ce_knot
-                        best_splines[u][f] = s
-
-                    print(
-                        "CE = {} at iteration {} for feature {} ---- best CE = {} with best knots: {}".format(
-                            ce_knot, s - 2, f, ce, best_splines
-                        )
-                    )
-
-                # keep best values for next features
-                num_splines = deepcopy(best_splines)
-
-        return best_splines, ce
-
-    #'feature_independant' search
-    elif search_technique == "feature_independant":
-        for u in spline_utilities:
-            best_splines[u] = {}
-            for f in spline_utilities[u]:
-                ce = 1000
-                for s in spline_range:
-                    temp_num_splines = {u: {f: s}}
-                    # compute new utility collection
-                    utility_collection = updated_utility_collection(
-                        weights,
-                        data_train,
-                        num_splines_feat=temp_num_splines,
-                        mean_splines=mean_splines,
-                    )
-
-                    # get new predictions
-                    smooth_preds = smooth_predict(data_test, utility_collection)
-
-                    # compute new CE
-                    ce_knot = cross_entropy(smooth_preds, label_test)
-
-                    # store best one
-                    if ce_knot < ce:
-                        ce = ce_knot
-                        best_splines[u][f] = s
-
-                    print(
-                        "CE = {} at iteration {} for feature {} ---- best CE = {} with best knots: {}".format(
-                            ce_knot, s - 2, f, ce, best_splines
-                        )
-                    )
-
-        # computation of final cross entropy
-        utility_collection_final = updated_utility_collection(
-            weights,
-            data_train,
-            num_splines_feat=best_splines,
-            mean_splines=mean_splines,
-        )
-        smooth_preds_final = smooth_predict(data_test, utility_collection_final)
-        ce_final = cross_entropy(smooth_preds_final, label_test)
-
-        return best_splines, ce_final
-
-    else:
-        raise ValueError(
-            "search_technique must be greedy, greedy_ranked, or feature_independant."
-        )
