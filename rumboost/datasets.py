@@ -874,20 +874,22 @@ def prepare_dataset(
         The validation datasets.
     """
     valid_sets = {}
+    num_datasets = len(rum_structure)
 
     labels = df_train[target].to_numpy().astype(int)
+    print(labels)
     num_obs = df_train.shape[0]
     if df_test is not None:
         labels_test = []
         num_obs_test = []
         for df in df_test:
-            labels_test += df[target].to_numpy().astype(int)
-            num_obs_test += df.shape[0]
+            labels_test += [df[target].to_numpy().astype(int)]
+            num_obs_test += [df.shape[0]]
 
     if load_dataset:
         try:
             with open(f"{load_dataset}_train_sets.pkl", "rb") as f:
-                train_set = pickle.load(f)
+                train_sets = pickle.load(f)
             if df_test is not None:
                 with open(f"{load_dataset}_valid_sets.pkl", "rb") as f:
                     valid_sets = pickle.load(f)
@@ -899,12 +901,16 @@ def prepare_dataset(
         reduced_valid_sets_J = []
         try:
             for j, _ in enumerate(rum_structure):
+                print("-" * 30 + "\n" + f"[{j+1}/{num_datasets}] \t Loading dataset {j+1}...")
                 train_set_J.append(Dataset(data=f"{load_dataset}_train_set_{j}.bin"))
                 if df_test is not None:
+                    reduced_valid_sets_j = []
                     for i, _ in enumerate(df_test):
-                        reduced_valid_sets_J.append(
-                            Dataset(data=f"{load_dataset}_valid_set_{j}.bin")
+                        reduced_valid_sets_j.append(
+                            Dataset(data=f"{load_dataset}_valid_set_{j}_{i}.bin")
                         )
+                    reduced_valid_sets_J.append(reduced_valid_sets_j)
+                print('\t done! \n' + '-'*30 + '\n')
         except:
             raise FileNotFoundError(
                 "Error loading dataset, try running again this function without the load_dataset parameter."
@@ -912,27 +918,22 @@ def prepare_dataset(
 
         train_sets["train_sets"] = train_set_J
         if df_test is not None:
-            valid_sets["valid_sets"] = reduced_valid_sets_J
+            valid_sets["valid_sets"] = np.array(reduced_valid_sets_J).T.tolist()
 
         return train_sets, valid_sets
-
-    if df_test is not None:
-        valid_sets = {
-            "valid_sets": reduced_valid_sets_J,
-            "num_data": num_obs_test,
-            "valid_labels": labels_test,
-        }
 
     if shared_ensembles:
         shared_start_idx = [*shared_ensembles][0]
 
-    shared_labels = None
+    if shared_ensembles:
+        shared_labels = {}
+        shared_valids = {}
+        
     labels_j = []
-    shared_valids = []
     train_set_J = []
     reduced_valid_sets_J = []
     for j, struct in enumerate(rum_structure):
-        print("-" * 30 + "\n" + f"Dataset {j+1}" + "\n" + "-" * 30 + "\n")
+        print("-" * 30 + "\n" + f"[{j+1}/{num_datasets}] \t Loading dataset {j+1}...")
         if struct:
             if "columns" in struct:
                 # transforming labels for functional effects
@@ -1043,8 +1044,8 @@ def prepare_dataset(
 
                         reduced_valid_sets_j.append(valid_set_j)
 
-                    if save_dataset:
-                        valid_set_j.save_binary(f"{save_dataset}_valid_set_{j}.bin")
+                        if save_dataset:
+                            valid_set_j.save_binary(f"{save_dataset}_valid_set_{j}_{i}.bin")
 
                 train_set_J.append(train_set_j)
                 if save_dataset:
@@ -1061,6 +1062,7 @@ def prepare_dataset(
                     valid_set_j,
                 )
                 gc.collect()
+                print('\t done! \n' + '-'*30 + '\n')
 
             else:
                 # if no alternative specific datasets

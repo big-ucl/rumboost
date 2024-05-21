@@ -1343,6 +1343,8 @@ def rum_train(
     params : dict
         Parameters for training. Values passed through ``params`` take precedence over those
         supplied via arguments. If num_classes > 2, please specify params['objective'] = 'multiclass'.
+        These parameters are the same than Lightgbm parameters. More information here:
+        https://lightgbm.readthedocs.io/en/latest/Parameters.html.
     train_set : Dataset or dict[int, Any]
         Data to be trained on. Set free_raw_data=False when creating the dataset. If it is
         a dictionary, the key-value pairs should be:
@@ -1740,11 +1742,9 @@ def rum_train(
         rumb.labels_j = train_set.get("labels_j", None)
         rumb.num_obs = [train_set["num_data"]]
         if isinstance(valid_sets[0], dict):
-            rumb.valid_sets = np.array(
-                valid_sets[0]["valid_sets"]
-            ).T.tolist()  # assign the J previously preprocessed validation sets
+            rumb.valid_sets = valid_sets[0]["valid_sets"]
             rumb.valid_labels = valid_sets[0]["valid_labels"]
-            rumb.num_obs.extend([valid_sets[0]["num_data"]])
+            rumb.num_obs.extend(valid_sets[0]["num_data"])
         else:
             rumb.valid_sets = []
             rumb.valid_labels = []
@@ -1853,68 +1853,52 @@ def rum_train(
             rumb._preds = rumb._inner_predict()
 
         # compute cross validation on training or validation test
+        if torch_tensors:
+            if rumb.torch_compile:
+                cross_entropy_train = cross_entropy_torch_compiled(
+                    rumb._preds, rumb.labels
+                )
+            else:
+                cross_entropy_train = cross_entropy_torch(
+                    rumb._preds, rumb.labels
+                )
+        else:
+            cross_entropy_train = cross_entropy(rumb._preds, rumb.labels)
         if valid_sets is not None:
-            if is_valid_contain_train:
+            cross_entropy_test = []
+            for k, _ in enumerate(rumb.valid_sets):
+                if rumb.mu is not None:
+                    preds_valid, _, _ = rumb._inner_predict(k + 1)
+                else:
+                    preds_valid = rumb._inner_predict(k + 1)
                 if torch_tensors:
                     if rumb.torch_compile:
-                        cross_entropy_test = cross_entropy_torch_compiled(
-                            rumb._preds, rumb.labels
-                        )
-                    else:
-                        cross_entropy_test = cross_entropy_torch(
-                            rumb._preds, rumb.labels
-                        )
-                else:
-                    cross_entropy_test = cross_entropy(rumb._preds, rumb.labels)
-            else:
-                for k, _ in enumerate(valid_sets):
-                    if rumb.mu is not None:
-                        preds_valid, _, _ = rumb._inner_predict(k + 1)
-                    else:
-                        preds_valid = rumb._inner_predict(k + 1)
-                    if torch_tensors:
-                        if rumb.torch_compile:
-                            cross_entropy_train = cross_entropy_torch_compiled(
-                                rumb._preds, rumb.labels
-                            )
-                            cross_entropy_test = cross_entropy_torch_compiled(
-                                preds_valid, rumb.valid_labels[k]
-                            )
-                        else:
-                            cross_entropy_train = cross_entropy_torch(
-                                rumb._preds, rumb.labels
-                            )
-                            cross_entropy_test = cross_entropy_torch(
-                                preds_valid, rumb.valid_labels[k]
-                            )
-                    else:
-                        cross_entropy_train = cross_entropy(rumb._preds, rumb.labels)
-                        cross_entropy_test = cross_entropy(
+                        cross_entropy_test.append(cross_entropy_torch_compiled(
                             preds_valid, rumb.valid_labels[k]
-                        )
+                        ))
+                    else:
+                        cross_entropy_test.append(cross_entropy_torch(
+                            preds_valid, rumb.valid_labels[k]
+                        ))
+                else:
+                    cross_entropy_test.append(cross_entropy(
+                        preds_valid, rumb.valid_labels[k]
+                    ))
 
             # update best score and best iteration
-            if cross_entropy_test < rumb.best_score:
-                rumb.best_score = cross_entropy_test
-                if is_valid_contain_train:
-                    rumb.best_score_train = cross_entropy_test
-                else:
-                    rumb.best_score_train = cross_entropy_train
+            if cross_entropy_test[0] < rumb.best_score:
+                rumb.best_score = cross_entropy_test[0]
+                rumb.best_score_train = cross_entropy_train
                 rumb.best_iteration = i + 1
 
             # verbosity
             if (verbosity >= 1) and (i % 10 == 0):
-                if is_valid_contain_train:
-                    print(
-                        "[{}] -- NCE value on train set: {}".format(
-                            i + 1, cross_entropy_test
-                        )
+                print(
+                    f"[{i+1}] -- NCE value on train set: {cross_entropy_train}"
                     )
-                else:
+                if valid_sets is not None:
                     print(
-                        "[{}] -- NCE value on train set: {} \n     --  NCE value on test set: {}".format(
-                            i + 1, cross_entropy_train, cross_entropy_test
-                        )
+                        f"------- NCE value on test set {k+1}: {cross_entropy_test[k]}"
                     )
 
         # if specified, reoptimise nest parameters
