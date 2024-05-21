@@ -1,11 +1,15 @@
 import numpy as np
 from scipy.special import softmax
-from metrics import cross_entropy
+from rumboost.metrics import cross_entropy
 try:
     import torch
     from torch_functions import cross_entropy_torch, cross_entropy_torch_compiled
+    torch_installed = True
+    compile_enabled = True
 except ImportError:
-    pass
+    torch_installed = False
+except RuntimeError:
+    compile_enabled = False
 
 def nest_probs(raw_preds, mu, nests, nest_alt):
     """compute nested predictions.
@@ -126,6 +130,10 @@ def optimise_mu_or_alpha(
         The loss according to the optimization of mu or alpha values.
     """
     if rumb.device is not None:
+        if not torch_installed:
+            raise ImportError(
+                "PyTorch is not installed. Please install PyTorch to use the GPU."
+            )
         if optimise_mu:
             rumb.mu = torch.from_numpy(params_to_optimise[:rumb.mu.shape[0]]).to(
                 rumb.device
@@ -155,6 +163,10 @@ def optimise_mu_or_alpha(
     new_preds, _, _ = rumb._inner_predict(data_idx)
     if rumb.device is not None:
         if rumb.torch_compile:
+            if not compile_enabled:
+                raise RuntimeError(
+                    "There was an error while importing torch compiled functions. It is likely to be because torch.compile only supports python 3.11."
+                )
             loss = cross_entropy_torch_compiled(new_preds, labels)
         else:
             loss = cross_entropy_torch(new_preds, labels)

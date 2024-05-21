@@ -2,8 +2,11 @@ import numpy as np
 try:
     import torch
     torch_installed = True
+    compile_enabled = True
 except ImportError:
     torch_installed = False
+except RuntimeError:
+    compile_enabled = False
 
 def _predict_torch(
     raw_preds,
@@ -94,6 +97,8 @@ def _predict_torch_compiled(
     """
     if not torch_installed:
         raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
+    if not compile_enabled:
+        raise ImportError("Compilation is not enabled. This is likely to be because torch.compile requires python <3.12")
 
     # if shared ensembles, get the shared predictions out and reorder them for easier addition later
     if shared_ensembles:
@@ -239,6 +244,8 @@ def _inner_predict_torch_compiled(
     """
     if not torch_installed:
         raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
+    if not compile_enabled:
+        raise ImportError("Compilation is not enabled. This is likely to be because torch.compile requires python <3.12")
     
     # if shared ensembles, get the shared predictions out and reorder them for easier addition later
     if shared_ensembles:
@@ -388,6 +395,8 @@ def _nest_probs_torch_compiled(raw_preds, mu, nests, device):
     """
     if not torch_installed:
         raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
+    if not compile_enabled:
+        raise ImportError("Compilation is not enabled. This is likely to be because torch.compile requires python <3.12")
     
     n_obs = raw_preds.size(0)
     n_alt = raw_preds.size(1)
@@ -505,6 +514,9 @@ def _cross_nested_probs_torch_compiled(raw_preds, mu, alphas, device):
     """
     if not torch_installed:
         raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
+    if not compile_enabled:
+        raise ImportError("Compilation is not enabled. This is likely to be because torch.compile requires python <3.12")
+    
     n_obs, n_alt = raw_preds.shape[0], raw_preds.shape[1]
     pred_i_m = torch.zeros((n_obs, n_alt, mu.shape[0]), device=device)
     pred_m = torch.zeros((n_obs, n_alt, mu.shape[0]), device=device)
@@ -542,6 +554,7 @@ def _f_obj_torch(
 ):
     if not torch_installed:
         raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
+    
     j = current_j  # jth booster
     if shared_ensembles and j >= shared_start_idx:
         pred = preds.T[shared_ensembles[j], :].view(-1)  # corresponding predictions
@@ -584,6 +597,9 @@ def _f_obj_torch_compiled(
 ):
     if not torch_installed:
         raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
+    if not compile_enabled:
+        raise ImportError("Compilation is not enabled. This is likely to be because torch.compile requires python <3.12")
+    
     j = current_j  # jth booster
     if shared_ensembles and j >= shared_start_idx:
         pred = preds.T[shared_ensembles[j], :].view(-1)  # corresponding predictions
@@ -760,6 +776,9 @@ def _f_obj_nested_torch_compiled(
 ):
     if not torch_installed:
         raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
+    if not compile_enabled:
+        raise ImportError("Compilation is not enabled. This is likely to be because torch.compile requires python <3.12")
+    
     j = current_j
     label = labels
     n_obs = preds_i_m.shape[0]
@@ -1067,6 +1086,9 @@ def _f_obj_cross_nested_torch_compiled(
 ):
     if not torch_installed:
         raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
+    if not compile_enabled:
+        raise ImportError("Compilation is not enabled. This is likely to be because torch.compile requires python <3.12")
+    
     j = current_j
     label = labels
     data_idx = torch.arange(preds_i_m.shape[0], device=device)
@@ -1276,6 +1298,8 @@ def cross_entropy_torch_compiled(preds, labels):
     """
     if not torch_installed:
         raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
+    if not compile_enabled:
+        raise ImportError("Compilation is not enabled. This is likely to be because torch.compile requires python <3.12")
     return (
         -torch.mean(
             torch.log(

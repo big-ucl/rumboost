@@ -46,8 +46,11 @@ try:
         cross_entropy_torch_compiled,
     )
     torch_installed = True
+    compile_enabled = True
 except ImportError:
     torch_installed = False
+except RuntimeError:
+    compile_enabled = False
 
 _LGBM_CustomObjectiveFunction = Callable[
     [Union[List, np.ndarray], Dataset],
@@ -1343,7 +1346,7 @@ def rum_train(
     train_set : Dataset or dict[int, Any]
         Data to be trained on. Set free_raw_data=False when creating the dataset. If it is
         a dictionary, the key-value pairs should be:
-            - "train_set":  the corresponding preprocessed Dataset.
+            - "train_sets":  the corresponding preprocessed Dataset.
             - "num_data": the number of observations in the dataset.
             - "labels": the labels of the full dataset.
             - "labels_j": the labels of the dataset for each class (binary).
@@ -1577,6 +1580,10 @@ def rum_train(
             )
         dev_str = torch_tensors.get("device", "cpu")
         rumb.torch_compile = torch_tensors.get("torch_compile", False)
+        if rumb.torch_compile and not compile_enabled:
+            raise ImportError(
+                "Torch compile is not enabled. It is likely to be because torch.compile requires python <3.12"
+            )
         if dev_str == "cuda":
             rumb.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         elif dev_str == "gpu":
@@ -1745,7 +1752,7 @@ def rum_train(
         train_data_name = "training"
         name_valid_sets = ["valid_0"]
     elif not isinstance(train_set, Dataset):
-        raise TypeError("Training only accepts Dataset object")
+        raise TypeError("Training only accepts Dataset object or dictionary")
     else:
         train_set._update_params(params)._set_predictor(predictor).set_feature_name(
             feature_name
@@ -1991,6 +1998,7 @@ class CVRUMBoost:
 
         Generally, no need to instantiate manually.
         """
+        raise NotImplementedError("CVRUMBoost is not implemented yet.")
         self.RUMBoosts = []
         self.best_iteration = -1
         self.best_score = 100000

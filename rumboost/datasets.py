@@ -3,8 +3,11 @@ import pandas as pd
 import pickle
 import random
 import sys
+import gc
 
+from lightgbm import Dataset
 from collections import Counter, defaultdict
+
 try:
     from sklearn.model_selection import train_test_split, GroupShuffleSplit, GroupKFold
     sklearn_installed = True
@@ -12,6 +15,7 @@ except ImportError:
     sklearn_installed = False
 
 sys.path.append("../")
+
 
 def load_preprocess_LPMC():
     """
@@ -275,7 +279,7 @@ def load_preprocess_Optima():
 
 
 def load_preprocess_Netherlands(test_size: float = 0.3, random_state: int = 42):
-    """ Load and preprocess the Netherlands dataset. See Biogeme website for data."""
+    """Load and preprocess the Netherlands dataset. See Biogeme website for data."""
     if not sklearn_installed:
         raise ImportError("scikit-learn is required for this function.")
     pandas = pd.read_table("../Data/netherlands.dat")
@@ -346,7 +350,7 @@ def load_preprocess_Netherlands(test_size: float = 0.3, random_state: int = 42):
 
 
 def load_preprocess_Airplane(test_size: float = 0.3, random_state: int = 42):
-    """ Load and preprocess the Airplane dataset. See Biogeme website for data."""
+    """Load and preprocess the Airplane dataset. See Biogeme website for data."""
     if not sklearn_installed:
         raise ImportError("scikit-learn is required for this function.")
     pandas = pd.read_table("Data/airline.dat")
@@ -420,7 +424,7 @@ def load_preprocess_Airplane(test_size: float = 0.3, random_state: int = 42):
 
 
 def load_preprocess_Telephone(test_size: float = 0.3, random_state: int = 3):
-    """ Load and preprocess the Telephone dataset. See Biogeme website for data."""
+    """Load and preprocess the Telephone dataset. See Biogeme website for data."""
     if not sklearn_installed:
         raise ImportError("scikit-learn is required for this function.")
     pandas = pd.read_table("Data/telephone.dat")
@@ -467,7 +471,7 @@ def load_preprocess_Telephone(test_size: float = 0.3, random_state: int = 3):
 
 
 def load_preprocess_Parking(test_size: float = 0.3, random_state: int = 42):
-    """ Load and preprocess the Parking dataset. See Biogeme website for data."""
+    """Load and preprocess the Parking dataset. See Biogeme website for data."""
     if not sklearn_installed:
         raise ImportError("scikit-learn is required for this function.")
     pandas = pd.read_table("Data/parking.dat")
@@ -511,8 +515,8 @@ def load_preprocess_Parking(test_size: float = 0.3, random_state: int = 42):
 
 
 def load_preprocess_Vaccines():
-    """ Load and preprocess the Vaccines dataset."""
-    
+    """Load and preprocess the Vaccines dataset."""
+
     pandas = pd.read_csv("../Data/vaccinechoiceMar12.csv")
     # pandas.drop()
     pandas.loc[:, "choice"] = pandas["vaccinechoice"] - 1
@@ -821,3 +825,330 @@ def stratified_group_k_fold(X, y, groups, k, seed=None):
         test_indices = [i for i, g in enumerate(groups) if g in test_groups]
 
         yield train_indices, test_indices
+
+
+def prepare_dataset(
+    rum_structure,
+    df_train,
+    num_classes,
+    df_test=None,
+    shared_ensembles=None,
+    functional_effects=False,
+    target="choice",
+    save_dataset=None,
+    load_dataset=None,
+):
+    """
+    Prepare and save if required the datasets for RUMBoost.
+
+    Parameters
+    ----------
+    rum_structure : list of dict
+        The structure of the RUM model.
+    df_train : pandas DataFrame
+        The training dataset.
+    params : dict
+        The parameters of the model.
+    num_classes : int
+        The number of classes.
+    df_test : pandas DataFrame, optional
+        The test dataset.
+    shared_ensembles : dict, optional
+        The shared ensembles.
+    valid_names : list, optional
+        The names of the validation sets.
+    functional_effects : bool, optional
+        If the model has functional effects.
+    target : str, optional
+        The target variable.
+    save_dataset : str, optional
+        The path to save the datasets.
+    load_dataset : str, optional
+        The path to load the datasets.
+
+    Returns
+    -------
+    train_sets : dict
+        The training datasets.
+    valid_sets : dict
+        The validation datasets.
+    """
+    valid_sets = {}
+
+    labels = df_train[target].to_numpy().astype(int)
+    num_obs = df_train.shape[0]
+    if df_test is not None:
+        labels_test = []
+        num_obs_test = []
+        for df in df_test:
+            labels_test += df[target].to_numpy().astype(int)
+            num_obs_test += df.shape[0]
+
+    if load_dataset:
+        try:
+            with open(f"{load_dataset}_train_sets.pkl", "rb") as f:
+                train_set = pickle.load(f)
+            if df_test is not None:
+                with open(f"{load_dataset}_valid_sets.pkl", "rb") as f:
+                    valid_sets = pickle.load(f)
+        except:
+            raise FileNotFoundError(
+                "Error loading dataset, try running again this function without the load_dataset parameter."
+            )
+        train_set_J = []
+        reduced_valid_sets_J = []
+        try:
+            for j, _ in enumerate(rum_structure):
+                train_set_J.append(Dataset(data=f"{load_dataset}_train_set_{j}.bin"))
+                if df_test is not None:
+                    for i, _ in enumerate(df_test):
+                        reduced_valid_sets_J.append(
+                            Dataset(data=f"{load_dataset}_valid_set_{j}.bin")
+                        )
+        except:
+            raise FileNotFoundError(
+                "Error loading dataset, try running again this function without the load_dataset parameter."
+            )
+
+        train_sets["train_sets"] = train_set_J
+        if df_test is not None:
+            valid_sets["valid_sets"] = reduced_valid_sets_J
+
+        return train_sets, valid_sets
+
+    if df_test is not None:
+        valid_sets = {
+            "valid_sets": reduced_valid_sets_J,
+            "num_data": num_obs_test,
+            "valid_labels": labels_test,
+        }
+
+    if shared_ensembles:
+        shared_start_idx = [*shared_ensembles][0]
+
+    shared_labels = None
+    labels_j = []
+    shared_valids = []
+    train_set_J = []
+    reduced_valid_sets_J = []
+    for j, struct in enumerate(rum_structure):
+        print("-" * 30 + "\n" + f"Dataset {j+1}" + "\n" + "-" * 30 + "\n")
+        if struct:
+            if "columns" in struct:
+                # transforming labels for functional effects
+                if functional_effects and j < 2 * num_classes:
+                    l = int(j / 2)
+                else:
+                    l = j
+
+                train_set_j_data = df_train[struct["columns"]].to_numpy(
+                    dtype=np.float32
+                )  # only relevant features for the jth booster
+
+                if shared_ensembles:
+                    if l >= shared_start_idx:
+                        if not shared_labels:
+                            shared_labels = {
+                                a: np.where(labels == a, 1, 0)
+                                for a in range(num_classes)
+                            }
+                        new_label = np.hstack(
+                            [shared_labels[s] for s in shared_ensembles[l]]
+                        )
+                        labels_j.append(new_label.astype(int))
+                        train_set_j = Dataset(
+                            train_set_j_data.reshape((-1, 1), order="A"),
+                            label=new_label,
+                            free_raw_data=False,
+                            params={"verbosity": -1},
+                        )  # create and build dataset
+                        train_set_j.construct()
+                    else:
+                        new_label = np.where(
+                            labels == l, 1, 0
+                        )  # new binary label, used for multiclassification
+                        shared_labels[l] = new_label
+                        labels_j.append(new_label.astype(int))
+                        train_set_j = Dataset(
+                            train_set_j_data,
+                            label=new_label,
+                            free_raw_data=False,
+                            params={"verbosity": -1},
+                        )  # create and build dataset
+                        train_set_j.construct()
+                else:
+                    new_label = np.where(
+                        labels == l, 1, 0
+                    )  # new binary label, used for multiclassification
+                    labels_j.append(new_label.astype(int))
+                    train_set_j = Dataset(
+                        train_set_j_data,
+                        label=new_label,
+                        free_raw_data=False,
+                        params={"verbosity": -1},
+                    )  # create and build dataset
+                    train_set_j.construct()
+
+                if df_test is not None:
+                    reduced_valid_sets_j = []
+                    for i, valid_set in enumerate(df_test):
+                        # create and build validation sets
+                        valid_set_j_data = valid_set[struct["columns"]].to_numpy(
+                            dtype=np.float32
+                        )  # only relevant features for the jth booster
+                        val_labels = labels_test[i]
+
+                        if shared_ensembles:
+                            if l >= shared_start_idx:
+                                if not shared_valids:
+                                    shared_valids = {
+                                        a: np.where(val_labels == a, 1, 0)
+                                        for a in range(num_classes)
+                                    }
+                                label_valid = np.hstack(
+                                    [shared_valids[s] for s in shared_ensembles[l]]
+                                )
+                                valid_set_j = Dataset(
+                                    valid_set_j_data.reshape((-1, 1), order="A"),
+                                    label=label_valid,
+                                    free_raw_data=False,
+                                    reference=train_set_j,
+                                    params={"verbosity": -1},
+                                )  # create and build dataset
+                                valid_set_j.construct()
+                            else:
+                                label_valid = np.where(
+                                    val_labels == l, 1, 0
+                                )  # new binary label, used for multiclassification
+                                shared_valids[l] = label_valid
+                                valid_set_j = Dataset(
+                                    valid_set_j_data,
+                                    label=label_valid,
+                                    free_raw_data=False,
+                                    reference=train_set_j,
+                                    params={"verbosity": -1},
+                                )  # create and build dataset
+                                valid_set_j.construct()
+                        else:
+                            label_valid = np.where(
+                                val_labels == l, 1, 0
+                            )  # new binary label, used for multiclassification
+                            valid_set_j = Dataset(
+                                valid_set_j_data,
+                                label=label_valid,
+                                reference=train_set_j,
+                                free_raw_data=False,
+                            )
+                            valid_set_j.construct()
+
+                        reduced_valid_sets_j.append(valid_set_j)
+
+                    if save_dataset:
+                        valid_set_j.save_binary(f"{save_dataset}_valid_set_{j}.bin")
+
+                train_set_J.append(train_set_j)
+                if save_dataset:
+                    train_set_j.save_binary(f"{save_dataset}_train_set_{j}.bin")
+                if df_test is not None:
+                    reduced_valid_sets_J.append(reduced_valid_sets_j)
+                del (
+                    train_set_j_data,
+                    new_label,
+                    val_labels,
+                    valid_set_j_data,
+                    label_valid,
+                    train_set_j,
+                    valid_set_j,
+                )
+                gc.collect()
+
+            else:
+                # if no alternative specific datasets
+                new_label = np.where(labels == j, 1, 0)
+                train_set_j = Dataset(
+                    df_train.values, label=new_label, free_raw_data=False
+                )
+                if df_test is not None:
+                    reduced_valid_sets_j = df_test[:]
+
+    reduced_valid_sets_J = np.array(reduced_valid_sets_J).T.tolist()
+
+    train_sets = {"num_data": num_obs, "labels": labels, "labels_j": labels_j}
+    valid_sets = {
+        "num_data": num_obs_test,
+        "valid_labels": labels_test,
+    }
+
+    if save_dataset:
+        with open(f"{save_dataset}_train_sets.pkl", "wb") as f:
+            pickle.dump(train_sets, f)
+        if df_test is not None:
+            with open(f"{save_dataset}_valid_sets.pkl", "wb") as f:
+                pickle.dump(valid_sets, f)
+
+    train_sets["train_sets"] = train_set_J
+    if df_test is not None:
+        valid_sets["valid_sets"] = reduced_valid_sets_J
+
+    return train_sets, valid_sets
+
+
+def prepare_valids(train_set, params, valid_sets=None, valid_names=None):
+    """Prepare validation sets.
+
+    Parameters
+    ----------
+    train_set : Dataset
+        The full training dataset (i.e. the union of the socio-economic features with the alternative-specific features).
+    params : dict
+        Dictionary containing parameters. The syntax must follow the one from LightGBM.
+    valid_sets : Dataset or list[Dataset], optional (default = None)
+        The full dataset used for validation. There can be several datasets.
+    valid_names : str or list[str], optional (default = None)
+        The names of the validation sets.
+
+    Returns
+    -------
+    reduced_valid_sets : list[Dataset]
+        List of prepared validation sets.
+    name_valid_sets : list[str]
+        List of names of validation sets.
+    is_valid_contain_train: bool
+        True if the training set is in the validation sets.
+    train_data_name: str
+        Name of training dataset : 'training'.
+    """
+    # initialise variables
+    is_valid_contain_train = False
+    train_data_name = "training"
+    reduced_valid_sets = []
+    name_valid_sets = []
+
+    # finalise validation sets for training
+    if valid_sets is not None:
+        if isinstance(valid_sets, Dataset):
+            valid_sets = [valid_sets]
+        if isinstance(valid_names, str):
+            valid_names = [valid_names]
+        for i, valid_data in enumerate(valid_sets):
+            if valid_data is train_set:
+                is_valid_contain_train = True  # store if train set is in validation set
+                if valid_names is not None:
+                    train_data_name = valid_names[i]
+                continue
+            if not isinstance(valid_data, Dataset):
+                raise TypeError("Training only accepts Dataset object")
+            reduced_valid_sets.append(
+                valid_data._update_params(params).set_reference(train_set)
+            )
+            if valid_names is not None and len(valid_names) > i:
+                name_valid_sets.append(valid_names[i])
+            else:
+                name_valid_sets.append(f"valid_{i}")
+
+    return (
+        reduced_valid_sets,
+        name_valid_sets,
+        is_valid_contain_train,
+        train_data_name,
+    )
