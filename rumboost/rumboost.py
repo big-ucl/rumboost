@@ -657,7 +657,7 @@ class RUMBoost:
                     :, self.shared_ensembles[i + self.shared_start_idx]
                 ] += arr.reshape(-1, data.num_data()).T
             if self.shared_start_idx == 0:
-                raw_preds = np.zeros((self.num_classes, data.num_data()))
+                raw_preds = np.zeros((data.num_data(), self.num_classes))
             else:
                 raw_preds = np.array(raw_preds[: self.shared_start_idx]).T
         else:
@@ -772,7 +772,7 @@ class RUMBoost:
                     :, self.shared_ensembles[i + self.shared_start_idx]
                 ] += arr.reshape(-1, self.num_obs[data_idx]).T
             if self.shared_start_idx == 0:
-                raw_preds = np.zeros((self.num_classes, self.num_obs[data_idx]))
+                raw_preds = np.zeros((self.num_obs[data_idx], self.num_classes))
             else:
                 raw_preds = np.array(raw_preds[: self.shared_start_idx]).T
         else:
@@ -780,7 +780,9 @@ class RUMBoost:
 
         # if functional effect, sum the two ensembles (of attributes and socio-economic characteristics) of each alternative
         if self.functional_effects:
+            print(raw_preds, raw_preds.shape)
             raw_preds = raw_preds.reshape((-1, self.num_classes, 2)).sum(axis=2)
+            print(raw_preds, raw_preds.shape)
 
         # if shared ensembles, add the shared ensembles to the individual specific ensembles
         if self.shared_ensembles:
@@ -1344,7 +1346,8 @@ def rum_train(
         Parameters for training. Values passed through ``params`` take precedence over those
         supplied via arguments. If num_classes > 2, please specify params['objective'] = 'multiclass'.
         These parameters are the same than Lightgbm parameters. More information here:
-        https://lightgbm.readthedocs.io/en/latest/Parameters.html.
+        https://lightgbm.readthedocs.io/en/latest/Parameters.html. Note that the max_bin
+        parameter is not available in RUMBoost.
     train_set : Dataset or dict[int, Any]
         Data to be trained on. Set free_raw_data=False when creating the dataset. If it is
         a dictionary, the key-value pairs should be:
@@ -1413,7 +1416,7 @@ def rum_train(
                     - 'optimisation_method': str, optional (default = None)
                         The method used for the optimisation of the mu values with scipy.optimize.minimize.
 
-            - 'functional_effect': dict
+            - 'functional_effects': dict
                 Functional effect model specification. The dictionary must contain:
                     - 'params_fe': dict
                         Parameters for training the socio-economic part of a functional effect model.
@@ -1438,6 +1441,7 @@ def rum_train(
             - "valid_sets":  a list of list of corresponding preprocessed validation Datasets.
             - "valid_labels": a list of the valid dataset labels.
             - "num_data": a list of the number of data in validation datasets.
+        Note, you can pass several datasets for validation, but only the first one will be used for early stopping.
     valid_names : list of str, or None, optional (default = None)
         Names of ``valid_sets``.
     feval : callable, list of callable, or None, optional (default = None)
@@ -1710,7 +1714,7 @@ def rum_train(
 
     # check and store functional effects
     if (
-        "functional_effect" in model_specification
+        "functional_effects" in model_specification
         and (len(rumb.rum_structure) - rumb.shared_start_idx)
         != 2 * params["num_classes"]
     ):
@@ -1718,9 +1722,9 @@ def rum_train(
             "Functional effects model requires a rum_structure of length 2 * num_classes (without \
                             shared ensembles) or 2 * num_classes + number of shared ensembles (with shared ensembles)"
         )
-    if "functional_effect" in model_specification:
+    if "functional_effects" in model_specification:
         rumb.functional_effects = True
-        params_fe = model_specification["functional_effect"].get("params_fe", None)
+        params_fe = model_specification["functional_effects"].get("params_fe", None)
     else:
         rumb.functional_effects = False
         params_fe = None
@@ -1894,12 +1898,13 @@ def rum_train(
             # verbosity
             if (verbosity >= 1) and (i % 10 == 0):
                 print(
-                    f"[{i+1}] -- NCE value on train set: {cross_entropy_train}"
+                    f"[{i+1}]" + "-"*(6-int(np.log10(i+1))) + f"NCE value on train set : {cross_entropy_train:.4f}"
                     )
                 if valid_sets is not None:
-                    print(
-                        f"------- NCE value on test set {k+1}: {cross_entropy_test[k]}"
-                    )
+                    for k, _ in enumerate(rumb.valid_sets):
+                        print(
+                            f"---------NCE value on test set {k+1}: {cross_entropy_test[k]:.4f}"
+                        )
 
         # if specified, reoptimise nest parameters
         if (optimise_mu or optimise_alphas) and (i + 1) % optimise_it == 0:

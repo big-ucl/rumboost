@@ -851,13 +851,13 @@ def prepare_dataset(
         The parameters of the model.
     num_classes : int
         The number of classes.
-    df_test : pandas DataFrame, optional
-        The test dataset.
+    df_test : list of pandas DataFrame, optional
+        The list of test datasets.
     shared_ensembles : dict, optional
         The shared ensembles.
     valid_names : list, optional
         The names of the validation sets.
-    functional_effects : bool, optional
+    functional_effects : bool or dict, optional
         If the model has functional effects.
     target : str, optional
         The target variable.
@@ -877,7 +877,6 @@ def prepare_dataset(
     num_datasets = len(rum_structure)
 
     labels = df_train[target].to_numpy().astype(int)
-    print(labels)
     num_obs = df_train.shape[0]
     if df_test is not None:
         labels_test = []

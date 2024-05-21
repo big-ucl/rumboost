@@ -74,8 +74,9 @@ def _predict_torch(
     # softmax
     if not utilities:
         preds = torch.nn.functional.softmax(raw_preds, dim=1)
+        return preds, None, None
 
-    return preds, None, None
+    return raw_preds, None, None
 
 
 @torch.compile
@@ -147,8 +148,9 @@ def _predict_torch_compiled(
     # softmax
     if not utilities:
         preds = torch.nn.functional.softmax(raw_preds, dim=1)
+        return preds, None, None
 
-    return preds, None, None
+    return raw_preds, None, None
 
 
 def _inner_predict_torch(
@@ -220,8 +222,9 @@ def _inner_predict_torch(
     # softmax
     if not utilities:
         preds = torch.nn.functional.softmax(raw_preds, dim=1)
+        return preds, None, None
 
-    return preds, None, None
+    return raw_preds, None, None
 
 
 @torch.compile
@@ -296,8 +299,9 @@ def _inner_predict_torch_compiled(
     # softmax
     if not utilities:
         preds = torch.nn.functional.softmax(raw_preds, dim=1)
+        return preds, None, None
 
-    return preds, None, None
+    return raw_preds, None, None
 
 
 def _nest_probs_torch(raw_preds, mu, nests, device):
@@ -557,7 +561,7 @@ def _f_obj_torch(
     
     j = current_j  # jth booster
     if shared_ensembles and j >= shared_start_idx:
-        pred = preds.T[shared_ensembles[j], :].view(-1)  # corresponding predictions
+        pred = preds.T[shared_ensembles[j], :].view(-1) # corresponding predictions
     else:
         pred = preds[:, j]  # corresponding predictions
     factor = num_classes / (
@@ -577,9 +581,7 @@ def _f_obj_torch(
         )
     grad = pred - labels
     factor_times_one_minus_pred = factor * (1 - pred)
-    hess = pred.mul_(factor_times_one_minus_pred).clamp_(
-        min=eps
-    )  # truncate low values to avoid numerical errors
+    hess = (pred * factor_times_one_minus_pred).clamp_(min=eps)  # truncate low values to avoid numerical errors
 
     return grad, hess
 
@@ -622,12 +624,9 @@ def _f_obj_torch_compiled(
         )
     grad = pred - labels
     factor_times_one_minus_pred = factor * (1 - pred)
-    hess = pred.mul_(factor_times_one_minus_pred).clamp_(
-        min=eps
-    )  # truncate low values to avoid numerical errors
+    hess = (pred * factor_times_one_minus_pred).clamp_(min=eps)
 
     return grad, hess
-
 
 def _f_obj_nested_torch(
     current_j,
