@@ -29,6 +29,7 @@ from rumboost.nested_cross_nested import (
     cross_nested_probs,
     optimise_mu_or_alpha,
 )
+
 try:
     import torch
     from rumboost.torch_functions import (
@@ -45,6 +46,7 @@ try:
         cross_entropy_torch,
         cross_entropy_torch_compiled,
     )
+
     torch_installed = True
     compile_enabled = True
 except ImportError:
@@ -879,8 +881,15 @@ class RUMBoost:
                                 train_set_j_data.values.reshape((-1, 1), order="A"),
                                 label=new_label,
                                 free_raw_data=False,
-                                params={"verbosity": -1},
                             )  # create and build dataset
+                            categorical_feature = struct.get(
+                                "categorical_feature", "auto"
+                            )
+                            train_set_j._update_params(self.params[j])._set_predictor(
+                                None
+                            ).set_feature_name("auto").set_categorical_feature(
+                                categorical_feature
+                            )
                             train_set_j.construct()
                         else:
                             new_label = np.where(
@@ -892,8 +901,15 @@ class RUMBoost:
                                 train_set_j_data,
                                 label=new_label,
                                 free_raw_data=False,
-                                params={"verbosity": -1},
                             )  # create and build dataset
+                            categorical_feature = struct.get(
+                                "categorical_feature", "auto"
+                            )
+                            train_set_j._update_params(self.params[j])._set_predictor(
+                                None
+                            ).set_feature_name("auto").set_categorical_feature(
+                                categorical_feature
+                            )
                             train_set_j.construct()
                     else:
                         new_label = np.where(
@@ -904,8 +920,13 @@ class RUMBoost:
                             train_set_j_data,
                             label=new_label,
                             free_raw_data=False,
-                            params={"verbosity": -1},
                         )  # create and build dataset
+                        categorical_feature = struct.get("categorical_feature", "auto")
+                        train_set_j._update_params(self.params[j])._set_predictor(
+                            None
+                        ).set_feature_name("auto").set_categorical_feature(
+                            categorical_feature
+                        )
                         train_set_j.construct()
 
                     if reduced_valid_set is not None:
@@ -942,8 +963,8 @@ class RUMBoost:
                                         label=label_valid,
                                         free_raw_data=False,
                                         reference=train_set_j,
-                                        params={"verbosity": -1},
                                     )  # create and build dataset
+                                    valid_set_j._update_params(self.params[j])
                                     valid_set_j.construct()
                                 else:
                                     label_valid = np.where(
@@ -955,8 +976,8 @@ class RUMBoost:
                                         label=label_valid,
                                         free_raw_data=False,
                                         reference=train_set_j,
-                                        params={"verbosity": -1},
                                     )  # create and build dataset
+                                    valid_set_j._update_params(self.params[j])
                                     valid_set_j.construct()
                             else:
                                 label_valid = np.where(
@@ -968,6 +989,7 @@ class RUMBoost:
                                     reference=train_set_j,
                                     free_raw_data=False,
                                 )
+                                valid_set_j._update_params(self.params[j])
                                 valid_set_j.construct()
 
                             reduced_valid_sets_j.append(valid_set_j)
@@ -1027,9 +1049,6 @@ class RUMBoost:
                         "interaction_constraints": (
                             struct.get("interaction_constraints", []) if struct else []
                         ),
-                        "categorical_feature": (
-                            struct.get("categorical_feature", []) if struct else []
-                        ),
                     }
                     if i % 2 == 0
                     else {
@@ -1042,9 +1061,6 @@ class RUMBoost:
                         ),
                         "interaction_constraints": (
                             struct.get("interaction_constraints", []) if struct else []
-                        ),
-                        "categorical_feature": (
-                            struct.get("categorical_feature", []) if struct else []
                         ),
                     }
                 )
@@ -1062,9 +1078,6 @@ class RUMBoost:
                     ),
                     "interaction_constraints": (
                         struct.get("interaction_constraints", []) if struct else []
-                    ),
-                    "categorical_feature": (
-                        struct.get("categorical_feature", []) if struct else []
                     ),
                 }
                 for struct in self.rum_structure
@@ -1162,9 +1175,6 @@ class RUMBoost:
         reduced_valid_sets_J = self.valid_sets
 
         for j, (param_j, train_set_j) in enumerate(zip(params_J, train_set_J)):
-            train_set_j._update_params(
-                param_j
-            )  # update parameters of the jth training set
             # construct booster and perform basic preparations
             try:
                 booster = Booster(params=param_j, train_set=train_set_j)
@@ -1173,7 +1183,6 @@ class RUMBoost:
                 for valid_set, name_valid_set in zip(
                     reduced_valid_sets_J, name_valid_sets
                 ):
-                    valid_set[j]._update_params(param_j).set_reference(train_set_j)
                     booster.add_valid(valid_set[j], name_valid_set)
             finally:
                 train_set_j._reverse_update_params()
@@ -1729,6 +1738,9 @@ def rum_train(
         rumb.functional_effects = False
         params_fe = None
 
+    # preprocess parameters
+    rumb._preprocess_params(params, params_fe=params_fe)  # prepare J set of parameters
+
     # check dataset and preprocess it
     if isinstance(train_set, dict):
         if "num_data" not in train_set:
@@ -1767,9 +1779,6 @@ def rum_train(
         rumb._preprocess_data(
             train_set, reduced_valid_sets
         )  # prepare J datasets with relevant features
-
-    # preprocess parameters
-    rumb._preprocess_params(params, params_fe=params_fe)  # prepare J set of parameters
 
     # create J boosters with corresponding params and datasets
     rumb._construct_boosters(
@@ -1863,9 +1872,7 @@ def rum_train(
                     rumb._preds, rumb.labels
                 )
             else:
-                cross_entropy_train = cross_entropy_torch(
-                    rumb._preds, rumb.labels
-                )
+                cross_entropy_train = cross_entropy_torch(rumb._preds, rumb.labels)
         else:
             cross_entropy_train = cross_entropy(rumb._preds, rumb.labels)
         if valid_sets is not None:
@@ -1877,17 +1884,19 @@ def rum_train(
                     preds_valid = rumb._inner_predict(k + 1)
                 if torch_tensors:
                     if rumb.torch_compile:
-                        cross_entropy_test.append(cross_entropy_torch_compiled(
-                            preds_valid, rumb.valid_labels[k]
-                        ))
+                        cross_entropy_test.append(
+                            cross_entropy_torch_compiled(
+                                preds_valid, rumb.valid_labels[k]
+                            )
+                        )
                     else:
-                        cross_entropy_test.append(cross_entropy_torch(
-                            preds_valid, rumb.valid_labels[k]
-                        ))
+                        cross_entropy_test.append(
+                            cross_entropy_torch(preds_valid, rumb.valid_labels[k])
+                        )
                 else:
-                    cross_entropy_test.append(cross_entropy(
-                        preds_valid, rumb.valid_labels[k]
-                    ))
+                    cross_entropy_test.append(
+                        cross_entropy(preds_valid, rumb.valid_labels[k])
+                    )
 
             # update best score and best iteration
             if cross_entropy_test[0] < rumb.best_score:
@@ -1898,8 +1907,10 @@ def rum_train(
             # verbosity
             if (verbosity >= 1) and (i % 10 == 0):
                 print(
-                    f"[{i+1}]" + "-"*(6-int(np.log10(i+1))) + f"NCE value on train set : {cross_entropy_train:.4f}"
-                    )
+                    f"[{i+1}]"
+                    + "-" * (6 - int(np.log10(i + 1)))
+                    + f"NCE value on train set : {cross_entropy_train:.4f}"
+                )
                 if valid_sets is not None:
                     for k, _ in enumerate(rumb.valid_sets):
                         print(
