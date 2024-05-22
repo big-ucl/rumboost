@@ -751,6 +751,12 @@ def load_preprocess_MTMC_all(test_size: float = 0.2, random_state: int = 1):
 
     folds = zip(train_idx, test_idx)
 
+    shift_choices_1 = {i: i-12 for i in range(int(z_idx[-1])+1, int(z_idx[-1])+7977)}
+    shift_choices_2 = {i: i-24 for i in range(int(z_idx[-1])+7977, int(z_idx[-1])+7977*2)}
+    shift_choices = {**shift_choices_1, **shift_choices_2}
+    df_train["choice"] = df_train["choice"].replace(shift_choices)
+    df_test["choice"] = df_test["choice"].replace(shift_choices)
+
     return df_train, df_test, folds, z_idx
 
 
@@ -876,15 +882,6 @@ def prepare_dataset(
     valid_sets = {}
     num_datasets = len(rum_structure)
 
-    labels = df_train[target].to_numpy().astype(int)
-    num_obs = df_train.shape[0]
-    if df_test is not None:
-        labels_test = []
-        num_obs_test = []
-        for df in df_test:
-            labels_test += [df[target].to_numpy().astype(int)]
-            num_obs_test += [df.shape[0]]
-
     if load_dataset:
         try:
             with open(f"{load_dataset}_train_sets.pkl", "rb") as f:
@@ -920,6 +917,15 @@ def prepare_dataset(
             valid_sets["valid_sets"] = np.array(reduced_valid_sets_J).T.tolist()
 
         return train_sets, valid_sets
+
+    labels = df_train[target].to_numpy().astype(int)
+    num_obs = df_train.shape[0]
+    if df_test is not None:
+        labels_test = []
+        num_obs_test = []
+        for df in df_test:
+            labels_test += [df[target].to_numpy().astype(int)]
+            num_obs_test += [df.shape[0]]
 
     if shared_ensembles:
         shared_start_idx = [*shared_ensembles][0]
