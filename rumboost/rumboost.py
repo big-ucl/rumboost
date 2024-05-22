@@ -782,9 +782,7 @@ class RUMBoost:
 
         # if functional effect, sum the two ensembles (of attributes and socio-economic characteristics) of each alternative
         if self.functional_effects:
-            print(raw_preds, raw_preds.shape)
             raw_preds = raw_preds.reshape((-1, self.num_classes, 2)).sum(axis=2)
-            print(raw_preds, raw_preds.shape)
 
         # if shared ensembles, add the shared ensembles to the individual specific ensembles
         if self.shared_ensembles:
@@ -915,7 +913,8 @@ class RUMBoost:
                         new_label = np.where(
                             data.get_label() == l, 1, 0
                         )  # new binary label, used for multiclassification
-                        self.labels_j.append(new_label)
+                        if j == l or j%2==0:
+                            self.labels_j.append(new_label)
                         train_set_j = Dataset(
                             train_set_j_data,
                             label=new_label,
@@ -1040,6 +1039,7 @@ class RUMBoost:
                 (
                     {
                         **copy.deepcopy(params),
+                        "learning_rate": params.get("learning_rate", 0.1)*0.5,
                         "verbosity": -1,
                         "objective": "binary",
                         "num_classes": 1,
@@ -1053,6 +1053,7 @@ class RUMBoost:
                     if i % 2 == 0
                     else {
                         **copy.deepcopy(params_fe),
+                        "learning_rate": params_fe.get("learning_rate", 0.1)*0.5,
                         "verbosity": -1,
                         "objective": "binary",
                         "num_classes": 1,
