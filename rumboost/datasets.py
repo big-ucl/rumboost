@@ -10,6 +10,7 @@ from collections import Counter, defaultdict
 
 try:
     from sklearn.model_selection import train_test_split, GroupShuffleSplit, GroupKFold
+
     sklearn_installed = True
 except ImportError:
     sklearn_installed = False
@@ -751,8 +752,12 @@ def load_preprocess_MTMC_all(test_size: float = 0.2, random_state: int = 1):
 
     folds = zip(train_idx, test_idx)
 
-    shift_choices_1 = {i: i-12 for i in range(int(z_idx[-1])+1, int(z_idx[-1])+7977)}
-    shift_choices_2 = {i: i-24 for i in range(int(z_idx[-1])+7977, int(z_idx[-1])+7977*2)}
+    shift_choices_1 = {
+        i: i - 12 for i in range(int(z_idx[-1]) + 1, int(z_idx[-1]) + 7977)
+    }
+    shift_choices_2 = {
+        i: i - 24 for i in range(int(z_idx[-1]) + 7977, int(z_idx[-1]) + 7977 * 2)
+    }
     shift_choices = {**shift_choices_1, **shift_choices_2}
     df_train["choice"] = df_train["choice"].replace(shift_choices)
     df_test["choice"] = df_test["choice"].replace(shift_choices)
@@ -841,6 +846,7 @@ def prepare_dataset(
     shared_ensembles=None,
     functional_effects=False,
     target="choice",
+    free_raw_data=False,
     save_dataset=None,
     load_dataset=None,
 ):
@@ -867,6 +873,8 @@ def prepare_dataset(
         If the model has functional effects.
     target : str, optional
         The target variable.
+    free_raw_data : bool, optional
+        If the raw data should be freed.
     save_dataset : str, optional
         The path to save the datasets.
     load_dataset : str, optional
@@ -897,7 +905,11 @@ def prepare_dataset(
         reduced_valid_sets_J = []
         try:
             for j, _ in enumerate(rum_structure):
-                print("-" * 30 + "\n" + f"[{j+1}/{num_datasets}] \t Loading dataset {j+1}...")
+                print(
+                    "-" * 30
+                    + "\n"
+                    + f"[{j+1}/{num_datasets}] \t Loading dataset {j+1}..."
+                )
                 train_set_J.append(Dataset(data=f"{load_dataset}_train_set_{j}.bin"))
                 if df_test is not None:
                     reduced_valid_sets_j = []
@@ -906,7 +918,7 @@ def prepare_dataset(
                             Dataset(data=f"{load_dataset}_valid_set_{j}_{i}.bin")
                         )
                     reduced_valid_sets_J.append(reduced_valid_sets_j)
-                print('\t done! \n' + '-'*30 + '\n')
+                print("\t done! \n" + "-" * 30 + "\n")
         except:
             raise FileNotFoundError(
                 "Error loading dataset, try running again this function without the load_dataset parameter."
@@ -933,7 +945,7 @@ def prepare_dataset(
     if shared_ensembles:
         shared_labels = {}
         shared_valids = {}
-        
+
     labels_j = []
     train_set_J = []
     reduced_valid_sets_J = []
@@ -965,35 +977,34 @@ def prepare_dataset(
                         train_set_j = Dataset(
                             train_set_j_data.reshape((-1, 1), order="A"),
                             label=new_label,
-                            free_raw_data=False,
+                            free_raw_data=free_raw_data,
                             params={"verbosity": -1},
                         )  # create and build dataset
-                        train_set_j.construct()
                     else:
                         new_label = np.where(
                             labels == l, 1, 0
                         )  # new binary label, used for multiclassification
                         shared_labels[l] = new_label
-                        labels_j.append(new_label.astype(int))
+                        if j == l or j % 2 == 0:
+                            labels_j.append(new_label.astype(int))
                         train_set_j = Dataset(
                             train_set_j_data,
                             label=new_label,
-                            free_raw_data=False,
+                            free_raw_data=free_raw_data,
                             params={"verbosity": -1},
                         )  # create and build dataset
-                        train_set_j.construct()
                 else:
                     new_label = np.where(
                         labels == l, 1, 0
                     )  # new binary label, used for multiclassification
-                    labels_j.append(new_label.astype(int))
+                    if j == l or j % 2 == 0:
+                        labels_j.append(new_label.astype(int))
                     train_set_j = Dataset(
                         train_set_j_data,
                         label=new_label,
-                        free_raw_data=False,
+                        free_raw_data=free_raw_data,
                         params={"verbosity": -1},
                     )  # create and build dataset
-                    train_set_j.construct()
 
                 if df_test is not None:
                     reduced_valid_sets_j = []
@@ -1017,11 +1028,10 @@ def prepare_dataset(
                                 valid_set_j = Dataset(
                                     valid_set_j_data.reshape((-1, 1), order="A"),
                                     label=label_valid,
-                                    free_raw_data=False,
+                                    free_raw_data=free_raw_data,
                                     reference=train_set_j,
                                     params={"verbosity": -1},
                                 )  # create and build dataset
-                                valid_set_j.construct()
                             else:
                                 label_valid = np.where(
                                     val_labels == l, 1, 0
@@ -1030,11 +1040,10 @@ def prepare_dataset(
                                 valid_set_j = Dataset(
                                     valid_set_j_data,
                                     label=label_valid,
-                                    free_raw_data=False,
+                                    free_raw_data=free_raw_data,
                                     reference=train_set_j,
                                     params={"verbosity": -1},
                                 )  # create and build dataset
-                                valid_set_j.construct()
                         else:
                             label_valid = np.where(
                                 val_labels == l, 1, 0
@@ -1043,14 +1052,15 @@ def prepare_dataset(
                                 valid_set_j_data,
                                 label=label_valid,
                                 reference=train_set_j,
-                                free_raw_data=False,
+                                free_raw_data=free_raw_data,
                             )
-                            valid_set_j.construct()
 
                         reduced_valid_sets_j.append(valid_set_j)
 
                         if save_dataset:
-                            valid_set_j.save_binary(f"{save_dataset}_valid_set_{j}_{i}.bin")
+                            valid_set_j.save_binary(
+                                f"{save_dataset}_valid_set_{j}_{i}.bin"
+                            )
 
                 train_set_J.append(train_set_j)
                 if save_dataset:
@@ -1067,7 +1077,7 @@ def prepare_dataset(
                     valid_set_j,
                 )
                 gc.collect()
-                print('\t done! \n' + '-'*30 + '\n')
+                print("\t done! \n" + "-" * 30 + "\n")
 
             else:
                 # if no alternative specific datasets
@@ -1098,64 +1108,3 @@ def prepare_dataset(
         valid_sets["valid_sets"] = reduced_valid_sets_J
 
     return train_sets, valid_sets
-
-
-def prepare_valids(train_set, params, valid_sets=None, valid_names=None):
-    """Prepare validation sets.
-
-    Parameters
-    ----------
-    train_set : Dataset
-        The full training dataset (i.e. the union of the socio-economic features with the alternative-specific features).
-    params : dict
-        Dictionary containing parameters. The syntax must follow the one from LightGBM.
-    valid_sets : Dataset or list[Dataset], optional (default = None)
-        The full dataset used for validation. There can be several datasets.
-    valid_names : str or list[str], optional (default = None)
-        The names of the validation sets.
-
-    Returns
-    -------
-    reduced_valid_sets : list[Dataset]
-        List of prepared validation sets.
-    name_valid_sets : list[str]
-        List of names of validation sets.
-    is_valid_contain_train: bool
-        True if the training set is in the validation sets.
-    train_data_name: str
-        Name of training dataset : 'training'.
-    """
-    # initialise variables
-    is_valid_contain_train = False
-    train_data_name = "training"
-    reduced_valid_sets = []
-    name_valid_sets = []
-
-    # finalise validation sets for training
-    if valid_sets is not None:
-        if isinstance(valid_sets, Dataset):
-            valid_sets = [valid_sets]
-        if isinstance(valid_names, str):
-            valid_names = [valid_names]
-        for i, valid_data in enumerate(valid_sets):
-            if valid_data is train_set:
-                is_valid_contain_train = True  # store if train set is in validation set
-                if valid_names is not None:
-                    train_data_name = valid_names[i]
-                continue
-            if not isinstance(valid_data, Dataset):
-                raise TypeError("Training only accepts Dataset object")
-            reduced_valid_sets.append(
-                valid_data._update_params(params).set_reference(train_set)
-            )
-            if valid_names is not None and len(valid_names) > i:
-                name_valid_sets.append(valid_names[i])
-            else:
-                name_valid_sets.append(f"valid_{i}")
-
-    return (
-        reduced_valid_sets,
-        name_valid_sets,
-        is_valid_contain_train,
-        train_data_name,
-    )

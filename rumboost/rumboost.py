@@ -584,7 +584,9 @@ class RUMBoost:
         """
         # compute utilities with corresponding features
         # split data
-        new_data, _ = self._preprocess_data(data, return_data=True)
+        new_data, _ = self._preprocess_data(
+            data, return_data=True, free_raw_data=False, construct_datasets=True
+        )
         # compute U
 
         # using pytorch if required
@@ -810,7 +812,12 @@ class RUMBoost:
         return raw_preds
 
     def _preprocess_data(
-        self, data: Dataset, reduced_valid_set=None, return_data: bool = False
+        self,
+        data: Dataset,
+        reduced_valid_set=None,
+        return_data: bool = False,
+        free_raw_data: bool = True,
+        construct_datasets: bool = False,
     ):
         """Set up J training (and, if specified, validation) datasets.
 
@@ -823,6 +830,10 @@ class RUMBoost:
             The full dataset used for validation. There can be several datasets.
         return_data : bool, optional (default = False)
             If True, returns the J preprocessed datasets (and potential validation sets)
+        free_raw_data : bool, optional (default = False)
+            If True, the raw data is freed after the datasets are created.
+        construct_datasets : bool, optional (default = False)
+            If True, the datasets are constructed.
 
         Returns
         -------
@@ -878,7 +889,7 @@ class RUMBoost:
                             train_set_j = Dataset(
                                 train_set_j_data.values.reshape((-1, 1), order="A"),
                                 label=new_label,
-                                free_raw_data=False,
+                                free_raw_data=free_raw_data,
                             )  # create and build dataset
                             categorical_feature = struct.get(
                                 "categorical_feature", "auto"
@@ -888,17 +899,19 @@ class RUMBoost:
                             ).set_feature_name("auto").set_categorical_feature(
                                 categorical_feature
                             )
-                            train_set_j.construct()
+                            if construct_datasets:
+                                train_set_j.construct()
                         else:
                             new_label = np.where(
                                 data.get_label() == l, 1, 0
                             )  # new binary label, used for multiclassification
                             shared_labels[l] = new_label
-                            self.labels_j.append(new_label)
+                            if j == l or j % 2 == 0:
+                                self.labels_j.append(new_label)
                             train_set_j = Dataset(
                                 train_set_j_data,
                                 label=new_label,
-                                free_raw_data=False,
+                                free_raw_data=free_raw_data,
                             )  # create and build dataset
                             categorical_feature = struct.get(
                                 "categorical_feature", "auto"
@@ -908,17 +921,18 @@ class RUMBoost:
                             ).set_feature_name("auto").set_categorical_feature(
                                 categorical_feature
                             )
-                            train_set_j.construct()
+                            if construct_datasets:
+                                train_set_j.construct()
                     else:
                         new_label = np.where(
                             data.get_label() == l, 1, 0
                         )  # new binary label, used for multiclassification
-                        if j == l or j%2==0:
+                        if j == l or j % 2 == 0:
                             self.labels_j.append(new_label)
                         train_set_j = Dataset(
                             train_set_j_data,
                             label=new_label,
-                            free_raw_data=False,
+                            free_raw_data=free_raw_data,
                         )  # create and build dataset
                         categorical_feature = struct.get("categorical_feature", "auto")
                         train_set_j._update_params(self.params[j])._set_predictor(
@@ -926,7 +940,8 @@ class RUMBoost:
                         ).set_feature_name("auto").set_categorical_feature(
                             categorical_feature
                         )
-                        train_set_j.construct()
+                        if construct_datasets:
+                            train_set_j.construct()
 
                     if reduced_valid_set is not None:
                         reduced_valid_sets_j = []
@@ -960,11 +975,12 @@ class RUMBoost:
                                             (-1, 1), order="A"
                                         ),
                                         label=label_valid,
-                                        free_raw_data=False,
+                                        free_raw_data=free_raw_data,
                                         reference=train_set_j,
                                     )  # create and build dataset
                                     valid_set_j._update_params(self.params[j])
-                                    valid_set_j.construct()
+                                    if construct_datasets:
+                                        valid_set_j.construct()
                                 else:
                                     label_valid = np.where(
                                         valid_set.get_label() == l, 1, 0
@@ -973,11 +989,12 @@ class RUMBoost:
                                     valid_set_j = Dataset(
                                         valid_set_j_data,
                                         label=label_valid,
-                                        free_raw_data=False,
+                                        free_raw_data=free_raw_data,
                                         reference=train_set_j,
                                     )  # create and build dataset
                                     valid_set_j._update_params(self.params[j])
-                                    valid_set_j.construct()
+                                    if construct_datasets:
+                                        valid_set_j.construct()
                             else:
                                 label_valid = np.where(
                                     valid_set.get_label() == l, 1, 0
@@ -986,10 +1003,11 @@ class RUMBoost:
                                     valid_set_j_data,
                                     label=label_valid,
                                     reference=train_set_j,
-                                    free_raw_data=False,
+                                    free_raw_data=free_raw_data,
                                 )
                                 valid_set_j._update_params(self.params[j])
-                                valid_set_j.construct()
+                                if construct_datasets:
+                                    valid_set_j.construct()
 
                             reduced_valid_sets_j.append(valid_set_j)
 
@@ -997,7 +1015,7 @@ class RUMBoost:
                     # if no alternative specific datasets
                     new_label = np.where(data.get_label() == j, 1, 0)
                     train_set_j = Dataset(
-                        data.get_data(), label=new_label, free_raw_data=False
+                        data.get_data(), label=new_label, free_raw_data=free_raw_data
                     )
                     if reduced_valid_set is not None:
                         reduced_valid_sets_j = reduced_valid_set[:]
@@ -1039,7 +1057,7 @@ class RUMBoost:
                 (
                     {
                         **copy.deepcopy(params),
-                        "learning_rate": params.get("learning_rate", 0.1)*0.5,
+                        "learning_rate": params.get("learning_rate", 0.1) * 0.5,
                         "verbosity": -1,
                         "objective": "binary",
                         "num_classes": 1,
@@ -1053,7 +1071,7 @@ class RUMBoost:
                     if i % 2 == 0
                     else {
                         **copy.deepcopy(params_fe),
-                        "learning_rate": params_fe.get("learning_rate", 0.1)*0.5,
+                        "learning_rate": params_fe.get("learning_rate", 0.1) * 0.5,
                         "verbosity": -1,
                         "objective": "binary",
                         "num_classes": 1,
@@ -1768,6 +1786,17 @@ def rum_train(
         is_valid_contain_train = False
         train_data_name = "training"
         name_valid_sets = ["valid_0"]
+        for j, train_set_j in enumerate(rumb.train_set):
+            train_set_j._update_params(rumb.params[j])._set_predictor(
+                predictor
+            ).set_feature_name(feature_name).set_categorical_feature(
+                categorical_feature
+            )
+            if rumb.valid_sets:
+                for _, valid_set_j in enumerate(rumb.valid_sets):
+                    valid_set_j[j]._update_params(rumb.params[j]).set_reference(
+                        train_set_j
+                    )
     elif not isinstance(train_set, Dataset):
         raise TypeError("Training only accepts Dataset object or dictionary")
     else:
