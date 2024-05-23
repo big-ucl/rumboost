@@ -80,25 +80,69 @@ class RUMBoost:
         validation sets.
     """
 
-    def __init__(self, model_file=None):
+    def __init__(self, model_file=None, **kwargs):
         """Initialize the RUMBoost.
 
         Parameters
         ----------
         model_file : str, pathlib.Path or None, optional (default=None)
             Path to the RUMBoost model file.
+        **kwargs : dict
+            Other attributes for the RUMBoost.
+            It could be the following attributes:
+
+            Core model attributes:
+            - boosters : list of Booster
+                List of LightGBM boosters.
+            - rum_structure : list of dict
+                RUM structure.
+            - num_classes : int
+                Number of classes.
+            - num_obs : list of int
+                Number of observations.
+            - params : list of dict
+                List of parameters for each booster.
+            - labels : numpy array
+                Labels of the dataset.
+            - labels_j : list of numpy array
+                Labels for each booster.
+            - valid_labels : list of numpy array
+                Validation labels.
+
+            Nested and cross-nested attributes:
+            - nests : dict
+                Dictionary of nests.
+            - mu : list
+                List of mu values.
+            - alphas : ndarray
+                Array of alpha values.
+
+            Shared ensembles attributes:
+            - shared_ensembles : list of list of int
+                List of shared ensembles.
+            - shared_start_idx : int
+                Starting index of shared ensembles.
+            - nest_alt : dict
+                Dictionary of alternative nests.
+
+            Functional effects attributes:
+            - functional_effects : bool
+                Whether to use functional effects.
+
+            Torch tensors attributes:
+            - device : str
+                Device to use for computations.
+            - torch_compile : bool
+                Whether to use compiled torch functions.
+
+            - best_score : float
+                Best score.
+            - best_iteration : int
+                Best iteration.
+
         """
         self.boosters = []
-        self.valid_sets = None
-        self.num_classes = None  # need to be specify by user
-
-        # for nested and cross-nested rumboost
-        self.mu = None
-        self.nests = None
-        self.alphas = None
-
-        # for functional effect rumboost
-        self.functional_effects = None
+        self.__dict__.update(kwargs)
 
         if model_file is not None:
             with open(model_file, "r") as file:
@@ -1202,11 +1246,10 @@ class RUMBoost:
 
     def _from_dict(self, models: Dict[str, Any]) -> None:
         """Load RUMBoost from dict."""
-        self.best_iteration = models["best_iteration"]
-        self.best_score = models["best_score"]
         self.boosters = []
         for model_str in models["boosters"]:
             self._append(Booster(model_str=model_str))
+        self.__dict__.update(models["attributes"])
 
     def _to_dict(
         self, num_iteration: Optional[int], start_iteration: int, importance_type: str
@@ -1221,11 +1264,64 @@ class RUMBoost:
                     importance_type=importance_type,
                 )
             )
-        return {
-            "boosters": models_str,
-            "best_iteration": self.best_iteration,
-            "best_score": float(self.best_score),
-        }
+        if self.device is not None:
+            if self.labels_j:
+                labels_j_numpy = [l.cpu().numpy().tolist() for l in self.labels_j]
+            if self.valid_labels:
+                valid_labels_numpy = [v.cpu().numpy().tolist() for v in self.valid_labels]
+            rumb_to_dict = {
+                "boosters": models_str,
+                "attributes": {
+                    "best_iteration": self.best_iteration,
+                    "best_score": float(self.best_score),
+                    "best_score_train": float(self.best_score_train),
+                    "alphas": (
+                        self.alphas.cpu().numpy().tolist() if self.alphas is not None else None
+                    ),
+                    "mu": self.mu.cpu().numpy().tolist() if self.mu is not None else None,
+                    "nests": self.nests,
+                    "nest_alt": self.nest_alt,
+                    "num_classes": self.num_classes,
+                    "num_obs": self.num_obs,
+                    "functional_effects": self.functional_effects,
+                    "shared_ensembles": self.shared_ensembles,
+                    "shared_start_idx": self.shared_start_idx,
+                    "params": self.params,
+                    "labels": self.labels.cpu().numpy().tolist(),
+                    "labels_j": labels_j_numpy,
+                    "valid_labels": valid_labels_numpy,
+                    "device": 'cuda' if self.device.type == 'cuda' else 'cpu',
+                    "torch_compile": self.torch_compile,
+                    "rum_structure": self.rum_structure,
+                },
+            }
+        else:
+            rumb_to_dict = {
+                "boosters": models_str,
+                "attributes": {
+                    "best_iteration": self.best_iteration,
+                    "best_score": float(self.best_score),
+                    "best_score_train": float(self.best_score_train),
+                    "alphas": self.alphas.tolist(),
+                    "mu": self.mu.tolist(),
+                    "nests": self.nests,
+                    "nest_alt": self.nest_alt,
+                    "num_classes": self.num_classes,
+                    "num_obs": self.num_obs,
+                    "functional_effects": self.functional_effects,
+                    "shared_ensembles": self.shared_ensembles,
+                    "shared_start_idx": self.shared_start_idx,
+                    "params": self.params,
+                    "labels": self.labels.tolist(),
+                    "labels_j": [l.tolist() for l in self.labels_j],
+                    "valid_labels": [v.tolist() for v in self.valid_labels],
+                    "device": None,
+                    "torch_compile": self.torch_compile,
+                    "rum_structure": self.rum_structure,
+                },
+            }
+
+        return rumb_to_dict
 
     def __getattr__(self, name: str) -> Callable[[Any, Any], List[Any]]:
         """Redirect methods call of RUMBoost."""
@@ -1612,6 +1708,7 @@ def rum_train(
             rumb.device = torch.cpu.current_device()
     else:
         rumb.device = None
+        rumb.torch_compile = False
 
     # check number of classes
     if "num_classes" not in params:
@@ -1677,6 +1774,7 @@ def rum_train(
         rumb.mu = model_specification["cross_nested_logit"]["mu"]
         rumb.alphas = model_specification["cross_nested_logit"]["alphas"]
         rumb.nests = None
+        rumb.nest_alt = None
         f_obj = rumb.f_obj_cross_nested
         if not isinstance(rumb.mu, np.ndarray):
             raise ValueError("Mu must be a numpy array")
@@ -1715,6 +1813,7 @@ def rum_train(
     else:
         rumb.mu = None
         rumb.nests = None
+        rumb.nest_alt = None
         rumb.alphas = None
         f_obj = rumb.f_obj
         optimise_mu = False
