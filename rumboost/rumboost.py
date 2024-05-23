@@ -107,14 +107,9 @@ class RUMBoost:
             with open(model_file, "r") as file:
                 self._from_dict(json.load(file))
 
-    def f_obj(self, _, train_set: Dataset):
+    def f_obj(self, _, __):
         """
         Objective function of the binary classification boosters, but based on softmax predictions.
-
-        Parameters
-        ----------
-        train_set : Dataset
-            Training set used to train the jth booster. It means that it is not the full training set but rather another dataset containing the relevant features for that utility. It is the jth dataset in the RUMBoost object.
 
         Returns
         -------
@@ -170,14 +165,9 @@ class RUMBoost:
         )  # truncate low values to avoid numerical errors
         return grad, hess
 
-    def f_obj_nest(self, _, train_set: Dataset):
+    def f_obj_nest(self, _, __):
         """
         Objective function of the binary classification boosters, for a nested rumboost.
-
-        Parameters
-        ----------
-        train_set : Dataset
-            Training set used to train the jth booster. It means that it is not the full training set but rather another dataset containing the relevant features for that utility. It is the jth dataset in the RUMBoost object.
 
         Returns
         -------
@@ -309,14 +299,9 @@ class RUMBoost:
 
         return grad, hess
 
-    def f_obj_cross_nested(self, _, train_set: Dataset):
+    def f_obj_cross_nested(self, _, __):
         """
         Objective function of the binary classification boosters, for a cross-nested rumboost.
-
-        Parameters
-        ----------
-        train_set : Dataset
-            Training set used to train the jth booster. It means that it is not the full training set but rather another dataset containing the relevant features for that utility. It is the jth dataset in the RUMBoost object.
 
         Returns
         -------
@@ -536,9 +521,6 @@ class RUMBoost:
         data_has_header: bool = False,
         validate_features: bool = False,
         utilities: bool = False,
-        nests: dict = None,
-        mu: list[float] = None,
-        alphas: np.array = None,
     ):
         """Predict logic.
 
@@ -1374,8 +1356,9 @@ def rum_train(
         Parameters for training. Values passed through ``params`` take precedence over those
         supplied via arguments. If num_classes > 2, please specify params['objective'] = 'multiclass'.
         These parameters are the same than Lightgbm parameters. More information here:
-        https://lightgbm.readthedocs.io/en/latest/Parameters.html. Note that the max_bin
-        parameter is not available in RUMBoost.
+        https://lightgbm.readthedocs.io/en/latest/Parameters.html. If the verbose is greater than 1,
+        RUMBoost accepts the additional parameter 'verbose_interval', an integer
+        representing the interval in between each loss diplay.
     train_set : Dataset or dict[int, Any]
         Data to be trained on. Set free_raw_data=False when creating the dataset. If it is
         a dictionary, the key-value pairs should be:
@@ -1558,6 +1541,7 @@ def rum_train(
     for alias in _ConfigAliases.get("verbosity"):
         if alias in params:
             verbosity = params[alias]
+            verbose_interval = params.get("verbose_interval", 10)
     # create predictor first
     params = copy.deepcopy(params)
     params = _choose_param_value(
@@ -1813,7 +1797,13 @@ def rum_train(
     # create J boosters with corresponding params and datasets
     rumb._construct_boosters(
         train_data_name, is_valid_contain_train, name_valid_sets
-    )  # build boosters with corresponding params and dataset
+    )  
+
+    #free datasets from memory
+    rumb.train_set = None
+    rumb.valid_sets = None
+    train_set = None
+    valid_sets = None
 
     # convert a few numpy arrays to torch tensors if needed
     if torch_tensors:
@@ -1865,11 +1855,11 @@ def rum_train(
             else:
                 rumb._current_j = j
 
-            booster.update(train_set=rumb.train_set[j], fobj=f_obj)
+            booster.update(train_set=None, fobj=f_obj)
 
             # check evaluation result. (from lightGBM initial code, check on all J binary boosters)
             evaluation_result_list = []
-            if valid_sets is not None:
+            if rumb.valid_labels is not None:
                 if is_valid_contain_train:
                     evaluation_result_list.extend(booster.eval_train(feval))
                 evaluation_result_list.extend(booster.eval_valid(feval))
@@ -1905,9 +1895,9 @@ def rum_train(
                 cross_entropy_train = cross_entropy_torch(rumb._preds, rumb.labels)
         else:
             cross_entropy_train = cross_entropy(rumb._preds, rumb.labels)
-        if valid_sets is not None:
+        if rumb.valid_labels is not None:
             cross_entropy_test = []
-            for k, _ in enumerate(rumb.valid_sets):
+            for k, val_labels in enumerate(rumb.valid_labels):
                 if rumb.mu is not None:
                     preds_valid, _, _ = rumb._inner_predict(k + 1)
                 else:
@@ -1916,36 +1906,37 @@ def rum_train(
                     if rumb.torch_compile:
                         cross_entropy_test.append(
                             cross_entropy_torch_compiled(
-                                preds_valid, rumb.valid_labels[k]
+                                preds_valid, val_labels
                             )
                         )
                     else:
                         cross_entropy_test.append(
-                            cross_entropy_torch(preds_valid, rumb.valid_labels[k])
+                            cross_entropy_torch(preds_valid, val_labels)
                         )
                 else:
                     cross_entropy_test.append(
-                        cross_entropy(preds_valid, rumb.valid_labels[k])
+                        cross_entropy(preds_valid, val_labels)
                     )
 
             # update best score and best iteration
             if cross_entropy_test[0] < rumb.best_score:
                 rumb.best_score = cross_entropy_test[0]
-                rumb.best_score_train = cross_entropy_train
                 rumb.best_iteration = i + 1
+            
+        rumb.best_score_train = cross_entropy_train
 
-            # verbosity
-            if (verbosity >= 1) and (i % 10 == 0):
-                print(
-                    f"[{i+1}]"
-                    + "-" * (6 - int(np.log10(i + 1)))
-                    + f"NCE value on train set : {cross_entropy_train:.4f}"
-                )
-                if valid_sets is not None:
-                    for k, _ in enumerate(rumb.valid_sets):
-                        print(
-                            f"---------NCE value on test set {k+1}: {cross_entropy_test[k]:.4f}"
-                        )
+        # verbosity
+        if (verbosity >= 1) and (i % verbose_interval == 0):
+            print(
+                f"[{i+1}]"
+                + "-" * (6 - int(np.log10(i + 1)))
+                + f"NCE value on train set : {cross_entropy_train:.4f}"
+            )
+            if rumb.valid_labels is not None:
+                for k, _ in enumerate(rumb.valid_labels):
+                    print(
+                        f"---------NCE value on test set {k+1}: {cross_entropy_test[k]:.4f}"
+                    )
 
         # if specified, reoptimise nest parameters
         if (optimise_mu or optimise_alphas) and (i + 1) % optimise_it == 0:

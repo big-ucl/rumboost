@@ -17,6 +17,7 @@ train_set_switzerland.pkl
 test_set_switzerland.pkl
 *.bin
 *.pkl
+preprocessed_dataset/
 
 #experiments
 experiment/
