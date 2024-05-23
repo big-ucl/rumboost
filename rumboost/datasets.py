@@ -847,6 +847,7 @@ def prepare_dataset(
     functional_effects=False,
     target="choice",
     free_raw_data=False,
+    with_labels_j=False,
     save_dataset=None,
     load_dataset=None,
 ):
@@ -875,6 +876,8 @@ def prepare_dataset(
         The target variable.
     free_raw_data : bool, optional
         If the raw data should be freed.
+    with_labels_j : bool, optional
+        If the labels of each ensembles should be included.
     save_dataset : str, optional
         The path to save the datasets.
     load_dataset : str, optional
@@ -973,7 +976,8 @@ def prepare_dataset(
                         new_label = np.hstack(
                             [shared_labels[s] for s in shared_ensembles[l]]
                         )
-                        labels_j.append(new_label.astype(int))
+                        if with_labels_j:
+                            labels_j.append(new_label.astype(int))
                         train_set_j = Dataset(
                             train_set_j_data.reshape((-1, 1), order="A"),
                             label=new_label,
@@ -985,7 +989,7 @@ def prepare_dataset(
                             labels == l, 1, 0
                         )  # new binary label, used for multiclassification
                         shared_labels[l] = new_label
-                        if j == l or j % 2 == 0:
+                        if (j == l or j % 2 == 0) and with_labels_j:
                             labels_j.append(new_label.astype(int))
                         train_set_j = Dataset(
                             train_set_j_data,
@@ -997,7 +1001,7 @@ def prepare_dataset(
                     new_label = np.where(
                         labels == l, 1, 0
                     )  # new binary label, used for multiclassification
-                    if j == l or j % 2 == 0:
+                    if (j == l or j % 2 == 0) and with_labels_j:
                         labels_j.append(new_label.astype(int))
                     train_set_j = Dataset(
                         train_set_j_data,
@@ -1090,7 +1094,9 @@ def prepare_dataset(
 
     reduced_valid_sets_J = np.array(reduced_valid_sets_J).T.tolist()
 
-    train_sets = {"num_data": num_obs, "labels": labels, "labels_j": labels_j}
+    train_sets = {"num_data": num_obs, "labels": labels}
+    if with_labels_j:
+        train_sets["labels_j"] = labels_j
     valid_sets = {
         "num_data": num_obs_test,
         "valid_labels": labels_test,
