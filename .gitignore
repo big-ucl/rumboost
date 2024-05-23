@@ -21,12 +21,16 @@ preprocessed_dataset/
 
 #experiments
 experiment/
+myriad/
 
 #vs_code
 *.deb
 
 #models
 models/
+
+#random scripts
+mtmc_switzerland.py
 
 #biogeme files
 *.iter
