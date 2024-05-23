@@ -48,11 +48,8 @@ try:
     )
 
     torch_installed = True
-    compile_enabled = True
 except ImportError:
     torch_installed = False
-except RuntimeError:
-    compile_enabled = False
 
 _LGBM_CustomObjectiveFunction = Callable[
     [Union[List, np.ndarray], Dataset],
@@ -826,6 +823,7 @@ class RUMBoost:
         """
         train_set_J = []
         reduced_valid_sets_J = []
+        self.valid_labels = []
 
         # to access data
         data.construct()
@@ -834,9 +832,11 @@ class RUMBoost:
             for valid_set in reduced_valid_set:
                 valid_set.construct()
                 self.num_obs.append(valid_set.num_data())
+                self.valid_labels.append(
+                    valid_set.get_label().astype(int)
+                )  # saving labels
 
         self.labels = data.get_label().astype(int)  # saving labels
-        self.valid_labels = []
         self.labels_j = []
 
         if self.shared_ensembles:
@@ -933,9 +933,6 @@ class RUMBoost:
                             valid_set_j_data = valid_set.get_data()[
                                 struct["columns"]
                             ]  # only relevant features for the jth booster
-                            self.valid_labels.append(
-                                valid_set.get_label().astype(int)
-                            )  # saving labels
 
                             if self.shared_ensembles:
                                 if l >= self.shared_start_idx:
@@ -1402,6 +1399,10 @@ def rum_train(
                         Can be 'train set' or 'test set'.
                     - 'optimisation_method': str, optional (default = None)
                         The method used for the optimisation of the mu values with scipy.optimize.minimize.
+                    - 'lambda_l1': float, optional (default = 0)
+                        L1 regularisation parameter for the optimisation of the alpha and/or mu values.
+                    - 'lambda_l2': float, optional (default = 0)
+                        L2 regularisation parameter for the optimisation of the alpha and/or mu values.
 
             - 'cross_nested_logit': dict
                 Cross-nested logit model specification. The dictionary must contain:
@@ -1412,6 +1413,7 @@ def rum_train(
                         An array of J (alternatives) by M (nests).
                         alpha_jn represents the degree of membership of alternative j to nest n
                         By example, alpha_12 = 0.5 means that alternative one belongs 50% to nest 2.
+
                 and can contain the following keys:
                     - 'optimise_mu': bool, optional (default = False)
                         If True, the mu values are optimised during training. If the mu value of a nest
@@ -1426,6 +1428,10 @@ def rum_train(
                         Can be 'train set' or 'test set'.
                     - 'optimisation_method': str, optional (default = None)
                         The method used for the optimisation of the mu values with scipy.optimize.minimize.
+                    - 'lambda_l1': float, optional (default = 0)
+                        L1 regularisation parameter for the optimisation of the alpha and/or mu values.
+                    - 'lambda_l2': float, optional (default = 0)
+                        L2 regularisation parameter for the optimisation of the alpha and/or mu values.
 
             - 'functional_effects': dict
                 Functional effect model specification. The dictionary must contain:
@@ -1598,10 +1604,6 @@ def rum_train(
             )
         dev_str = torch_tensors.get("device", "cpu")
         rumb.torch_compile = torch_tensors.get("torch_compile", False)
-        if rumb.torch_compile and not compile_enabled:
-            raise ImportError(
-                "Torch compile is not enabled. It is likely to be because torch.compile requires python <3.12"
-            )
         if dev_str == "cuda":
             rumb.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         elif dev_str == "gpu":
@@ -1659,6 +1661,8 @@ def rum_train(
         optimisation_method = model_specification["nested_logit"].get(
             "optimisation_method", None
         )
+        lambda_l1 = model_specification["nested_logit"].get("lambda_l1", 0)
+        lambda_l2 = model_specification["nested_logit"].get("lambda_l2", 0)
         if optimise_mu:
             bounds = [(1, 10) if m != 1 else (1, 1) for m in rumb.mu]
             optimise_alphas = None
@@ -1691,6 +1695,8 @@ def rum_train(
         optimisation_method = model_specification["cross_nested_logit"].get(
             "optimisation_method", None
         )
+        lambda_l1 = model_specification["cross_nested_logit"].get("lambda_l1", 0)
+        lambda_l2 = model_specification["cross_nested_logit"].get("lambda_l2", 0)
         # create bounds for optimisation if needed
         if optimise_mu:
             bounds = [(1, 10) if m != 1 else (1, 1) for m in rumb.mu]
@@ -1795,11 +1801,9 @@ def rum_train(
         )  # prepare J datasets with relevant features
 
     # create J boosters with corresponding params and datasets
-    rumb._construct_boosters(
-        train_data_name, is_valid_contain_train, name_valid_sets
-    )  
+    rumb._construct_boosters(train_data_name, is_valid_contain_train, name_valid_sets)
 
-    #free datasets from memory
+    # free datasets from memory
     rumb.train_set = None
     rumb.valid_sets = None
     train_set = None
@@ -1905,24 +1909,20 @@ def rum_train(
                 if torch_tensors:
                     if rumb.torch_compile:
                         cross_entropy_test.append(
-                            cross_entropy_torch_compiled(
-                                preds_valid, val_labels
-                            )
+                            cross_entropy_torch_compiled(preds_valid, val_labels)
                         )
                     else:
                         cross_entropy_test.append(
                             cross_entropy_torch(preds_valid, val_labels)
                         )
                 else:
-                    cross_entropy_test.append(
-                        cross_entropy(preds_valid, val_labels)
-                    )
+                    cross_entropy_test.append(cross_entropy(preds_valid, val_labels))
 
             # update best score and best iteration
             if cross_entropy_test[0] < rumb.best_score:
                 rumb.best_score = cross_entropy_test[0]
                 rumb.best_iteration = i + 1
-            
+
         rumb.best_score_train = cross_entropy_train
 
         # verbosity
@@ -1942,6 +1942,7 @@ def rum_train(
         if (optimise_mu or optimise_alphas) and (i + 1) % optimise_it == 0:
             print(f"-- Re-optimising nest parameters at iteration {i+1} --\n")
             params_to_optimise = []
+
             if optimise_mu:
                 if rumb.device is not None:
                     params_to_optimise += rumb.mu.cpu().numpy().tolist()
@@ -1961,16 +1962,26 @@ def rum_train(
             res = minimize(
                 optimise_mu_or_alpha,
                 np.array(params_to_optimise),
-                args=(labels, rumb, optimise_mu, optimise_alphas, alpha_shape, d_idx),
+                args=(
+                    labels,
+                    rumb,
+                    optimise_mu,
+                    optimise_alphas,
+                    alpha_shape,
+                    d_idx,
+                    lambda_l1,
+                    lambda_l2,
+                    previous_ce,
+                ),
                 method=optimisation_method,
                 bounds=bounds,
             )
-            print(f"-- Optimisation results: {res.fun} --\n")
             if optimise_mu:
                 print(f"-- New mu: {rumb.mu} --\n")
             if optimise_alphas:
                 print(f"-- New alphas: {rumb.alphas} --\n")
-            print(f"optimal sol {res.x}")
+        if optimise_mu and ((i + 1) % optimise_it) == (optimise_it - 1):
+            previous_ce = cross_entropy_train
 
         # early stopping
         if (params["early_stopping_round"] != 0) and (

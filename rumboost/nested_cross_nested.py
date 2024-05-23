@@ -1,15 +1,14 @@
 import numpy as np
 from scipy.special import softmax
 from rumboost.metrics import cross_entropy
+
 try:
     import torch
-    from torch_functions import cross_entropy_torch, cross_entropy_torch_compiled
+    from rumboost.torch_functions import cross_entropy_torch, cross_entropy_torch_compiled
+
     torch_installed = True
-    compile_enabled = True
 except ImportError:
     torch_installed = False
-except RuntimeError:
-    compile_enabled = False
 
 def nest_probs(raw_preds, mu, nests, nest_alt):
     """compute nested predictions.
@@ -110,7 +109,16 @@ def cross_nested_probs(raw_preds, mu, alphas):
 
 
 def optimise_mu_or_alpha(
-    params_to_optimise, labels, rumb, optimise_mu, optimise_alpha, alpha_shape, data_idx
+    params_to_optimise,
+    labels,
+    rumb,
+    optimise_mu,
+    optimise_alpha,
+    alpha_shape,
+    data_idx,
+    lambda_l1=0,
+    lambda_l2=0,
+    previous_ce=0,
 ):
     """
     Optimize mu or alpha values for a given dataset.
@@ -123,6 +131,20 @@ def optimise_mu_or_alpha(
         The labels of the original dataset, as int.
     rumb : RUMBoost, optional (default=None)
         A trained RUMBoost object.
+    optimise_mu : bool, optional (default=False)
+        Whether to optimize mu values.
+    optimise_alpha : bool, optional (default=False)
+        Whether to optimize alpha values.
+    alpha_shape : tuple
+        The shape of the alpha values.
+    data_idx : numpy.ndarray
+        The indices of the dataset to optimize.
+    lambda_l1 : float, optional (default=0)
+        The L1 regularization parameter.
+    lambda_l2 : float, optional (default=0)
+        The L2 regularization parameter.
+    previous_ce : float, optional (default=0)
+        The cross-entropy loss of the previous iteration.
 
     Returns
     -------
@@ -152,9 +174,11 @@ def optimise_mu_or_alpha(
             rumb.alphas = rumb.alphas / rumb.alphas.sum(dim=1, keepdim=True)
     else:
         if optimise_mu:
-            rumb.mu = params_to_optimise[:rumb.mu.shape[0]]
+            rumb.mu = params_to_optimise[: rumb.mu.shape[0]]
             if optimise_alpha:
-                rumb.alphas = params_to_optimise[rumb.mu.shape[0]:].reshape(alpha_shape)
+                rumb.alphas = params_to_optimise[rumb.mu.shape[0] :].reshape(
+                    alpha_shape
+                )
                 rumb.alphas = rumb.alphas / rumb.alphas.sum(axis=1, keepdims=True)
         elif optimise_alpha:
             rumb.alphas = params_to_optimise.reshape(alpha_shape)
@@ -163,14 +187,25 @@ def optimise_mu_or_alpha(
     new_preds, _, _ = rumb._inner_predict(data_idx)
     if rumb.device is not None:
         if rumb.torch_compile:
-            if not compile_enabled:
-                raise RuntimeError(
-                    "There was an error while importing torch compiled functions. It is likely to be because torch.compile only supports python 3.11."
-                )
-            loss = cross_entropy_torch_compiled(new_preds, labels)
+            loss = cross_entropy_torch_compiled(new_preds, labels) + (
+                previous_ce - rumb.best_score_train
+            ) * (
+                lambda_l1 * torch.norm(rumb.mu - 1, 1).cpu().numpy()
+                + lambda_l2 * torch.norm(rumb.mu - 1, 2).cpu().numpy()
+            )
         else:
-            loss = cross_entropy_torch(new_preds, labels)
+            loss = cross_entropy_torch(new_preds, labels) + (
+                previous_ce - rumb.best_score_train
+            ) * (
+                lambda_l1 * torch.norm(rumb.mu - 1, 1).cpu().numpy()
+                + lambda_l2 * torch.norm(rumb.mu - 1, 2).cpu().numpy()
+            )
     else:
-        loss = cross_entropy(new_preds, labels)
+        loss = cross_entropy(new_preds, labels) + (
+            previous_ce - rumb.best_score_train
+        ) * (
+            lambda_l1 * np.linalg.norm(rumb.mu - 1, 1)
+            + lambda_l2 * np.linalg.norm(rumb.mu - 1, 2)
+        )
 
     return loss
