@@ -180,6 +180,7 @@ class RUMBoost:
                     self.shared_start_idx,
                     self.labels_j,
                     self.labels,
+                    self.bagging_idx,
                 )
             else:
                 grad, hess = _f_obj_torch(
@@ -190,6 +191,7 @@ class RUMBoost:
                     self.shared_start_idx,
                     self.labels_j,
                     self.labels,
+                    self.bagging_idx,
                 )
 
             if self.stochastic_boosting:
@@ -199,7 +201,7 @@ class RUMBoost:
                 hess_rescaled[self.bagging_idx] = hess.cpu().numpy()
 
                 return grad_rescaled, hess_rescaled
-            
+
             return grad.cpu().numpy(), hess.cpu().numpy()
 
         j = self._current_j  # jth booster
@@ -214,7 +216,9 @@ class RUMBoost:
         )  # factor to correct redundancy (see Friedmann, Greedy Function Approximation)
         eps = 1e-6
         if self.shared_ensembles and j >= self.shared_start_idx:
-            labels = self.labels_j.T[self.shared_ensembles[j], self.bagging_idx].reshape(-1)
+            labels = self.labels_j.T[self.shared_ensembles[j], :][
+                :, self.bagging_idx
+            ].reshape(-1)
         else:
             labels = self.labels_j[self.bagging_idx, j]
         grad = preds - labels
@@ -225,6 +229,7 @@ class RUMBoost:
         if self.stochastic_boosting:
             grad_rescaled = np.zeros(self.num_obs[0])
             hess_rescaled = np.ones(self.num_obs[0])
+
             grad_rescaled[self.bagging_idx] = grad
             hess_rescaled[self.bagging_idx] = hess
 
@@ -247,7 +252,7 @@ class RUMBoost:
             if self.torch_compile:
                 grad, hess = _f_obj_nested_torch_compiled(
                     self._current_j,
-                    self.labels,
+                    self.labels[self.bagging_idx],
                     self.preds_i_m,
                     self.preds_m,
                     self.num_classes,
@@ -260,7 +265,7 @@ class RUMBoost:
             else:
                 grad, hess = _f_obj_nested_torch(
                     self._current_j,
-                    self.labels,
+                    self.labels[self.bagging_idx],
                     self.preds_i_m,
                     self.preds_m,
                     self.num_classes,
@@ -278,11 +283,11 @@ class RUMBoost:
                 hess_rescaled[self.bagging_idx] = hess.cpu().numpy()
 
                 return grad_rescaled, hess_rescaled
-            
+
             return grad.cpu().numpy(), hess.cpu().numpy()
 
         j = self._current_j
-        label = self.labels
+        label = self.labels[self.bagging_idx]
         n_obs = self.preds_i_m.shape[0]
         factor = self.num_classes / (self.num_classes - 1)
         label_nest = self.nest_alt[label]
@@ -398,7 +403,7 @@ class RUMBoost:
             if self.torch_compile:
                 grad, hess = _f_obj_cross_nested_torch_compiled(
                     self._current_j,
-                    self.labels,
+                    self.labels[self.bagging_idx],
                     self.preds_i_m,
                     self.preds_m,
                     self._preds,
@@ -411,7 +416,7 @@ class RUMBoost:
             else:
                 grad, hess = _f_obj_cross_nested_torch(
                     self._current_j,
-                    self.labels,
+                    self.labels[self.bagging_idx],
                     self.preds_i_m,
                     self.preds_m,
                     self._preds,
@@ -429,11 +434,11 @@ class RUMBoost:
                 hess_rescaled[self.bagging_idx] = hess.cpu().numpy()
 
                 return grad_rescaled, hess_rescaled
-            
+
             return grad.cpu().numpy(), hess.cpu().numpy()
 
         j = self._current_j
-        label = self.labels
+        label = self.labels[self.bagging_idx]
         data_idx = np.arange(self.preds_i_m.shape[0])
         factor = self.num_classes / (self.num_classes - 1)
 
@@ -802,9 +807,9 @@ class RUMBoost:
             Prediction result.
             Can be sparse or a list of sparse objects (each element represents predictions for one class) for feature contributions (when ``pred_contrib=True``).
         """
-        if data_idx==0:
+        if data_idx == 0:
             bag_idx = self.bagging_idx
-            n_obs = np.size(bag_idx)[0]
+            n_obs = np.size(bag_idx)
         else:
             bag_idx = np.arange(self.num_obs[data_idx])
             n_obs = self.num_obs[data_idx]
@@ -1060,7 +1065,7 @@ class RUMBoost:
                             else:
                                 valid_set_j = Dataset(
                                     valid_set_j_data,
-                                    label=label_valid[i][:, l],
+                                    label=val_labels_j[i][:, l],
                                     reference=train_set_j,
                                     free_raw_data=free_raw_data,
                                 )
@@ -1754,22 +1759,6 @@ def rum_train(
     # construct rumboost object
     rumb = RUMBoost()
 
-    if stochastic_boosting:
-        rumb.stochastic_boosting = True
-        rumb.bagging_fraction = stochastic_boosting.get("bagging_fraction", 1.0)
-        rumb.bagging_freq = stochastic_boosting.get("bagging_freq", 0)
-        rumb.bagging_seed = stochastic_boosting.get("bagging_seed", 0)
-        np.random.seed(rumb.bagging_seed)
-        
-        rumb.bagging_idx = np.random.choice(np.arange(rumb.num_obs[0]), rumb.num_obs[0], replace=False)
-    else:
-        rumb.stochastic_boosting = False
-        rumb.bagging_fraction = None
-        rumb.bagging_freq = None
-        rumb.bagging_seed = None
-        rumb.bagging_idx = np.arange(rumb.num_obs[0])
-
-
     if torch_tensors:
         if not torch_installed:
             raise ImportError(
@@ -1996,7 +1985,9 @@ def rum_train(
             torch.from_numpy(rumb.labels).type(torch.LongTensor).to(rumb.device)
         )
         if rumb.labels_j is not None:
-            rumb.labels_j = torch.from_numpy(rumb.labels_j).type(torch.LongTensor).to(rumb.device)
+            rumb.labels_j = (
+                torch.from_numpy(rumb.labels_j).type(torch.LongTensor).to(rumb.device)
+            )
         if rumb.valid_labels:
             rumb.valid_labels = [
                 torch.from_numpy(valid_labs).type(torch.LongTensor).to(rumb.device)
@@ -2006,6 +1997,28 @@ def rum_train(
             rumb.mu = torch.from_numpy(rumb.mu).to(rumb.device)
         if rumb.alphas is not None:
             rumb.alphas = torch.from_numpy(rumb.alphas).to(rumb.device)
+
+    # stochastic gradient boosting
+    if stochastic_boosting:
+        rumb.stochastic_boosting = True
+        rumb.bagging_fraction = stochastic_boosting.get("bagging_fraction", 1.0)
+        rumb.bagging_freq = stochastic_boosting.get("bagging_freq", 0)
+        rumb.bagging_seed = stochastic_boosting.get("bagging_seed", 0)
+        np.random.seed(rumb.bagging_seed)
+
+        rumb.bagging_idx = np.sort(
+            np.random.choice(
+                rumb.num_obs[0],
+                size=int(rumb.bagging_fraction * rumb.num_obs[0]),
+                replace=False,
+            )
+        )
+    else:
+        rumb.stochastic_boosting = False
+        rumb.bagging_fraction = 1
+        rumb.bagging_freq = 0
+        rumb.bagging_seed = 0
+        rumb.bagging_idx = np.arange(rumb.num_obs[0])
 
     # initial predictions
     if rumb.mu is not None:
@@ -2071,12 +2084,16 @@ def rum_train(
         if torch_tensors:
             if rumb.torch_compile:
                 cross_entropy_train = cross_entropy_torch_compiled(
-                    rumb._preds, rumb.labels
+                    rumb._preds, rumb.labels[rumb.bagging_idx]
                 )
             else:
-                cross_entropy_train = cross_entropy_torch(rumb._preds, rumb.labels)
+                cross_entropy_train = cross_entropy_torch(
+                    rumb._preds, rumb.labels[rumb.bagging_idx]
+                )
         else:
-            cross_entropy_train = cross_entropy(rumb._preds, rumb.labels)
+            cross_entropy_train = cross_entropy(
+                rumb._preds, rumb.labels[rumb.bagging_idx]
+            )
         if rumb.valid_labels is not None:
             cross_entropy_test = []
             for k, val_labels in enumerate(rumb.valid_labels):
@@ -2132,7 +2149,7 @@ def rum_train(
                 else:
                     params_to_optimise += rumb.alphas.flatten().tolist()
             if data_to_optimise == "train set":
-                labels = rumb.labels
+                labels = rumb.labels[rumb.bagging_idx]
                 d_idx = 0
             elif data_to_optimise == "test set":
                 labels = rumb.valid_labels[0]
@@ -2179,12 +2196,18 @@ def rum_train(
                 )
             break
 
-        if stochastic_boosting and (rumb.bagging_freq != 0) and (
-            (i + 1) % rumb.bagging_freq == 0
+        if (
+            stochastic_boosting
+            and (rumb.bagging_freq != 0)
+            and ((i + 1) % rumb.bagging_freq == 0)
         ):
-            rumb.bagging_idx = np.random.choice(np.arange(rumb.num_obs[0]), rumb.num_obs[0], replace=False)
-        else:
-            rumb.bagging_idx = np.arange(rumb.num_obs[0])
+            rumb.bagging_idx = np.sort(
+                np.random.choice(
+                    rumb.num_obs[0],
+                    size=int(rumb.bagging_fraction * rumb.num_obs[0]),
+                    replace=False,
+                )
+            )
 
     for booster in rumb.boosters:
         booster.best_score_lgb = collections.defaultdict(collections.OrderedDict)

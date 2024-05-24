@@ -699,7 +699,7 @@ def load_preprocess_MTMC_all(test_size: float = 0.2, random_state: int = 1):
         )
 
         zone_to_drop = [i for i in range(7965, 7978)]
-        mask = ~data['d_idx'].isin(zone_to_drop) & ~data['o_idx'].isin(zone_to_drop)
+        mask = ~data["d_idx"].isin(zone_to_drop) & ~data["o_idx"].isin(zone_to_drop)
         data = data[mask]
 
         # split by household
@@ -723,41 +723,36 @@ def load_preprocess_MTMC_all(test_size: float = 0.2, random_state: int = 1):
             ),
         )
 
-    zone_to_drop = [i for i in range(7965, 7978)]
-    mask = ~df_train['d_idx'].isin(zone_to_drop) & ~df_train['o_idx'].isin(zone_to_drop)
-    df_train = df_train[mask]
-    mask = ~df_test['d_idx'].isin(zone_to_drop) & ~df_test['o_idx'].isin(zone_to_drop)
-    df_test = df_test[mask]
+    # try:
+    #     with open(
+    #         "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/strat_group_k_fold_mtmc_all.pickle",
+    #         "rb",
+    #     ) as f:
+    #         train_idx, test_idx = pickle.load(f)
+    # except FileNotFoundError:
+    #     # get all features
+    #     target = "choice"
+    #     features = [f for f in df_train.columns if f != target]
 
-    try:
-        with open(
-            "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/strat_group_k_fold_mtmc_all.pickle",
-            "rb",
-        ) as f:
-            train_idx, test_idx = pickle.load(f)
-    except FileNotFoundError:
-        # get all features
-        target = "choice"
-        features = [f for f in df_train.columns if f != target]
+    #     hh_id = df_train["HHNR"]
 
-        hh_id = df_train["HHNR"]
+    #     # k folds sampled by households for cross validation
+    #     train_idx = []
+    #     test_idx = []
+    #     gkf = GroupKFold()
+    #     for train_i, test_i in gkf.split(df_train[features], df_train[target], hh_id):
+    #         train_idx.append(train_i)
+    #         test_idx.append(test_i)
+    #     pickle.dump(
+    #         [train_idx, test_idx],
+    #         open(
+    #             "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/strat_group_k_fold_mtmc_all.pickle",
+    #             "wb",
+    #         ),
+    #     )
 
-        # k folds sampled by households for cross validation
-        train_idx = []
-        test_idx = []
-        gkf = GroupKFold()
-        for train_i, test_i in gkf.split(df_train[features], df_train[target], hh_id):
-            train_idx.append(train_i)
-            test_idx.append(test_i)
-        pickle.dump(
-            [train_idx, test_idx],
-            open(
-                "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/strat_group_k_fold_mtmc_all.pickle",
-                "wb",
-            ),
-        )
-    
-    folds = zip(train_idx, test_idx)
+    # folds = zip(train_idx, test_idx)
+    folds = None
 
     return df_train, df_test, folds, z_idx
 
@@ -896,7 +891,7 @@ def prepare_dataset(
                     valid_sets = pickle.load(f)
         except:
             raise FileNotFoundError(
-                "Error loading dataset, try running again this function without the load_dataset parameter."
+                "Error loading datasets, try running again this function without the load_dataset parameter."
             )
         train_set_J = []
         reduced_valid_sets_J = []
@@ -1040,9 +1035,7 @@ def prepare_dataset(
                     reduced_valid_sets_J.append(reduced_valid_sets_j)
                 del (
                     train_set_j_data,
-                    new_label,
                     valid_set_j_data,
-                    label_valid,
                     train_set_j,
                     valid_set_j,
                 )

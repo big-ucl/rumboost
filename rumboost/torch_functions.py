@@ -3,15 +3,19 @@ import sys
 
 try:
     import torch
+
     torch_installed = True
     if sys.version_info > (3, 11):
         compile_decorator = lambda func: func
-        Warning("RuntimeError: Torch.compile is not supported in python 3.12. Running functions without compilation.")
+        Warning(
+            "RuntimeError: Torch.compile is not supported in python 3.12. Running functions without compilation."
+        )
     else:
         compile_decorator = torch.compile
 except ImportError:
     torch_installed = False
     compile_decorator = lambda func: func
+
 
 def _predict_torch(
     raw_preds,
@@ -30,7 +34,9 @@ def _predict_torch(
     Predict function for RUMBoost class, with torch tensors.
     """
     if not torch_installed:
-        raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
 
     # if shared ensembles, get the shared predictions out and reorder them for easier addition later
     if shared_ensembles:
@@ -102,7 +108,9 @@ def _predict_torch_compiled(
     Compiled predict function for RUMBoost with torch tensors.
     """
     if not torch_installed:
-        raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
 
     # if shared ensembles, get the shared predictions out and reorder them for easier addition later
     if shared_ensembles:
@@ -174,8 +182,10 @@ def _inner_predict_torch(
     Inner predict function for RUMBoost with torch tensors.
     """
     if not torch_installed:
-        raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
-    
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
+
     # if shared ensembles, get the shared predictions out and reorder them for easier addition later
     if shared_ensembles:
         raw_shared_preds = torch.zeros(
@@ -249,8 +259,10 @@ def _inner_predict_torch_compiled(
     Inner compiled predict function for RUMBoost with torch tensors.
     """
     if not torch_installed:
-        raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
-    
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
+
     # if shared ensembles, get the shared predictions out and reorder them for easier addition later
     if shared_ensembles:
         raw_shared_preds = torch.zeros(
@@ -333,8 +345,10 @@ def _nest_probs_torch(raw_preds, mu, nests, device):
         The prediction of choosing nest m
     """
     if not torch_installed:
-        raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
-    
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
+
     n_obs = raw_preds.size(0)
     n_alt = raw_preds.size(1)
     pred_i_m = torch.zeros((n_obs, n_alt), device=device)
@@ -399,8 +413,10 @@ def _nest_probs_torch_compiled(raw_preds, mu, nests, device):
         The prediction of choosing nest m
     """
     if not torch_installed:
-        raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
-    
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
+
     n_obs = raw_preds.size(0)
     n_alt = raw_preds.size(1)
     pred_i_m = torch.zeros((n_obs, n_alt), device=device)
@@ -462,8 +478,10 @@ def _cross_nested_probs_torch(raw_preds, mu, alphas, device):
         The prediction of choosing nest m
     """
     if not torch_installed:
-        raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
-    
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
+
     n_obs, n_alt = raw_preds.shape[0], raw_preds.shape[1]
     pred_i_m = torch.zeros((n_obs, n_alt, mu.shape[0]), device=device)
     pred_m = torch.zeros((n_obs, n_alt, mu.shape[0]), device=device)
@@ -516,8 +534,10 @@ def _cross_nested_probs_torch_compiled(raw_preds, mu, alphas, device):
         The prediction of choosing nest m
     """
     if not torch_installed:
-        raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
-    
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
+
     n_obs, n_alt = raw_preds.shape[0], raw_preds.shape[1]
     pred_i_m = torch.zeros((n_obs, n_alt, mu.shape[0]), device=device)
     pred_m = torch.zeros((n_obs, n_alt, mu.shape[0]), device=device)
@@ -551,13 +571,16 @@ def _f_obj_torch(
     shared_start_idx=None,
     labels_j=None,
     labels=None,
+    bagging_idx=None,
 ):
     if not torch_installed:
-        raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
-    
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
+
     j = current_j  # jth booster
     if shared_ensembles and j >= shared_start_idx:
-        pred = preds.T[shared_ensembles[j], :].view(-1) # corresponding predictions
+        pred = preds.T[shared_ensembles[j], :].view(-1)  # corresponding predictions
     else:
         pred = preds[:, j]  # corresponding predictions
     factor = num_classes / (
@@ -565,12 +588,14 @@ def _f_obj_torch(
     )  # factor to correct redundancy (see Friedmann, Greedy Function Approximation)
     eps = 1e-6
     if shared_ensembles and j >= shared_start_idx:
-        labels = labels_j.T[shared_ensembles[j], :].view(-1)
+        labels = labels_j.T[shared_ensembles[j], bagging_idx].view(-1)
     else:
-        labels = labels_j[:, j]
+        labels = labels_j[bagging_idx, j]
     grad = pred - labels
     factor_times_one_minus_pred = factor * (1 - pred)
-    hess = (pred * factor_times_one_minus_pred).clamp_(min=eps)  # truncate low values to avoid numerical errors
+    hess = (pred * factor_times_one_minus_pred).clamp_(
+        min=eps
+    )  # truncate low values to avoid numerical errors
 
     return grad, hess
 
@@ -584,10 +609,13 @@ def _f_obj_torch_compiled(
     shared_start_idx=None,
     labels_j=None,
     labels=None,
+    bagging_idx=None,
 ):
     if not torch_installed:
-        raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
-    
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
+
     j = current_j  # jth booster
     if shared_ensembles and j >= shared_start_idx:
         pred = preds.T[shared_ensembles[j], :].view(-1)  # corresponding predictions
@@ -598,14 +626,15 @@ def _f_obj_torch_compiled(
     )  # factor to correct redundancy (see Friedmann, Greedy Function Approximation)
     eps = 1e-6
     if shared_ensembles and j >= shared_start_idx:
-        labels = labels_j.T[:, shared_ensembles[j]].view(-1)
+        labels = labels_j.T[shared_ensembles[j], bagging_idx].view(-1)
     else:
-        labels = labels_j[:, j]
+        labels = labels_j[bagging_idx, j]
     grad = pred - labels
     factor_times_one_minus_pred = factor * (1 - pred)
     hess = (pred * factor_times_one_minus_pred).clamp_(min=eps)
 
     return grad, hess
+
 
 def _f_obj_nested_torch(
     current_j,
@@ -620,7 +649,9 @@ def _f_obj_nested_torch(
     shared_start_idx=None,
 ):
     if not torch_installed:
-        raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
     j = current_j
     label = labels
     n_obs = preds_i_m.shape[0]
@@ -753,8 +784,10 @@ def _f_obj_nested_torch_compiled(
     shared_start_idx=None,
 ):
     if not torch_installed:
-        raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
-    
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
+
     j = current_j
     label = labels
     n_obs = preds_i_m.shape[0]
@@ -886,7 +919,9 @@ def _f_obj_cross_nested_torch(
     shared_start_idx=None,
 ):
     if not torch_installed:
-        raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
     j = current_j
     label = labels
     data_idx = torch.arange(preds_i_m.shape[0], device=device)
@@ -1031,10 +1066,12 @@ def _f_obj_cross_nested_torch(
 
         # two cases: 1. alt j is choice i, 2. alt j is not choice i
         grad = torch.where(
-            (label == j).view(-1,1), (-1 / pred_i) * d_pred_i_Vi, (-1 / pred_i) * d_pred_i_Vj
+            (label == j).view(-1, 1),
+            (-1 / pred_i) * d_pred_i_Vi,
+            (-1 / pred_i) * d_pred_i_Vj,
         )
         hess = torch.where(
-            (label == j).view(-1,1),
+            (label == j).view(-1, 1),
             (-1 / pred_i**2) * (d2_pred_i_Vi * pred_i - d_pred_i_Vi**2),
             (-1 / pred_i**2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj**2),
         )
@@ -1061,8 +1098,10 @@ def _f_obj_cross_nested_torch_compiled(
     shared_start_idx=None,
 ):
     if not torch_installed:
-        raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
-    
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
+
     j = current_j
     label = labels
     data_idx = torch.arange(preds_i_m.shape[0], device=device)
@@ -1207,10 +1246,12 @@ def _f_obj_cross_nested_torch_compiled(
 
         # two cases: 1. alt j is choice i, 2. alt j is not choice i
         grad = torch.where(
-            (label == j).view(-1,1), (-1 / pred_i) * d_pred_i_Vi, (-1 / pred_i) * d_pred_i_Vj
+            (label == j).view(-1, 1),
+            (-1 / pred_i) * d_pred_i_Vi,
+            (-1 / pred_i) * d_pred_i_Vj,
         )
         hess = torch.where(
-            (label == j).view(-1,1),
+            (label == j).view(-1, 1),
             (-1 / pred_i**2) * (d2_pred_i_Vi * pred_i - d_pred_i_Vi**2),
             (-1 / pred_i**2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj**2),
         )
@@ -1240,7 +1281,9 @@ def cross_entropy_torch(preds, labels):
         The negative cross-entropy, as float.
     """
     if not torch_installed:
-        raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
     return (
         -torch.mean(
             torch.log(
@@ -1271,7 +1314,9 @@ def cross_entropy_torch_compiled(preds, labels):
         The negative cross-entropy, as float.
     """
     if not torch_installed:
-        raise ImportError("Pytorch is not installed. Please install it to run rumboost on torch tensors.")
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
     return (
         -torch.mean(
             torch.log(
