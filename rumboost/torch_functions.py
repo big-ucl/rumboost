@@ -179,17 +179,17 @@ def _inner_predict_torch(
     # if shared ensembles, get the shared predictions out and reorder them for easier addition later
     if shared_ensembles:
         raw_shared_preds = torch.zeros(
-            size=(num_obs[data_idx], num_classes), dtype=torch.float64, device=device
+            size=(num_obs, num_classes), dtype=torch.float64, device=device
         )
         for i, arr in enumerate(raw_preds[shared_start_idx:]):
             raw_shared_preds[:, shared_ensembles[i + shared_start_idx]] = (
                 raw_shared_preds[:, shared_ensembles[i + shared_start_idx]].add(
-                    arr.view(-1, num_obs[data_idx]).T
+                    arr.view(-1, num_obs).T
                 )
             )
         if shared_start_idx == 0:
             raw_preds = torch.zeros(
-                size=(num_obs[data_idx], num_classes),
+                size=(num_obs, num_classes),
                 dtype=torch.float64,
                 device=device,
             )
@@ -254,17 +254,17 @@ def _inner_predict_torch_compiled(
     # if shared ensembles, get the shared predictions out and reorder them for easier addition later
     if shared_ensembles:
         raw_shared_preds = torch.zeros(
-            size=(num_obs[data_idx], num_classes), dtype=torch.float64, device=device
+            size=(num_obs, num_classes), dtype=torch.float64, device=device
         )
         for i, arr in enumerate(raw_preds[shared_start_idx:]):
             raw_shared_preds[:, shared_ensembles[i + shared_start_idx]] = (
                 raw_shared_preds[:, shared_ensembles[i + shared_start_idx]].add(
-                    arr.view(-1, num_obs[data_idx]).T
+                    arr.view(-1, num_obs).T
                 )
             )
         if shared_start_idx == 0:
             raw_preds = torch.zeros(
-                size=(num_obs[data_idx], num_classes),
+                size=(num_obs, num_classes),
                 dtype=torch.float64,
                 device=device,
             )
