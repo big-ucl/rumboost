@@ -670,21 +670,21 @@ def load_preprocess_MTMC_all(test_size: float = 0.2, random_state: int = 1):
     try:
         z_idx = list(
             np.loadtxt(
-                "Data/z_idx_all_wo_alps.csv"
+                "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/choice_set_location_travelmode/Data/input/z_idx_all_wo_alps.csv"
             )
         )
         with open(
-            "Data/train_set_switzerland.pkl",
+            "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/train_set_switzerland.pkl",
             "rb",
         ) as f:
             df_train = pickle.load(f)
         with open(
-            "Data/test_set_switzerland.pkl",
+            "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/test_set_switzerland.pkl",
             "rb",
         ) as f:
             df_test = pickle.load(f)
         with open(
-            "Data/strat_group_k_fold_mtmc_all.pickle",
+            "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/strat_group_k_fold_mtmc_all.pickle",
             "rb",
         ) as f:
             train_idx, test_idx = pickle.load(f)
@@ -748,10 +748,10 @@ def load_preprocess_MTMC_all(test_size: float = 0.2, random_state: int = 1):
     folds = zip(train_idx, test_idx)
 
     shift_choices_1 = {
-        i: i - 12 for i in range(int(z_idx[-1]) + 1, int(z_idx[-1]) + 7977)
+        i: i - 13 for i in range(int(z_idx[-1]) + 1, int(z_idx[-1]) + 7977)
     }
     shift_choices_2 = {
-        i: i - 24 for i in range(int(z_idx[-1]) + 7977, int(z_idx[-1]) + 7977 * 2)
+        i: i - 26 for i in range(int(z_idx[-1]) + 7977, int(z_idx[-1]) + 7977 * 2)
     }
     shift_choices = {**shift_choices_1, **shift_choices_2}
     df_train["choice"] = df_train["choice"].replace(shift_choices)
