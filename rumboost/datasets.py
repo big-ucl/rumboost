@@ -670,21 +670,21 @@ def load_preprocess_MTMC_all(test_size: float = 0.2, random_state: int = 1):
     try:
         z_idx = list(
             np.loadtxt(
-                "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/choice_set_location_travelmode/Data/input/z_idx_all_wo_alps.csv"
+                "Data/z_idx_all_wo_alps.csv"
             )
         )
         with open(
-            "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/train_set_switzerland.pkl",
+            "Data/train_set_switzerland.pkl",
             "rb",
         ) as f:
             df_train = pickle.load(f)
         with open(
-            "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/test_set_switzerland.pkl",
+            "Data/test_set_switzerland.pkl",
             "rb",
         ) as f:
             df_test = pickle.load(f)
         with open(
-            "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/strat_group_k_fold_mtmc_all.pickle",
+            "Data/strat_group_k_fold_mtmc_all.pickle",
             "rb",
         ) as f:
             train_idx, test_idx = pickle.load(f)
