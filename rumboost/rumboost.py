@@ -166,7 +166,6 @@ class RUMBoost:
                     self._current_j,
                     self._preds,
                     self.num_classes,
-                    self.device,
                     self.shared_ensembles,
                     self.shared_start_idx,
                     self.labels_j,
@@ -177,7 +176,6 @@ class RUMBoost:
                     self._current_j,
                     self._preds,
                     self.num_classes,
-                    self.device,
                     self.shared_ensembles,
                     self.shared_start_idx,
                     self.labels_j,
@@ -196,10 +194,10 @@ class RUMBoost:
             self.num_classes - 1
         )  # factor to correct redundancy (see Friedmann, Greedy Function Approximation)
         eps = 1e-6
-        if self.labels_j:
-            labels = self.labels_j[j]
+        if self.shared_ensembles and j >= self.shared_start_idx:
+            labels = self.labels_j.T[self.shared_ensembles[j], :].reshape(-1)
         else:
-            labels = np.where(self.labels == j, 1, 0)
+            labels = self.labels_j[:, j]
         grad = preds - labels
         hess = np.maximum(
             factor * preds * (1 - preds), eps
@@ -877,15 +875,19 @@ class RUMBoost:
                 valid_set.construct()
                 self.num_obs.append(valid_set.num_data())
                 self.valid_labels.append(
-                    valid_set.get_label().astype(int)
+                    valid_set.get_label().astype(np.int32)
                 )  # saving labels
 
-        self.labels = data.get_label().astype(int)  # saving labels
-        self.labels_j = []
-
-        if self.shared_ensembles:
-            shared_labels = {}
-            shared_valids = {}
+        self.labels = data.get_label().astype(np.int32)  # saving labels
+        self.labels_j = (
+            self.labels[:, None] == np.array(range(self.num_classes))[None, :]
+        ).astype(np.int8)
+        val_labels_j = [
+            (val_labs[:, None] == np.array(range(self.num_classes))[None, :]).astype(
+                np.int8
+            )
+            for val_labs in self.valid_labels
+        ]
 
         # loop over all J utilities
         for j, struct in enumerate(self.rum_structure):
@@ -903,15 +905,9 @@ class RUMBoost:
 
                     if self.shared_ensembles:
                         if l >= self.shared_start_idx:
-                            if not shared_labels:
-                                shared_labels = {
-                                    a: np.where(data.get_label() == a, 1, 0)
-                                    for a in range(self.num_classes)
-                                }
-                            new_label = np.hstack(
-                                [shared_labels[s] for s in self.shared_ensembles[l]]
-                            )
-                            self.labels_j.append(new_label)
+                            new_label = self.labels_j[
+                                :, self.shared_ensembles[l]
+                            ].reshape(-1, order="F")
                             train_set_j = Dataset(
                                 train_set_j_data.values.reshape((-1, 1), order="A"),
                                 label=new_label,
@@ -928,15 +924,9 @@ class RUMBoost:
                             if construct_datasets:
                                 train_set_j.construct()
                         else:
-                            new_label = np.where(
-                                data.get_label() == l, 1, 0
-                            )  # new binary label, used for multiclassification
-                            shared_labels[l] = new_label
-                            if j == l or j % 2 == 0:
-                                self.labels_j.append(new_label)
                             train_set_j = Dataset(
                                 train_set_j_data,
-                                label=new_label,
+                                label=self.labels_j[:, l],
                                 free_raw_data=free_raw_data,
                             )  # create and build dataset
                             categorical_feature = struct.get(
@@ -950,14 +940,9 @@ class RUMBoost:
                             if construct_datasets:
                                 train_set_j.construct()
                     else:
-                        new_label = np.where(
-                            data.get_label() == l, 1, 0
-                        )  # new binary label, used for multiclassification
-                        if j == l or j % 2 == 0:
-                            self.labels_j.append(new_label)
                         train_set_j = Dataset(
                             train_set_j_data,
-                            label=new_label,
+                            label=self.labels_j[:, l],
                             free_raw_data=free_raw_data,
                         )  # create and build dataset
                         categorical_feature = struct.get("categorical_feature", "auto")
@@ -971,7 +956,7 @@ class RUMBoost:
 
                     if reduced_valid_set is not None:
                         reduced_valid_sets_j = []
-                        for valid_set in reduced_valid_set:
+                        for i, valid_set in enumerate(reduced_valid_set):
                             # create and build validation sets
                             valid_set.construct()
                             valid_set_j_data = valid_set.get_data()[
@@ -980,19 +965,9 @@ class RUMBoost:
 
                             if self.shared_ensembles:
                                 if l >= self.shared_start_idx:
-                                    if not shared_valids:
-                                        shared_valids = {
-                                            a: np.where(
-                                                valid_set.get_label() == a, 1, 0
-                                            )
-                                            for a in range(self.num_classes)
-                                        }
-                                    label_valid = np.hstack(
-                                        [
-                                            shared_valids[s]
-                                            for s in self.shared_ensembles[l]
-                                        ]
-                                    )
+                                    label_valid = val_labels_j[i][
+                                        :, self.shared_ensembles[l]
+                                    ].reshape(-1, order="F")
                                     valid_set_j = Dataset(
                                         valid_set_j_data.values.reshape(
                                             (-1, 1), order="A"
@@ -1005,13 +980,9 @@ class RUMBoost:
                                     if construct_datasets:
                                         valid_set_j.construct()
                                 else:
-                                    label_valid = np.where(
-                                        valid_set.get_label() == l, 1, 0
-                                    )  # new binary label, used for multiclassification
-                                    shared_valids[l] = label_valid
                                     valid_set_j = Dataset(
                                         valid_set_j_data,
-                                        label=label_valid,
+                                        label=val_labels_j[i][:, l],
                                         free_raw_data=free_raw_data,
                                         reference=train_set_j,
                                     )  # create and build dataset
@@ -1019,12 +990,9 @@ class RUMBoost:
                                     if construct_datasets:
                                         valid_set_j.construct()
                             else:
-                                label_valid = np.where(
-                                    valid_set.get_label() == l, 1, 0
-                                )  # new binary label, used for multiclassification
                                 valid_set_j = Dataset(
                                     valid_set_j_data,
-                                    label=label_valid,
+                                    label=label_valid[i][:, l],
                                     reference=train_set_j,
                                     free_raw_data=free_raw_data,
                                 )
@@ -1268,7 +1236,9 @@ class RUMBoost:
             if self.labels_j:
                 labels_j_numpy = [l.cpu().numpy().tolist() for l in self.labels_j]
             if self.valid_labels:
-                valid_labels_numpy = [v.cpu().numpy().tolist() for v in self.valid_labels]
+                valid_labels_numpy = [
+                    v.cpu().numpy().tolist() for v in self.valid_labels
+                ]
             rumb_to_dict = {
                 "boosters": models_str,
                 "attributes": {
@@ -1276,9 +1246,13 @@ class RUMBoost:
                     "best_score": float(self.best_score),
                     "best_score_train": float(self.best_score_train),
                     "alphas": (
-                        self.alphas.cpu().numpy().tolist() if self.alphas is not None else None
+                        self.alphas.cpu().numpy().tolist()
+                        if self.alphas is not None
+                        else None
                     ),
-                    "mu": self.mu.cpu().numpy().tolist() if self.mu is not None else None,
+                    "mu": (
+                        self.mu.cpu().numpy().tolist() if self.mu is not None else None
+                    ),
                     "nests": self.nests,
                     "nest_alt": self.nest_alt,
                     "num_classes": self.num_classes,
@@ -1290,7 +1264,7 @@ class RUMBoost:
                     "labels": self.labels.cpu().numpy().tolist(),
                     "labels_j": labels_j_numpy,
                     "valid_labels": valid_labels_numpy,
-                    "device": 'cuda' if self.device.type == 'cuda' else 'cpu',
+                    "device": "cuda" if self.device.type == "cuda" else "cpu",
                     "torch_compile": self.torch_compile,
                     "rum_structure": self.rum_structure,
                 },
@@ -1863,7 +1837,10 @@ def rum_train(
             "train_sets"
         ]  # assign the J previously preprocessed datasets
         rumb.labels = train_set["labels"]
-        rumb.labels_j = train_set.get("labels_j", None)
+        if rumb.mu is None:
+            rumb.labels_j = train_set.get("labels_j", None)
+        else:
+            rumb.labels_j = None
         rumb.num_obs = [train_set["num_data"]]
         if isinstance(valid_sets[0], dict):
             rumb.valid_sets = valid_sets[0]["valid_sets"]
@@ -1898,6 +1875,8 @@ def rum_train(
         rumb._preprocess_data(
             train_set, reduced_valid_sets
         )  # prepare J datasets with relevant features
+        if rumb.mu is not None:
+            rumb.labels_j = None
 
     # create J boosters with corresponding params and datasets
     rumb._construct_boosters(train_data_name, is_valid_contain_train, name_valid_sets)
@@ -1913,11 +1892,8 @@ def rum_train(
         rumb.labels = (
             torch.from_numpy(rumb.labels).type(torch.LongTensor).to(rumb.device)
         )
-        if rumb.labels_j:
-            rumb.labels_j = [
-                torch.from_numpy(lab).type(torch.LongTensor).to(rumb.device)
-                for lab in rumb.labels_j
-            ]
+        if rumb.labels_j is not None:
+            rumb.labels_j = torch.from_numpy(rumb.labels_j).type(torch.LongTensor).to(rumb.device)
         if rumb.valid_labels:
             rumb.valid_labels = [
                 torch.from_numpy(valid_labs).type(torch.LongTensor).to(rumb.device)

@@ -687,12 +687,7 @@ def load_preprocess_MTMC_all(test_size: float = 0.2, random_state: int = 1):
             "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/strat_group_k_fold_mtmc_all.pickle",
             "rb",
         ) as f:
-            train_idx, test_idx = pickle.load(
-                open(
-                    "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/strat_group_k_fold_mtmc_all.pickle",
-                    "rb",
-                )
-            )
+            train_idx, test_idx = pickle.load(f)
     except FileNotFoundError:
         # load data
         with open(
@@ -847,7 +842,6 @@ def prepare_dataset(
     functional_effects=False,
     target="choice",
     free_raw_data=False,
-    with_labels_j=False,
     save_dataset=None,
     load_dataset=None,
 ):
@@ -876,8 +870,6 @@ def prepare_dataset(
         The target variable.
     free_raw_data : bool, optional
         If the raw data should be freed.
-    with_labels_j : bool, optional
-        If the labels of each ensembles should be included.
     save_dataset : str, optional
         The path to save the datasets.
     load_dataset : str, optional
@@ -933,23 +925,27 @@ def prepare_dataset(
 
         return train_sets, valid_sets
 
-    labels = df_train[target].to_numpy().astype(int)
+    labels = df_train[target].to_numpy().astype(np.int32)
+    labels_j = (labels[:, None] == np.array(range(num_classes))[None, :]).astype(
+        np.int8
+    )
+
     num_obs = df_train.shape[0]
     if df_test is not None:
-        labels_test = []
+        valid_labels = []
         num_obs_test = []
         for df in df_test:
-            labels_test += [df[target].to_numpy().astype(int)]
+            valid_labels += [df[target].to_numpy().astype(np.int32)]
             num_obs_test += [df.shape[0]]
+
+    val_labels_j = [
+        (val_labs[:, None] == np.array(range(num_classes))[None, :]).astype(np.int8)
+        for val_labs in valid_labels
+    ]
 
     if shared_ensembles:
         shared_start_idx = [*shared_ensembles][0]
 
-    if shared_ensembles:
-        shared_labels = {}
-        shared_valids = {}
-
-    labels_j = []
     train_set_J = []
     reduced_valid_sets_J = []
     for j, struct in enumerate(rum_structure):
@@ -968,16 +964,9 @@ def prepare_dataset(
 
                 if shared_ensembles:
                     if l >= shared_start_idx:
-                        if not shared_labels:
-                            shared_labels = {
-                                a: np.where(labels == a, 1, 0)
-                                for a in range(num_classes)
-                            }
-                        new_label = np.hstack(
-                            [shared_labels[s] for s in shared_ensembles[l]]
+                        new_label = labels_j[:, shared_ensembles[l]].reshape(
+                            -1, order="F"
                         )
-                        if with_labels_j:
-                            labels_j.append(new_label.astype(int))
                         train_set_j = Dataset(
                             train_set_j_data.reshape((-1, 1), order="A"),
                             label=new_label,
@@ -985,27 +974,16 @@ def prepare_dataset(
                             params={"verbosity": -1},
                         )  # create and build dataset
                     else:
-                        new_label = np.where(
-                            labels == l, 1, 0
-                        )  # new binary label, used for multiclassification
-                        shared_labels[l] = new_label
-                        if (j == l or j % 2 == 0) and with_labels_j:
-                            labels_j.append(new_label.astype(int))
                         train_set_j = Dataset(
                             train_set_j_data,
-                            label=new_label,
+                            label=labels_j[:, l],
                             free_raw_data=free_raw_data,
                             params={"verbosity": -1},
                         )  # create and build dataset
                 else:
-                    new_label = np.where(
-                        labels == l, 1, 0
-                    )  # new binary label, used for multiclassification
-                    if (j == l or j % 2 == 0) and with_labels_j:
-                        labels_j.append(new_label.astype(int))
                     train_set_j = Dataset(
                         train_set_j_data,
-                        label=new_label,
+                        label=labels_j[:, l],
                         free_raw_data=free_raw_data,
                         params={"verbosity": -1},
                     )  # create and build dataset
@@ -1017,18 +995,12 @@ def prepare_dataset(
                         valid_set_j_data = valid_set[struct["columns"]].to_numpy(
                             dtype=np.float32
                         )  # only relevant features for the jth booster
-                        val_labels = labels_test[i]
 
                         if shared_ensembles:
                             if l >= shared_start_idx:
-                                if not shared_valids:
-                                    shared_valids = {
-                                        a: np.where(val_labels == a, 1, 0)
-                                        for a in range(num_classes)
-                                    }
-                                label_valid = np.hstack(
-                                    [shared_valids[s] for s in shared_ensembles[l]]
-                                )
+                                label_valid = val_labels_j[i][
+                                    :, shared_ensembles[l]
+                                ].reshape(-1, order="F")
                                 valid_set_j = Dataset(
                                     valid_set_j_data.reshape((-1, 1), order="A"),
                                     label=label_valid,
@@ -1037,24 +1009,17 @@ def prepare_dataset(
                                     params={"verbosity": -1},
                                 )  # create and build dataset
                             else:
-                                label_valid = np.where(
-                                    val_labels == l, 1, 0
-                                )  # new binary label, used for multiclassification
-                                shared_valids[l] = label_valid
                                 valid_set_j = Dataset(
                                     valid_set_j_data,
-                                    label=label_valid,
+                                    label=val_labels_j[i][:, l],
                                     free_raw_data=free_raw_data,
                                     reference=train_set_j,
                                     params={"verbosity": -1},
                                 )  # create and build dataset
                         else:
-                            label_valid = np.where(
-                                val_labels == l, 1, 0
-                            )  # new binary label, used for multiclassification
                             valid_set_j = Dataset(
                                 valid_set_j_data,
-                                label=label_valid,
+                                label=val_labels_j[i][:, l],
                                 reference=train_set_j,
                                 free_raw_data=free_raw_data,
                             )
@@ -1074,7 +1039,6 @@ def prepare_dataset(
                 del (
                     train_set_j_data,
                     new_label,
-                    val_labels,
                     valid_set_j_data,
                     label_valid,
                     train_set_j,
@@ -1092,15 +1056,12 @@ def prepare_dataset(
                 if df_test is not None:
                     reduced_valid_sets_j = df_test[:]
 
-    reduced_valid_sets_J = np.array(reduced_valid_sets_J).T.tolist()
-
-    train_sets = {"num_data": num_obs, "labels": labels}
-    if with_labels_j:
-        train_sets["labels_j"] = labels_j
-    valid_sets = {
-        "num_data": num_obs_test,
-        "valid_labels": labels_test,
-    }
+    train_sets = {"num_data": num_obs, "labels": labels, "labels_j": labels_j}
+    if df_test is not None:
+        valid_sets = {
+            "num_data": num_obs_test,
+            "valid_labels": valid_labels,
+        }
 
     if save_dataset:
         with open(f"{save_dataset}_train_sets.pkl", "wb") as f:
@@ -1111,6 +1072,7 @@ def prepare_dataset(
 
     train_sets["train_sets"] = train_set_J
     if df_test is not None:
+        reduced_valid_sets_J = np.array(reduced_valid_sets_J).T.tolist()
         valid_sets["valid_sets"] = reduced_valid_sets_J
 
     return train_sets, valid_sets

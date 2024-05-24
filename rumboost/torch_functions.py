@@ -547,7 +547,6 @@ def _f_obj_torch(
     current_j,
     preds,
     num_classes,
-    device,
     shared_ensembles=None,
     shared_start_idx=None,
     labels_j=None,
@@ -565,17 +564,10 @@ def _f_obj_torch(
         num_classes - 1
     )  # factor to correct redundancy (see Friedmann, Greedy Function Approximation)
     eps = 1e-6
-    if labels_j:
-        labels = labels_j[j]
+    if shared_ensembles and j >= shared_start_idx:
+        labels = labels_j.T[shared_ensembles[j], :].view(-1)
     else:
-        labels = (
-            (
-                torch.from_numpy(np.array(shared_ensembles[j])).to(device)[:, None]
-                == labels[None, :]
-            )
-            .int()
-            .view(-1)
-        )
+        labels = labels_j[:, j]
     grad = pred - labels
     factor_times_one_minus_pred = factor * (1 - pred)
     hess = (pred * factor_times_one_minus_pred).clamp_(min=eps)  # truncate low values to avoid numerical errors
@@ -588,7 +580,6 @@ def _f_obj_torch_compiled(
     current_j,
     preds,
     num_classes,
-    device,
     shared_ensembles=None,
     shared_start_idx=None,
     labels_j=None,
@@ -606,17 +597,10 @@ def _f_obj_torch_compiled(
         num_classes - 1
     )  # factor to correct redundancy (see Friedmann, Greedy Function Approximation)
     eps = 1e-6
-    if labels_j:
-        labels = labels_j[j]
+    if shared_ensembles and j >= shared_start_idx:
+        labels = labels_j.T[:, shared_ensembles[j]].view(-1)
     else:
-        labels = (
-            (
-                torch.from_numpy(np.array(shared_ensembles[j])).to(device)[:, None]
-                == labels[None, :]
-            )
-            .int()
-            .view(-1)
-        )
+        labels = labels_j[:, j]
     grad = pred - labels
     factor_times_one_minus_pred = factor * (1 - pred)
     hess = (pred * factor_times_one_minus_pred).clamp_(min=eps)
