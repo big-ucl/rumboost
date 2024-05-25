@@ -235,3 +235,106 @@ def test_predict():
     utilities = True
     raw_preds = rumboost.predict(data, utilities=utilities)
     assert raw_preds.shape == (3, 3)  #replace with the expected shape
+
+def test_construct_boosters():
+    # create a RUMBoost object
+    rumboost = rumb.RUMBoost()
+
+    # set up the necessary attributes
+    train_data_name = "Training"
+    is_valid_contain_train = False
+    name_valid_sets = ["Valid_0"]
+
+    # create mock parameters and datasets
+    params_J = [{"param1": 1}, {"param2": 2}]
+    train_set_J = [Dataset(), Dataset()]
+    reduced_valid_sets_J = [Dataset(), Dataset()]
+
+    # assign mock parameters and datasets to RUMBoost object
+    rumboost.params = params_J
+    rumboost.train_set = train_set_J
+    rumboost.valid_sets = reduced_valid_sets_J
+
+    # call the _construct_boosters method
+    rumboost._construct_boosters(
+        train_data_name=train_data_name,
+        is_valid_contain_train=is_valid_contain_train,
+        name_valid_sets=name_valid_sets,
+    )
+
+    # perform assertions
+    assert len(rumboost.boosters) == 2
+    assert rumboost.boosters[0].params == params_J[0]
+    assert rumboost.boosters[1].params == params_J[1]
+    assert rumboost.boosters[0].train_set == train_set_J[0]
+    assert rumboost.boosters[1].train_set == train_set_J[1]
+    assert rumboost.boosters[0].valid_sets[0] == reduced_valid_sets_J[0]
+    assert rumboost.boosters[1].valid_sets[0] == reduced_valid_sets_J[1]
+    assert rumboost.boosters[0].train_data_name == train_data_name
+    assert rumboost.boosters[1].train_data_name == train_data_name
+    assert rumboost.boosters[0].best_iteration == 0
+    assert rumboost.boosters[1].best_iteration == 0
+
+def test_preprocess_params():
+    # Create a RUMBoost object
+    rumboost = rumb.RUMBoost()
+
+    # Set up the parameters
+    params = {
+        "learning_rate": 0.1,
+        "verbosity": -1,
+        "objective": "binary",
+        "num_classes": 1,
+        "monotone_constraints": [1, -1],
+        "interaction_constraints": [(0, 1)],
+    }
+
+    # Set up the rum_structure
+    rumboost.rum_structure = [
+        {"monotone_constraints": [1, -1], "interaction_constraints": [(0, 1)]},
+        {"monotone_constraints": [1, -1], "interaction_constraints": [(0, 1)]},
+    ]
+
+    # Call the _preprocess_params method
+    params_J = rumboost._preprocess_params(params, return_params=True)
+
+    # Perform assertions
+    assert len(params_J) == 2
+    assert params_J[0]["learning_rate"] == 0.05
+    assert params_J[0]["monotone_constraints"] == [1, -1]
+    assert params_J[0]["interaction_constraints"] == [(0, 1)]
+    assert params_J[1]["learning_rate"] == 0.05
+    assert params_J[1]["monotone_constraints"] == [1, -1]
+    assert params_J[1]["interaction_constraints"] == [(0, 1)]
+
+@pytest.mark.parametrize("num_classes, rum_structure, shared_parameters", [
+    (3, [{'columns':[0, 1]},{'columns':[1, 2]},{'columns':[0, 2]}], None),
+    (3, [{'columns':[0, 1]},{'columns':[1, 2]},{'columns':[0, 2]}], {2:[0, 1]}),
+])
+def test_preprocess_data(num_classes, rum_structure, shared_parameters):
+    # Create a RUMBoost object
+    rumboost = rumb.RUMBoost(num_classes = num_classes, rum_structure = rum_structure, shared_parameters = shared_parameters)
+
+    rumboost.shared_start_idx = [*shared_parameters][0]
+    rumboost.params_J = [{
+        "learning_rate": 0.1,
+        "verbosity": -1,
+        "objective": "binary",
+        "num_classes": 1,
+        "monotone_constraints": [1, -1],
+        "interaction_constraints": [(0, 1)],
+    }]*len(rum_structure)
+    # Create a dummy dataset
+    data = Dataset(np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]]), label=np.array([0, 1, 2]), free_raw_data=False)
+
+    # Call the _preprocess_data method
+    train_set_J, reduced_valid_sets_J = rumboost._preprocess_data(data, reduced_valid_set=[data])
+
+    # Perform assertions
+    assert len(train_set_J) == len(rum_structure)
+    assert len(reduced_valid_sets_J) == 1
+    assert len(reduced_valid_sets_J[0]) == len(rum_structure)
+    assert rumboost.labels.shape == (3,)
+    assert rumboost.labels_j.shape == (3, num_classes)
+    assert isinstance(train_set_J[0], Dataset)
+    assert isinstance(reduced_valid_sets_J[0][0], Dataset)
