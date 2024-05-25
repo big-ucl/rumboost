@@ -7,7 +7,7 @@ try:
 except ImportError:
     matplotlib_seaborn_installed = False
 
-from rumboost.utility_smoothing import monotone_spline, mean_monotone_spline
+from rumboost.utility_smoothing import monotone_spline, mean_monotone_spline, data_leaf_value
 
 if not matplotlib_seaborn_installed:
     raise ImportError(
@@ -2261,3 +2261,102 @@ def function_2d(weights_2d, x_vect, y_vect):
             contour_plot_values[:i_x, :i_y] += weights_2d["area_value"].iloc[k]
 
     return contour_plot_values
+
+def live_learning_plot(model):
+    """
+    Plot the live learning of the model.
+
+    Parameters
+    ----------
+
+    model: 
+        The trained model.
+    """
+
+    tex_fonts = {
+        # Use LaTeX to write all text
+        # "text.usetex": True,
+        # "font.family": "serif",
+        # "font.serif": "Computer Modern Roman",
+        # Use 14pt font in plots, to match 10pt font in document
+        "axes.labelsize": 7,
+        "axes.linewidth": 0.5,
+        "axes.labelpad": 1,
+        "font.size": 7,
+        # Make the legend/label fonts a little smaller
+        "legend.fontsize": 6,
+        "legend.fancybox": False,
+        "legend.edgecolor": "inherit",
+        "legend.borderaxespad": 0.4,
+        "legend.borderpad": 0.4,
+        "xtick.labelsize": 6,
+        "ytick.labelsize": 6,
+        "xtick.major.pad": 0.5,
+        "ytick.major.pad": 0.5,
+        "grid.linewidth": 0.5,
+        "lines.linewidth": 0.8,
+    }
+    sns.set_theme(font_scale=1, rc=tex_fonts)
+    # sns.set_context(tex_fonts)
+    sns.set_style("whitegrid")
+    # plt.rcParams.update({
+    #     # "text.usetex": True,
+    #     "font.family": "serif"
+    #     #"font.sans-serif": "Computer Modern Roman",
+    # })
+
+
+
+    plt.show()
+
+def update_plots(train_loss, test_loss, fig, ax1, train_loss_line, test_loss_line):
+    """
+    Update the live learning plot.
+
+    Parameters
+    ----------
+    loss : list
+        The list of loss values.
+    fig : matplotlib.figure.Figure
+        The figure object.
+    ax1 : matplotlib.axes.Axes
+        The axes object.
+    train_loss_line : matplotlib.lines.Line2D
+        The line object for the training loss.
+    test_loss_line : matplotlib.lines.Line2D
+        The line object for the test loss.
+    """
+    # Update the data of the line objects
+    train_loss_line.set_ydata(train_loss)
+    test_loss_line.set_ydata(test_loss)
+
+    # Update the x data and the axes limits
+    x = list(range(len(train_loss)))
+    train_loss_line.set_xdata(x)
+    test_loss_line.set_xdata(x)
+    ax1.set_xlim(0, len(x))
+    ax1.set_ylim(min(train_loss), max(test_loss))
+
+    # Redraw the figure
+    fig.canvas.draw()
+    fig.canvas.flush_events()
+
+def init_plot():
+    # Create a figure and a set of subplots
+    fig, ax1 = plt.subplots(figsize=(10, 6))
+    ax1.set_xlabel("Iteration")
+    ax1.set_ylabel("Cross-entropy loss")
+    ax1.set_title("Live learning")
+    ax1.grid(True)
+
+    # Create a line object for the loss
+    train_loss_line, = ax1.plot([], [], label="Training Loss", color="blue")
+    test_loss_line, = ax1.plot([], [], label="Test loss", color="red")
+
+
+    # Add a legend
+    ax1.legend()
+    
+    plt.ion()
+
+    return fig, ax1, train_loss_line, test_loss_line

@@ -29,6 +29,7 @@ from rumboost.nested_cross_nested import (
     cross_nested_probs,
     optimise_mu_or_alpha,
 )
+from rumboost.utility_plotting import update_plots, init_plot
 
 try:
     import torch
@@ -1496,6 +1497,7 @@ def rum_train(
     callbacks: Optional[list[Callable]] = None,
     torch_tensors: dict = None,
     stochastic_boosting: dict[str, Any] = {},
+    live_plotting: bool = False,
 ) -> RUMBoost:
     """Perform the RUM training with given parameters.
 
@@ -1679,6 +1681,8 @@ def rum_train(
                 Frequency for bagging. 0 means no stochastic boosting.
             - 'bagging_seed': int
                 Seed for bagging.
+    live_plotting : bool, optional (default=False)
+        If True, the training process will be displayed in a live plot.
 
     Note
     ----
@@ -2020,6 +2024,14 @@ def rum_train(
         rumb.bagging_seed = 0
         rumb.bagging_idx = np.arange(rumb.num_obs[0])
 
+    # live plotting
+    if live_plotting:
+        
+        plt.ion()
+        fig, ax1, train_loss_line, test_loss_line = init_plot()
+        train_loss = []
+        test_loss = []
+
     # initial predictions
     if rumb.mu is not None:
         rumb._preds, rumb.preds_i_m, rumb.preds_m = rumb._inner_predict()
@@ -2207,6 +2219,13 @@ def rum_train(
                     size=int(rumb.bagging_fraction * rumb.num_obs[0]),
                     replace=False,
                 )
+            )
+
+        if live_plotting:
+            train_loss.append(cross_entropy_train)
+            test_loss.append(cross_entropy_test[0])
+            update_plots(
+                train_loss, test_loss, fig, ax1, train_loss_line, test_loss_line
             )
 
     for booster in rumb.boosters:

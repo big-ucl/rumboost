@@ -588,7 +588,7 @@ def _f_obj_torch(
     )  # factor to correct redundancy (see Friedmann, Greedy Function Approximation)
     eps = 1e-6
     if shared_ensembles and j >= shared_start_idx:
-        labels = labels_j.T[shared_ensembles[j], bagging_idx].view(-1)
+        labels = labels_j.T[shared_ensembles[j], :][:, bagging_idx].view(-1).view(-1)
     else:
         labels = labels_j[bagging_idx, j]
     grad = pred - labels
@@ -626,7 +626,7 @@ def _f_obj_torch_compiled(
     )  # factor to correct redundancy (see Friedmann, Greedy Function Approximation)
     eps = 1e-6
     if shared_ensembles and j >= shared_start_idx:
-        labels = labels_j.T[shared_ensembles[j], bagging_idx].view(-1)
+        labels = labels_j.T[shared_ensembles[j], :][:, bagging_idx].view(-1)
     else:
         labels = labels_j[bagging_idx, j]
     grad = pred - labels
