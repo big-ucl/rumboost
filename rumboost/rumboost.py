@@ -51,6 +51,11 @@ try:
     torch_installed = True
 except ImportError:
     torch_installed = False
+try:
+    import matplotlib.pyplot as plt
+    matplotlib_installed = True
+except ImportError:
+    matplotlib_installed = False
 
 _LGBM_CustomObjectiveFunction = Callable[
     [Union[List, np.ndarray], Dataset],
@@ -1275,6 +1280,14 @@ class RUMBoost:
                 },
             }
         else:
+            if self.labels_j:
+                labels_j_list = [l.tolist() for l in self.labels_j]
+            else:
+                labels_j_list = []
+            if self.valid_labels:
+                valid_labs = [v.tolist() for v in self.valid_labels]
+            else:
+                valid_labs = []
             rumb_to_dict = {
                 "boosters": models_str,
                 "attributes": {
@@ -1292,8 +1305,8 @@ class RUMBoost:
                     "shared_start_idx": self.shared_start_idx,
                     "params": self.params,
                     "labels": self.labels.tolist(),
-                    "labels_j": [l.tolist() for l in self.labels_j],
-                    "valid_labels": [v.tolist() for v in self.valid_labels],
+                    "labels_j": labels_j_list,
+                    "valid_labels": valid_labs,
                     "device": None,
                     "torch_compile": self.torch_compile,
                     "rum_structure": self.rum_structure,
@@ -1916,9 +1929,9 @@ def rum_train(
 
     # live plotting
     if live_plotting:
-        
-        plt.ion()
-        fig, ax1, train_loss_line, test_loss_line = init_plot()
+        if not matplotlib_installed:
+            raise ImportError('Matplotlib is not installed. Please installed it to use live plotting')
+        fig, ax = init_plot()
         train_loss = []
         test_loss = []
 
@@ -2102,9 +2115,12 @@ def rum_train(
             train_loss.append(cross_entropy_train)
             test_loss.append(cross_entropy_test[0])
             update_plots(
-                train_loss, test_loss, fig, ax1, train_loss_line, test_loss_line
+                train_loss, test_loss, ax
             )
 
+    if live_plotting:
+        plt.ioff()
+    
     for booster in rumb.boosters:
         booster.best_score_lgb = collections.defaultdict(collections.OrderedDict)
         for dataset_name, eval_name, score, _ in evaluation_result_list:

@@ -18,7 +18,9 @@ except ImportError:
 sys.path.append("../")
 
 
-def load_preprocess_LPMC():
+def load_preprocess_LPMC(
+    path="/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/",
+):
     """
     Load and preprocess the LPMC dataset.
 
@@ -32,8 +34,8 @@ def load_preprocess_LPMC():
         5 folds of indices grouped by household for CV.
     """
     # source: https://github.com/JoseAngelMartinB/prediction-behavioural-analysis-ml-travel-mode-choice
-    data_train = pd.read_csv("/home/nicolas-salvade/rumboost/Data/LPMC_train.csv")
-    data_test = pd.read_csv("/home/nicolas-salvade/rumboost/Data/LPMC_test.csv")
+    data_train = pd.read_csv(path + "LPMC_train.csv")
+    data_test = pd.read_csv(path + "LPMC_test.csv")
 
     # data_train_2 = pd.read_csv('Data/LTDS_train.csv')
     # data_test_2 = pd.read_csv('Data/LTDS_test.csv')
@@ -76,7 +78,7 @@ def load_preprocess_LPMC():
     try:
         train_idx, test_idx = pickle.load(
             open(
-                "/home/nicolas-salvade/rumboost/Data/strat_group_k_fold_london.pickle",
+                path + "strat_group_k_fold_london.pickle",
                 "rb",
             )
         )
@@ -89,7 +91,7 @@ def load_preprocess_LPMC():
         pickle.dump(
             [train_idx, test_idx],
             open(
-                "/home/nicolas-salvade/rumboost/Data/strat_group_k_fold_london.pickle",
+                path + "strat_group_k_fold_london.pickle",
                 "wb",
             ),
         )
@@ -604,23 +606,21 @@ def load_preprocess_Vaccines():
     return df_train, df_test, folds
 
 
-def load_preprocess_MTMC(test_size: float = 0.2, random_state: int = 1):
+def load_preprocess_MTMC(
+    test_size: float = 0.2,
+    random_state: int = 1,
+    path="/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/",
+):
     """
     Load and preprocess the MTMC dataset.
     """
     if not sklearn_installed:
         raise ImportError("scikit-learn is required for this function.")
     # load data
-    data = pd.read_csv(
-        "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/data_laus_trips_prep_attractions_allalt.csv"
-    )
+    data = pd.read_csv(path + "data_laus_trips_prep_attractions_allalt.csv")
 
     # load destination zones
-    z_idx = list(
-        np.loadtxt(
-            "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/z_idx.csv"
-        )
-    )
+    z_idx = list(np.loadtxt(path + "z_idx.csv"))
 
     # split by household
     gsp = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
@@ -639,7 +639,7 @@ def load_preprocess_MTMC(test_size: float = 0.2, random_state: int = 1):
     try:
         train_idx, test_idx = pickle.load(
             open(
-                "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/strat_group_k_fold_mtmc.pickle",
+                path + "strat_group_k_fold_mtmc.pickle",
                 "rb",
             )
         )
@@ -651,7 +651,7 @@ def load_preprocess_MTMC(test_size: float = 0.2, random_state: int = 1):
         pickle.dump(
             [train_idx, test_idx],
             open(
-                "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/strat_group_k_fold_mtmc.pickle",
+                path + "strat_group_k_fold_mtmc.pickle",
                 "wb",
             ),
         )
@@ -661,42 +661,39 @@ def load_preprocess_MTMC(test_size: float = 0.2, random_state: int = 1):
     return df_train, df_test, folds, z_idx
 
 
-def load_preprocess_MTMC_all(test_size: float = 0.2, random_state: int = 1):
+def load_preprocess_MTMC_all(
+    test_size: float = 0.2,
+    random_state: int = 1,
+    path="/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/",
+):
     """
     Load and preprocess the MTMC dataset for all swiss zones.
     """
     if not sklearn_installed:
         raise ImportError("scikit-learn is required for this function.")
     try:
-        z_idx = list(
-            np.loadtxt(
-                "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/choice_set_location_travelmode/Data/input/z_idx_all_wo_alps.csv"
-            )
-        )
+        z_idx = list(np.loadtxt(path + "z_idx_all_wo_alps.csv"))
         with open(
-            "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/train_set_switzerland.pkl",
+            path + "train_set_switzerland.pkl",
             "rb",
         ) as f:
             df_train = pickle.load(f)
         with open(
-            "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/test_set_switzerland.pkl",
+            path + "test_set_switzerland.pkl",
             "rb",
         ) as f:
             df_test = pickle.load(f)
     except FileNotFoundError:
         # load data
         with open(
-            "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/choice_set_location_travelmode/Data/input/data_switzerland_trips_preprocessed.pkl",
+            path
+            + "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/choice_set_location_travelmode/Data/input/data_switzerland_trips_preprocessed.pkl",
             "rb",
         ) as f:
             data = pickle.load(f)
 
         # load destination zones
-        z_idx = list(
-            np.loadtxt(
-                "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/choice_set_location_travelmode/Data/input/z_idx_all_wo_alps.csv"
-            )
-        )
+        z_idx = list(np.loadtxt(path + "z_idx_all_wo_alps.csv"))
 
         zone_to_drop = [i for i in range(7965, 7978)]
         mask = ~data["d_idx"].isin(zone_to_drop) & ~data["o_idx"].isin(zone_to_drop)
@@ -711,48 +708,47 @@ def load_preprocess_MTMC_all(test_size: float = 0.2, random_state: int = 1):
         pickle.dump(
             df_train,
             open(
-                "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/train_set_switzerland.pkl",
+                path + "train_set_switzerland.pkl",
                 "wb",
             ),
         )
         pickle.dump(
             df_test,
             open(
-                "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/test_set_switzerland.pkl",
+                path + "test_set_switzerland.pkl",
                 "wb",
             ),
         )
 
-    # try:
-    #     with open(
-    #         "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/strat_group_k_fold_mtmc_all.pickle",
-    #         "rb",
-    #     ) as f:
-    #         train_idx, test_idx = pickle.load(f)
-    # except FileNotFoundError:
-    #     # get all features
-    #     target = "choice"
-    #     features = [f for f in df_train.columns if f != target]
+    try:
+        with open(
+            path + "strat_group_k_fold_mtmc_all.pickle",
+            "rb",
+        ) as f:
+            train_idx, test_idx = pickle.load(f)
+    except FileNotFoundError:
+        # get all features
+        target = "choice"
+        features = [f for f in df_train.columns if f != target]
 
-    #     hh_id = df_train["HHNR"]
+        hh_id = df_train["HHNR"]
 
-    #     # k folds sampled by households for cross validation
-    #     train_idx = []
-    #     test_idx = []
-    #     gkf = GroupKFold()
-    #     for train_i, test_i in gkf.split(df_train[features], df_train[target], hh_id):
-    #         train_idx.append(train_i)
-    #         test_idx.append(test_i)
-    #     pickle.dump(
-    #         [train_idx, test_idx],
-    #         open(
-    #             "/media/nicolas-salvade/Windows/Users/DAF1/OneDrive - University College London/Documents/PhD - UCL/rumboost/Data/strat_group_k_fold_mtmc_all.pickle",
-    #             "wb",
-    #         ),
-    #     )
+        # k folds sampled by households for cross validation
+        train_idx = []
+        test_idx = []
+        gkf = GroupKFold()
+        for train_i, test_i in gkf.split(df_train[features], df_train[target], hh_id):
+            train_idx.append(train_i)
+            test_idx.append(test_i)
+        pickle.dump(
+            [train_idx, test_idx],
+            open(
+                path + "strat_group_k_fold_mtmc_all.pickle",
+                "wb",
+            ),
+        )
 
-    # folds = zip(train_idx, test_idx)
-    folds = None
+    folds = zip(train_idx, test_idx)
 
     return df_train, df_test, folds, z_idx
 

@@ -1,18 +1,26 @@
 import numpy as np
 import pandas as pd
+
 try:
     import matplotlib.pyplot as plt
     import seaborn as sns
+
     matplotlib_seaborn_installed = True
 except ImportError:
     matplotlib_seaborn_installed = False
 
-from rumboost.utility_smoothing import monotone_spline, mean_monotone_spline, data_leaf_value
+from rumboost.utility_smoothing import (
+    monotone_spline,
+    mean_monotone_spline,
+    data_leaf_value,
+)
 
 if not matplotlib_seaborn_installed:
     raise ImportError(
         "Please install matplotlib and seaborn to use this module. You can do so by running 'pip install matplotlib seaborn'"
     )
+
+
 def plot_2d(
     model,
     feature1: str,
@@ -1707,6 +1715,7 @@ def plot_bootstrap(models: list, dataset: pd.DataFrame, features: dict[list[str]
                 )
             g.ax_joint.set(xlabel=f"{f}", ylabel="Utility")
 
+
 def compute_VoT(util_collection, u, f1, f2):
     """
     The function compute the Value of Time of the attributes specified in attribute_VoT.
@@ -1733,6 +1742,7 @@ def compute_VoT(util_collection, u, f1, f2):
     ]: u1.derivative()(x1) / u2.derivative()(x2)
 
     return VoT
+
 
 def create_name(features):
     """Create new feature names from a list of feature names"""
@@ -2146,6 +2156,7 @@ def weights_to_plot_v2(model, market_segm=False):
 
     return weights_for_plot
 
+
 def non_lin_function(weights_ordered, x_min, x_max, num_points):
     """
     Create the nonlinear function for parameters, from weights ordered by ascending splitting points.
@@ -2262,6 +2273,7 @@ def function_2d(weights_2d, x_vect, y_vect):
 
     return contour_plot_values
 
+
 def live_learning_plot(model):
     """
     Plot the live learning of the model.
@@ -2269,7 +2281,7 @@ def live_learning_plot(model):
     Parameters
     ----------
 
-    model: 
+    model:
         The trained model.
     """
 
@@ -2305,11 +2317,10 @@ def live_learning_plot(model):
     #     #"font.sans-serif": "Computer Modern Roman",
     # })
 
-
-
     plt.show()
 
-def update_plots(train_loss, test_loss, fig, ax1, train_loss_line, test_loss_line):
+
+def update_plots(train_loss, test_loss, ax):
     """
     Update the live learning plot.
 
@@ -2319,44 +2330,36 @@ def update_plots(train_loss, test_loss, fig, ax1, train_loss_line, test_loss_lin
         The list of loss values.
     fig : matplotlib.figure.Figure
         The figure object.
-    ax1 : matplotlib.axes.Axes
+    ax : matplotlib.axes.Axes
         The axes object.
-    train_loss_line : matplotlib.lines.Line2D
-        The line object for the training loss.
-    test_loss_line : matplotlib.lines.Line2D
-        The line object for the test loss.
     """
-    # Update the data of the line objects
-    train_loss_line.set_ydata(train_loss)
-    test_loss_line.set_ydata(test_loss)
+    ax.clear()
 
     # Update the x data and the axes limits
     x = list(range(len(train_loss)))
-    train_loss_line.set_xdata(x)
-    test_loss_line.set_xdata(x)
-    ax1.set_xlim(0, len(x))
-    ax1.set_ylim(min(train_loss), max(test_loss))
-
+    ax.plot(
+        x,
+        train_loss,
+        "-g",
+        x,
+        test_loss,
+        "-r",
+        linewidth=1,
+    )
     # Redraw the figure
-    fig.canvas.draw()
-    fig.canvas.flush_events()
+    plt.draw()
+    plt.pause(0.001)
+
 
 def init_plot():
     # Create a figure and a set of subplots
-    fig, ax1 = plt.subplots(figsize=(10, 6))
-    ax1.set_xlabel("Iteration")
-    ax1.set_ylabel("Cross-entropy loss")
-    ax1.set_title("Live learning")
-    ax1.grid(True)
 
-    # Create a line object for the loss
-    train_loss_line, = ax1.plot([], [], label="Training Loss", color="blue")
-    test_loss_line, = ax1.plot([], [], label="Test loss", color="red")
-
-
-    # Add a legend
-    ax1.legend()
-    
     plt.ion()
 
-    return fig, ax1, train_loss_line, test_loss_line
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("Cross-entropy loss")
+    ax.set_title("Live learning")
+    ax.grid(True)
+
+    return fig, ax
