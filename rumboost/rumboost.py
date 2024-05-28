@@ -1417,7 +1417,6 @@ class RUMBoost:
 
 
 def rum_train(
-    params: dict[str, Any],
     train_set: Union[Dataset, dict[str, Any]],
     model_specification: dict[str, Any],
     num_boost_round: int = 100,
@@ -1438,13 +1437,6 @@ def rum_train(
 
     Parameters
     ----------
-    params : dict
-        Parameters for training. Values passed through ``params`` take precedence over those
-        supplied via arguments. If num_classes > 2, please specify params['objective'] = 'multiclass'.
-        These parameters are the same than Lightgbm parameters. More information here:
-        https://lightgbm.readthedocs.io/en/latest/Parameters.html. If the verbose is greater than 1,
-        RUMBoost accepts the additional parameter 'verbose_interval', an integer
-        representing the interval in between each loss diplay.
     train_set : Dataset or dict[int, Any]
         Data to be trained on. Set free_raw_data=False when creating the dataset. If it is
         a dictionary, the key-value pairs should be:
@@ -1453,16 +1445,32 @@ def rum_train(
             - "labels": the labels of the full dataset.
             - "labels_j": the labels of the dataset for each class (binary).
     model_specification : dict
-        Dictionary specifying the model specification. The first key should be:
+        Dictionary specifying the model specification. The required keys are:
+
+            - 'general_params': dict
+                Dictionary containing the general parameters for the RUMBoost model.
+                The dictionary can contain the following keys:
+                    - 'num_classes': int
+                        Number of classes.
+                    - 'verbosity': int, optional (default = 1)
+                        Verbosity of the model.
+                    - 'verbosity_interval': int, optional (default = 10)
+                        Interval of the verbosity display. only used if verbosity > 1.
 
             -'rum_structure' : list[dict[str, Any]]
-                List of dictionaries specifying the variable in each of the class utilities,
-                and their monotonicity or interaction. The list must contain one dictionary for each class.
-                Each dictionary has three allowed keys:
+                List of dictionaries specifying the variable used to create the parameter ensemble,
+                and their monotonicity or interaction. The list must contain one dictionary for each parameter.
+                Each dictionary has three required keys:
 
-                    'cols': list of columns from the train_set included in that class
-                    'monotone_constraints': list of monotonic constraints on parameters
-                    'interaction_constraints': list of interaction constraints on features
+                    'utility': list of alternatives in which the parameter ensemble is used
+                    'variables': list of columns from the train_set included in that parameter_ensemble
+                    'boosting_params': dict
+                        Dictionary containing the boosting parameters for the parameter ensemble.
+                        If num_classes > 2, please specify params['objective'] = 'multiclass'.
+                        These parameters are the same than Lightgbm parameters. More information here:
+                        https://lightgbm.readthedocs.io/en/latest/Parameters.html. If the verbose is greater than 1,
+                        RUMBoost accepts the additional parameter 'verbose_interval', an integer
+                        representing the interval in between each loss diplay.
 
         The other keys are optional and can be:
 
@@ -1471,27 +1479,14 @@ def rum_train(
                     - 'mu': ndarray
                         An array of mu values, the scaling parameters, for each nest.
                         The first value of the array correspond to nest 0, and so on.
+                        By default, the value of mu is 1 and is optimised through scipy.minimize.
+                        Mu is competing against other parameter ensembles at each round to be
+                        selected as the updated parameter ensemble.
                     - 'nests': dict
                         A dictionary representing the nesting structure.
                         Keys are nests, and values are the the list of alternatives in the nest.
                         For example {0: [0, 1], 1: [2, 3]} means that alternative 0 and 1
                         are in nest 0, and alternative 2 and 3 are in nest 1.
-
-                and can contain the following keys:
-                    - 'optimise_mu': bool, optional (default = False)
-                        If True, the mu values are optimised during training. If the mu value of a nest
-                        is initially equal to 1, the mu value is assumed to be fixed.
-                    - 'optimise_it': int, optional (default = 100)
-                        The number of iterations between each optimisation of the mu values.
-                    - 'data_to_optimise': str, optional (default = 'train set')
-                        The dataset used for the optimisation of the mu values.
-                        Can be 'train set' or 'test set'.
-                    - 'optimisation_method': str, optional (default = None)
-                        The method used for the optimisation of the mu values with scipy.optimize.minimize.
-                    - 'lambda_l1': float, optional (default = 0)
-                        L1 regularisation parameter for the optimisation of the alpha and/or mu values.
-                    - 'lambda_l2': float, optional (default = 0)
-                        L2 regularisation parameter for the optimisation of the alpha and/or mu values.
 
             - 'cross_nested_logit': dict
                 Cross-nested logit model specification. The dictionary must contain:
@@ -1502,41 +1497,10 @@ def rum_train(
                         An array of J (alternatives) by M (nests).
                         alpha_jn represents the degree of membership of alternative j to nest n
                         By example, alpha_12 = 0.5 means that alternative one belongs 50% to nest 2.
-
-                and can contain the following keys:
-                    - 'optimise_mu': bool, optional (default = False)
-                        If True, the mu values are optimised during training. If the mu value of a nest
-                        is initially equal to 1, the mu value is assumed to be fixed.
                     - 'optimise_alphas': bool, optional (default = False)
-                        If True, the alpha values are optimised during training. If the alpha value of an alternative
-                        is initially equal to 1 or 0, the alpha value is assumed to be fixed.
-                    - 'optimise_it': int, optional (default = 100)
-                        The number of iterations between each optimisation.
-                    - 'data_to_optimise': str, optional (default = 'train set')
-                        The dataset used for the optimisation of the mu values.
-                        Can be 'train set' or 'test set'.
-                    - 'optimisation_method': str, optional (default = None)
-                        The method used for the optimisation of the mu values with scipy.optimize.minimize.
-                    - 'lambda_l1': float, optional (default = 0)
-                        L1 regularisation parameter for the optimisation of the alpha and/or mu values.
-                    - 'lambda_l2': float, optional (default = 0)
-                        L2 regularisation parameter for the optimisation of the alpha and/or mu values.
-
-            - 'functional_effects': dict
-                Functional effect model specification. The dictionary must contain:
-                    - 'params_fe': dict
-                        Parameters for training the socio-economic part of a functional effect model.
-
-                Note that the rum_structure must contain two dictionaries for each class,
-                one for the attributes and one for the socio-economic characteristics. They must be
-                in the order attributes, socio-economic characteristics, attributes, socio-economic characteristics, etc.
-
-            - 'shared_ensembles': dict
-                Dictionary of shared ensembles. Keys are the index of position
-                in the rum_structure list of the shared ensembles, and values are the list of alternatives
-                that share the parameter.
-
-        These keys are optional and can be combined, apart for the nested_logit and cross_nested_logit keys.
+                        If True, the alphas are optimised through scipy.minimize. This is not recommended
+                        for high dimensionality datasets as it can be computationally expensive.
+                    
 
     num_boost_round : int, optional (default = 100)
         Number of boosting iterations.
@@ -1548,8 +1512,6 @@ def rum_train(
             - "valid_labels": a list of the valid dataset labels.
             - "num_data": a list of the number of data in validation datasets.
         Note, you can pass several datasets for validation, but only the first one will be used for early stopping.
-    valid_names : list of str, or None, optional (default = None)
-        Names of ``valid_sets``.
     feval : callable, list of callable, or None, optional (default = None)
         Customized evaluation function.
         Each evaluation function should accept two parameters: preds, eval_data,
@@ -1635,10 +1597,17 @@ def rum_train(
     rum_booster : RUMBoost
         The trained RUMBoost model.
     """
+    #check if general training parameters are in model specification and store them
+    if 'general_params' not in model_specification:
+        raise ValueError("Model specification must contain general_params key")
+    params = model_specification["general_params"]
+
+    # check if verbosity is in params
     for alias in _ConfigAliases.get("verbosity"):
         if alias in params:
             verbosity = params[alias]
             verbose_interval = params.get("verbose_interval", 10)
+            
     # create predictor first
     params = copy.deepcopy(params)
     params = _choose_param_value(
@@ -1732,80 +1701,48 @@ def rum_train(
             or "mu" not in model_specification["nested_logit"]
         ):
             raise ValueError("Nested logit must contain nests key and mu key")
+        
+        # store the nests and mu values
         rumb.nests = model_specification["nested_logit"]["nests"]
         rumb.mu = model_specification["nested_logit"]["mu"]
         rumb.alphas = None
         f_obj = rumb.f_obj_nest
+
+        # store the nest alternative. If torch tensors are used, nest alternatives
+        # will be created later.
         if not torch_tensors:
             nest_alt = np.zeros(rumb.num_classes)
             for n, alts in rumb.nests.items():
                 nest_alt[alts] = n
             rumb.nest_alt = nest_alt.astype(int)
+
+        #type checks
         if not isinstance(rumb.mu, np.ndarray):
             raise ValueError("Mu must be a numpy array")
         if not isinstance(rumb.nests, dict):
             raise ValueError("Nests must be a dictionary")
-        optimise_mu = model_specification["nested_logit"].get("optimise_mu", False)
-        optimise_it = model_specification["nested_logit"].get("optimise_it", 100)
-        data_to_optimise = model_specification["nested_logit"].get(
-            "data_to_optimise", "train set"
-        )
-        optimisation_method = model_specification["nested_logit"].get(
-            "optimisation_method", None
-        )
-        lambda_l1 = model_specification["nested_logit"].get("lambda_l1", 0)
-        lambda_l2 = model_specification["nested_logit"].get("lambda_l2", 0)
-        if optimise_mu:
-            bounds = [(1, 10) if m != 1 else (1, 1) for m in rumb.mu]
-            optimise_alphas = None
-            alpha_shape = None
-        optimise_alphas = False
     elif "cross_nested_logit" in model_specification:
         if (
             "alphas" not in model_specification["cross_nested_logit"]
             or "mu" not in model_specification["cross_nested_logit"]
         ):
             raise ValueError("Cross nested logit must contain alphas key and mu key")
+        
+        # store the mu and alphas values
         rumb.mu = model_specification["cross_nested_logit"]["mu"]
         rumb.alphas = model_specification["cross_nested_logit"]["alphas"]
         rumb.nests = None
         rumb.nest_alt = None
         f_obj = rumb.f_obj_cross_nested
+
+        #type checks
         if not isinstance(rumb.mu, np.ndarray):
             raise ValueError("Mu must be a numpy array")
         if not isinstance(rumb.alphas, np.ndarray):
             raise ValueError("Alphas must be a numpy array")
-        optimise_mu = model_specification["cross_nested_logit"].get(
-            "optimise_mu", False
-        )
-        optimise_alphas = model_specification["cross_nested_logit"].get(
-            "optimise_alphas", False
-        )
-        optimise_it = model_specification["cross_nested_logit"].get("optimise_it", 100)
-        data_to_optimise = model_specification["cross_nested_logit"].get(
-            "data_to_optimise", "train set"
-        )
-        optimisation_method = model_specification["cross_nested_logit"].get(
-            "optimisation_method", None
-        )
-        lambda_l1 = model_specification["cross_nested_logit"].get("lambda_l1", 0)
-        lambda_l2 = model_specification["cross_nested_logit"].get("lambda_l2", 0)
-        # create bounds for optimisation if needed
-        if optimise_mu:
-            bounds = [(1, 10) if m != 1 else (1, 1) for m in rumb.mu]
-        if optimise_alphas:
-            try:
-                bounds += [
-                    (0, 0) if a == 0 else (1, 1) if a == 1 else (0, 1)
-                    for a in list(rumb.alphas.flatten())
-                ]
-            except:
-                bounds = [
-                    (0, 0) if a == 0 else (1, 1) if a == 1 else (0, 1)
-                    for a in list(rumb.alphas.flatten())
-                ]
-        alpha_shape = rumb.alphas.shape
+        
     else:
+        # no nesting structure
         rumb.mu = None
         rumb.nests = None
         rumb.nest_alt = None
@@ -1823,23 +1760,6 @@ def rum_train(
     else:
         rumb.shared_ensembles = None
         rumb.shared_start_idx = 0
-
-    # check and store functional effects
-    if (
-        "functional_effects" in model_specification
-        and (len(rumb.rum_structure) - rumb.shared_start_idx)
-        != 2 * params["num_classes"]
-    ):
-        raise ValueError(
-            "Functional effects model requires a rum_structure of length 2 * num_classes (without \
-                            shared ensembles) or 2 * num_classes + number of shared ensembles (with shared ensembles)"
-        )
-    if "functional_effects" in model_specification:
-        rumb.functional_effects = True
-        params_fe = model_specification["functional_effects"].get("params_fe", None)
-    else:
-        rumb.functional_effects = False
-        params_fe = None
 
     # preprocess parameters
     rumb._preprocess_params(params, params_fe=params_fe)  # prepare J set of parameters
