@@ -720,6 +720,10 @@ def load_preprocess_MTMC_all(
             ),
         )
 
+    zone_to_drop = [i for i in range(7965, 7978)]
+    mask = ~data["d_idx"].isin(zone_to_drop) & ~data["o_idx"].isin(zone_to_drop)
+    data = data[mask]
+
     try:
         with open(
             path + "strat_group_k_fold_mtmc_all.pickle",
@@ -744,6 +748,20 @@ def load_preprocess_MTMC_all(
             [train_idx, test_idx],
             open(
                 path + "strat_group_k_fold_mtmc_all.pickle",
+                "wb",
+            ),
+        )
+        pickle.dump(
+            df_train,
+            open(
+                path + "train_set_switzerland.pkl",
+                "wb",
+            ),
+        )
+        pickle.dump(
+            df_test,
+            open(
+                path + "test_set_switzerland.pkl",
                 "wb",
             ),
         )
