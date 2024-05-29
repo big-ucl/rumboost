@@ -115,10 +115,6 @@ def optimise_mu_or_alpha(
     optimise_mu,
     optimise_alpha,
     alpha_shape,
-    data_idx,
-    lambda_l1=0,
-    lambda_l2=0,
-    previous_ce=0,
 ):
     """
     Optimize mu or alpha values for a given dataset.
@@ -157,55 +153,47 @@ def optimise_mu_or_alpha(
                 "PyTorch is not installed. Please install PyTorch to use the GPU."
             )
         if optimise_mu:
-            rumb.mu = torch.from_numpy(params_to_optimise[:rumb.mu.shape[0]]).to(
+            mu = torch.from_numpy(params_to_optimise[:rumb.mu.shape[0]]).to(
                 rumb.device
             )
             if optimise_alpha:
-                rumb.alphas = (
+                alphas = (
                     torch.from_numpy(params_to_optimise[rumb.mu.shape[0]:])
                     .view(alpha_shape)
                     .to(rumb.device)
                 )
-                rumb.alphas = rumb.alphas / rumb.alphas.sum(dim=1, keepdim=True)
+                alphas = alphas / alphas.sum(dim=1, keepdim=True)
         elif optimise_alpha:
-            rumb.alphas = (
+            alphas = (
                 torch.from_numpy(params_to_optimise).view(alpha_shape).to(rumb.device)
             )
-            rumb.alphas = rumb.alphas / rumb.alphas.sum(dim=1, keepdim=True)
+            alphas = alphas / alphas.sum(dim=1, keepdim=True)
     else:
         if optimise_mu:
-            rumb.mu = params_to_optimise[: rumb.mu.shape[0]]
+            mu = params_to_optimise[: rumb.mu.shape[0]]
             if optimise_alpha:
-                rumb.alphas = params_to_optimise[rumb.mu.shape[0] :].reshape(
+                alphas = params_to_optimise[rumb.mu.shape[0]:].reshape(
                     alpha_shape
                 )
-                rumb.alphas = rumb.alphas / rumb.alphas.sum(axis=1, keepdims=True)
+                alphas = alphas / alphas.sum(axis=1, keepdims=True)
         elif optimise_alpha:
-            rumb.alphas = params_to_optimise.reshape(alpha_shape)
-            rumb.alphas = rumb.alphas / rumb.alphas.sum(axis=1, keepdims=True)
+            alphas = params_to_optimise.reshape(alpha_shape)
+            alphas = alphas / alphas.sum(axis=1, keepdims=True)
 
-    new_preds, _, _ = rumb._inner_predict(data_idx)
+    if rumb.nests:
+        new_preds, _, _ = nest_probs(
+            rumb.raw_preds, mu, rumb.nests, rumb.nest_alt
+        )
+    else:
+        new_preds, _, _ = cross_nested_probs(
+            rumb.raw_preds, mu, alphas
+        )
     if rumb.device is not None:
         if rumb.torch_compile:
-            loss = cross_entropy_torch_compiled(new_preds, labels) + (
-                previous_ce - rumb.best_score_train
-            ) * (
-                lambda_l1 * torch.norm(rumb.mu - 1, 1).cpu().numpy()
-                + lambda_l2 * torch.norm(rumb.mu - 1, 2).cpu().numpy()
-            )
+            loss = cross_entropy_torch_compiled(new_preds, labels)
         else:
-            loss = cross_entropy_torch(new_preds, labels) + (
-                previous_ce - rumb.best_score_train
-            ) * (
-                lambda_l1 * torch.norm(rumb.mu - 1, 1).cpu().numpy()
-                + lambda_l2 * torch.norm(rumb.mu - 1, 2).cpu().numpy()
-            )
+            loss = cross_entropy_torch(new_preds, labels)
     else:
-        loss = cross_entropy(new_preds, labels) + (
-            previous_ce - rumb.best_score_train
-        ) * (
-            lambda_l1 * np.linalg.norm(rumb.mu - 1, 1)
-            + lambda_l2 * np.linalg.norm(rumb.mu - 1, 2)
-        )
+        loss = cross_entropy(new_preds, labels)
 
     return loss

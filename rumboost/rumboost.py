@@ -1036,45 +1036,88 @@ class RUMBoost:
 
         # initialise RUMBoost score information
         self.booster_train_idx = booster_train_idx
-        self.booster_valid_idx = booster_valid_idx # not working for more than one valid set for now
+        self.booster_valid_idx = (
+            booster_valid_idx  # not working for more than one valid set for now
+        )
         self.best_iteration = 0
         self.best_score = 1e6
         self.best_score_train = 1e6
 
     def _find_best_booster(self):
+        """Find the best booster(s) to update and update the raw_predictions accordingly."""
 
-        # find best booster
-        candidate_preds = []
-        gain = []
+        gains = np.array(self._current_gains)
+        max_boost = self.max_booster_to_update
+        best_boosters = np.argsort(
+            gains[np.argpartition(gains, -max_boost)[-max_boost:]]
+        )[::-1].tolist()
+
+        return best_boosters
+    
+    def _update_raw_preds(self, best_boosters):
+        """Update the raw predictions of the RUMBoost model with the best booster(s) to update.
+
+        Parameters
+        ----------
+        best_boosters : list
+            List of the best booster(s) to update.
+        """
         is_class_updated = np.array([False] * self.num_classes)
-        for j, _ in enumerate(self.boosters):
+        for j in best_boosters:
             self.raw_preds[self.booster_train_idx[j]] += self._current_preds[j]
-            candi_preds = self._inner_predict()
-            gain.append(self.best_score_train - cross_entropy(candi_preds, self.labels))
-            candidate_preds.append(candi_preds)
-            self.raw_preds[self.booster_train_idx[j]] -= self._current_preds[j]
+            is_class_updated[self.rum_structure[j]["utility"]] = True
 
-        best_booster = []
-        while (
-            not np.any(is_class_updated)
-            or len(best_booster) < self.max_booster_to_update
-        ):
-            best_boost = np.argmin(gain)
-            is_class_updated[self.rum_structure[best_boost]["utility"]] = True
+            if np.all(is_class_updated):
+                break
+    
+    def _update_mu_or_alphas(self, res, optimise_mu, optimise_alphas, alpha_shape):
+        """Update mu or alphas for the cross-nested model.
 
-            # update raw predictions
-            self.raw_preds[self.booster_train_idx[best_boost]] += self._current_preds[
-                best_boost
-            ]
+        Parameters
+        ----------
+        res : OptimizeResult
+            The result of the optimization.
+        optimise_mu : bool
+            If True, optimise mu.
+        optimise_alphas : bool
+            If True, optimise alphas.
+        alpha_shape : tuple
+            The shape of the alphas array.
+        """
+        if optimise_mu:
+            if self.device is not None:
+                self.mu.add_(
+                    0.1
+                    * (
+                        torch.tensor(
+                            res.x[:len(self.mu)], device=self.device
+                        ).float()
+                        - self.mu
+                    )
+                )
+            else:
+                self.mu += 0.1 * (res.x[:len(self.mu)] - self.mu)
+        if optimise_alphas:
+            if self.device is not None:
+                self.alphas.add_(
+                    0.1
+                    * (
+                        torch.tensor(
+                            res.x[len(self.mu) :].reshape(alpha_shape),
+                            device=self.device,
+                        ).float()
+                        - self.alphas
+                    )
+                )
+            else:
+                self.alphas += 0.1 * (
+                    res.x[len(self.mu) :].reshape(alpha_shape) - self.alphas
+                )
 
-            best_booster.append(best_boost)
-            gain[best_boost] = 1e6
-
-        # rollback boosters that were not chosen
-        for j, booster in enumerate(self.boosters):
-            if j not in best_booster:
-                #     self.raw_preds[self.booster_train_idx[j]] -= self._current_pred[j]
-                booster.rollback_one_iter()
+    def _rollback_boosters(self, unchosen_boosters):
+        """Rollback the unchosen booster(s)."""
+        for j in unchosen_boosters:
+            self.boosters[j].rollback_one_iter()
 
     def _append(self, booster: Booster) -> None:
         """Add a booster to RUMBoost."""
@@ -1351,6 +1394,10 @@ def rum_train(
                         Keys are nests, and values are the the list of alternatives in the nest.
                         For example {0: [0, 1], 1: [2, 3]} means that alternative 0 and 1
                         are in nest 0, and alternative 2 and 3 are in nest 1.
+                    - 'optimise_mu': bool or list[bool], optional (default = True)
+                        If True, the mu values are optimised through scipy.minimize.
+                        If a list of booleans, the length must be equal to the number of nests.
+                        By example, [True, False] means that mu_0 is optimised and mu_1 is fixed.
 
             - 'cross_nested_logit': dict
                 Cross-nested logit model specification. The dictionary must contain:
@@ -1361,9 +1408,15 @@ def rum_train(
                         An array of J (alternatives) by M (nests).
                         alpha_jn represents the degree of membership of alternative j to nest n
                         By example, alpha_12 = 0.5 means that alternative one belongs 50% to nest 2.
-                    - 'optimise_alphas': bool, optional (default = False)
+                    - 'optimise_mu': bool or list[bool], optional (default = True)
+                        If True, the mu values are optimised through scipy.minimize.
+                        If a list of booleans, the length must be equal to the number of nests.
+                        By example, [True, False] means that mu_0 is optimised and mu_1 is fixed.
+                    - 'optimise_alphas': bool or ndarray[bool], optional (default = False)
                         If True, the alphas are optimised through scipy.minimize. This is not recommended
                         for high dimensionality datasets as it can be computationally expensive.
+                        If an array of boolean, the array must have the same size than alphas. By example
+                        if optimise_alphas_ij = True, alphas_ij will be optimised.
 
 
     num_boost_round : int, optional (default = 100)
@@ -1560,6 +1613,9 @@ def rum_train(
     ):
         raise ValueError("Cannot specify both nested_logit and cross_nested_logit")
 
+    # additional parameters to compete for best booster
+    rumb.additional_params_idx = []
+
     # nested logit or cross nested logit or mnl
     if "nested_logit" in model_specification:
         if (
@@ -1573,6 +1629,22 @@ def rum_train(
         rumb.mu = model_specification["nested_logit"]["mu"]
         rumb.alphas = None
         f_obj = rumb.f_obj_nest
+
+        # mu optimisation initialisaiton
+        optimise_mu = model_specification["nested_logit"].get("optimise_mu", True)
+        if isinstance(optimise_mu, list):
+            if len(optimise_mu) != len(rumb.mu):
+                raise ValueError(
+                    "The length of optimise_mu must be equal to the number of nests"
+                )
+            bounds = [(1, 10) if opt else (1, 1) for opt in optimise_mu]
+            optimise_mu = True
+        elif optimise_mu:
+            bounds = [(1, 10)] * len(rumb.mu)
+        else:
+            bounds = None
+        optimise_alphas = False
+        alpha_shape = None
 
         # store the nest alternative. If torch tensors are used, nest alternatives
         # will be created later.
@@ -1601,6 +1673,51 @@ def rum_train(
         rumb.nest_alt = None
         f_obj = rumb.f_obj_cross_nested
 
+        optimise_mu = model_specification["cross_nested_logit"].get("optimise_mu", True)
+        optimise_alphas = model_specification["cross_nested_logit"].get(
+            "optimise_alphas", False
+        )
+
+        if isinstance(optimise_mu, list):
+            if len(optimise_mu) != len(rumb.mu):
+                raise ValueError(
+                    "The length of optimise_mu must be equal to the number of nests"
+                )
+            bounds = [(1, 10) if opt else (1, 1) for opt in optimise_mu]
+            optimise_mu = True
+        elif optimise_mu:
+            bounds = [(1, 10)] * len(rumb.mu)
+        else:
+            bounds = None
+
+        if isinstance(optimise_alphas, np.array):
+            if optimise_alphas.shape != rumb.alphas.shape:
+                raise ValueError(
+                    "The shape of optimise_alphas must be equal to the shape of alphas"
+                )
+
+            if not bounds:
+                bounds = []
+            bounds.extend(
+                [
+                    (
+                        (0, 1)
+                        if alpha
+                        else (rumb.alpha.flatten()[i], rumb.alpha.flatten()[i])
+                    )
+                    for i, alpha in enumerate(optimise_alphas.flatten().tolist())
+                ]
+            )
+            optimise_alphas = True
+            alpha_shape = rumb.alphas.shape
+        elif optimise_alphas:
+            if not bounds:
+                bounds = []
+            bounds.extend([(0, 1)] * rumb.alphas.flatten().size)
+            alpha_shape = rumb.alphas.shape
+        else:
+            alpha_shape = None
+
         # type checks
         if not isinstance(rumb.mu, np.ndarray):
             raise ValueError("Mu must be a numpy array")
@@ -1614,6 +1731,14 @@ def rum_train(
         rumb.nest_alt = None
         rumb.alphas = None
         f_obj = rumb.f_obj
+        optimise_mu = False
+        optimise_alphas = False
+
+    if optimise_mu or optimise_alphas:
+        opt_mu_or_alpha_idx = len(rumb.rum_structure) + 1
+        rumb.additional_params_idx.append(opt_mu_or_alpha_idx)
+    else:
+        opt_mu_or_alpha_idx = None
 
     # check dataset and preprocess it
     if isinstance(train_set, dict):
@@ -1724,6 +1849,7 @@ def rum_train(
     for i in range(init_iteration, init_iteration + num_boost_round):
         # initialising the current predictions
         rumb._current_preds = []
+        rumb._current_gains = []
         # update all binary boosters of the rumb
         for j, booster in enumerate(rumb.boosters):
             for cb in callbacks_before_iter:
@@ -1741,9 +1867,17 @@ def rum_train(
             # store current class
             rumb._current_j = j
 
+            # initial gain
+            temp_gain = booster.feature_importance("gain").sum()
+
             # update the booster
             booster.update(train_set=None, fobj=f_obj)
 
+            # store update gain
+            rumb._current_gains.append(
+                (booster.feature_importance("gain").sum() - temp_gain)
+                / (rumb.num_obs[0] * len(rumb.rum_structure[j]["utility"]))
+            )
             # store new predictions
             rumb._current_preds.append(
                 -booster._Booster__inner_predict_buffer[
@@ -1774,8 +1908,48 @@ def rum_train(
                 booster.best_iteration = earlyStopException.best_iteration + 1
                 evaluation_result_list = earlyStopException.best_score
 
+        if rumb.mu is not None:
+            params_to_optimise = []
+
+            if optimise_mu:
+                if rumb.device is not None:
+                    params_to_optimise += rumb.mu.cpu().numpy().tolist()
+                else:
+                    params_to_optimise += rumb.mu.tolist()
+            if optimise_alphas:
+                if rumb.device is not None:
+                    params_to_optimise += rumb.alphas.cpu().numpy().flatten().tolist()
+                else:
+                    params_to_optimise += rumb.alphas.flatten().tolist()
+            # update mu
+            res = minimize(
+                optimise_mu_or_alpha,
+                np.array(params_to_optimise),
+                args=(
+                    rumb.labels,
+                    rumb,
+                    optimise_mu,
+                    optimise_alphas,
+                    alpha_shape,
+                ),
+                bounds=bounds,
+            )
+
+            rumb._current_gains.append(rumb.best_score_train - res.fun)
+
         # find best booster and update raw predictions
-        rumb._find_best_booster()
+        best_boosters = rumb._find_best_booster()
+
+        if opt_mu_or_alpha_idx in best_boosters:
+            best_boosters.pop(opt_mu_or_alpha_idx)
+            rumb._update_mu_or_alphas(res, optimise_mu, optimise_alphas, alpha_shape)
+
+        # update raw predictions
+        rumb.raw_preds = rumb._update_raw_preds(best_boosters)
+
+        # rollback unchosen boosters
+        unchosen_boosters = set(range(len(rumb.boosters))) - set(best_boosters)
+        rumb._rollback_boosters(unchosen_boosters)
 
         # make predictions after boosting round to compute new cross entropy and for next iteration grad and hess
         rumb._preds = rumb._inner_predict()
