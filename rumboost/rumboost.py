@@ -53,6 +53,7 @@ except ImportError:
     torch_installed = False
 try:
     import matplotlib.pyplot as plt
+
     matplotlib_installed = True
 except ImportError:
     matplotlib_installed = False
@@ -902,67 +903,29 @@ class RUMBoost:
         # loop over all J utilities
         for j, struct in enumerate(self.rum_structure):
             if struct:
-                if "columns" in struct:
+                if "variables" in struct:
                     train_set_j_data = data.get_data()[
-                        struct["columns"]
+                        struct["variables"]
                     ]  # only relevant features for the jth booster
 
-                    # transforming labels for functional effects
-                    if self.functional_effects and j < 2 * self.num_classes:
-                        l = int(j / 2)
-                    else:
-                        l = j
-
-                    if self.shared_ensembles:
-                        if l >= self.shared_start_idx:
-                            new_label = self.labels_j[
-                                :, self.shared_ensembles[l]
-                            ].reshape(-1, order="F")
-                            train_set_j = Dataset(
-                                train_set_j_data.values.reshape((-1, 1), order="A"),
-                                label=new_label,
-                                free_raw_data=free_raw_data,
-                            )  # create and build dataset
-                            categorical_feature = struct.get(
-                                "categorical_feature", "auto"
-                            )
-                            train_set_j._update_params(self.params[j])._set_predictor(
-                                None
-                            ).set_feature_name("auto").set_categorical_feature(
-                                categorical_feature
-                            )
-                            if construct_datasets:
-                                train_set_j.construct()
-                        else:
-                            train_set_j = Dataset(
-                                train_set_j_data,
-                                label=self.labels_j[:, l],
-                                free_raw_data=free_raw_data,
-                            )  # create and build dataset
-                            categorical_feature = struct.get(
-                                "categorical_feature", "auto"
-                            )
-                            train_set_j._update_params(self.params[j])._set_predictor(
-                                None
-                            ).set_feature_name("auto").set_categorical_feature(
-                                categorical_feature
-                            )
-                            if construct_datasets:
-                                train_set_j.construct()
-                    else:
-                        train_set_j = Dataset(
-                            train_set_j_data,
-                            label=self.labels_j[:, l],
-                            free_raw_data=free_raw_data,
-                        )  # create and build dataset
-                        categorical_feature = struct.get("categorical_feature", "auto")
-                        train_set_j._update_params(self.params[j])._set_predictor(
-                            None
-                        ).set_feature_name("auto").set_categorical_feature(
-                            categorical_feature
-                        )
-                        if construct_datasets:
-                            train_set_j.construct()
+                    new_label = self.labels_j[:, struct["utility"]].reshape(
+                        -1, order="F"
+                    )
+                    train_set_j = Dataset(
+                        train_set_j_data.values.reshape((-1, len(struct["utility"])), order="A"),
+                        label=new_label,
+                        free_raw_data=free_raw_data,
+                    )  # create and build dataset
+                    categorical_feature = struct.get("categorical_feature", "auto")
+                    train_set_j._update_params(
+                        struct["boosting_params"]
+                    )._set_predictor(None).set_feature_name(
+                        "auto"
+                    ).set_categorical_feature(
+                        categorical_feature
+                    )
+                    if construct_datasets:
+                        train_set_j.construct()
 
                     if reduced_valid_set is not None:
                         reduced_valid_sets_j = []
@@ -970,47 +933,21 @@ class RUMBoost:
                             # create and build validation sets
                             valid_set.construct()
                             valid_set_j_data = valid_set.get_data()[
-                                struct["columns"]
+                                struct["variables"]
                             ]  # only relevant features for the jth booster
 
-                            if self.shared_ensembles:
-                                if l >= self.shared_start_idx:
-                                    label_valid = val_labels_j[i][
-                                        :, self.shared_ensembles[l]
-                                    ].reshape(-1, order="F")
-                                    valid_set_j = Dataset(
-                                        valid_set_j_data.values.reshape(
-                                            (-1, 1), order="A"
-                                        ),
-                                        label=label_valid,
-                                        free_raw_data=free_raw_data,
-                                        reference=train_set_j,
-                                    )  # create and build dataset
-                                    valid_set_j._update_params(self.params[j])
-                                    if construct_datasets:
-                                        valid_set_j.construct()
-                                else:
-                                    valid_set_j = Dataset(
-                                        valid_set_j_data,
-                                        label=val_labels_j[i][:, l],
-                                        free_raw_data=free_raw_data,
-                                        reference=train_set_j,
-                                    )  # create and build dataset
-                                    valid_set_j._update_params(self.params[j])
-                                    if construct_datasets:
-                                        valid_set_j.construct()
-                            else:
-                                valid_set_j = Dataset(
-                                    valid_set_j_data,
-                                    label=val_labels_j[i][:, l],
-                                    reference=train_set_j,
-                                    free_raw_data=free_raw_data,
-                                )
-                                valid_set_j._update_params(self.params[j])
-                                if construct_datasets:
-                                    valid_set_j.construct()
-
-                            reduced_valid_sets_j.append(valid_set_j)
+                            label_valid = val_labels_j[i][:, struct["utility"]].reshape(
+                                -1, order="F"
+                            )
+                            valid_set_j = Dataset(
+                                valid_set_j_data.values.reshape((-1, 1), order="A"),
+                                label=label_valid,
+                                free_raw_data=free_raw_data,
+                                reference=train_set_j,
+                            )  # create and build dataset
+                            valid_set_j._update_params(struct["boosting_params"])
+                            if construct_datasets:
+                                valid_set_j.construct()
 
                 else:
                     # if no alternative specific datasets
@@ -1189,24 +1126,20 @@ class RUMBoost:
         name_valid_sets : list[str]
             List of names of validation sets.
         """
-        # getting parameters, training, and validation sets
-        params_J = self.params
-        train_set_J = self.train_set
-        reduced_valid_sets_J = self.valid_sets
 
-        for j, (param_j, train_set_j) in enumerate(zip(params_J, train_set_J)):
+        for j, struct in enumerate(self.rum_structure):
             # construct booster and perform basic preparations
             try:
-                booster = Booster(params=param_j, train_set=train_set_j)
+                booster = Booster(params=struct['boosting_params'], train_set=self.train_set[j])
                 if is_valid_contain_train:
                     booster.set_train_data_name(train_data_name)
                 for valid_set, name_valid_set in zip(
-                    reduced_valid_sets_J, name_valid_sets
+                    self.valid_sets, name_valid_sets
                 ):
                     booster.add_valid(valid_set[j], name_valid_set)
             finally:
-                train_set_j._reverse_update_params()
-                for valid_set in reduced_valid_sets_J:
+                self.train_set[j]._reverse_update_params()
+                for valid_set in self.valid_sets:
                     valid_set[j]._reverse_update_params()
 
             # initialise and store boosters in a list
@@ -1450,8 +1383,12 @@ def rum_train(
             - 'general_params': dict
                 Dictionary containing the general parameters for the RUMBoost model.
                 The dictionary can contain the following keys:
+                    - 'num_iterations': int
+                        Number of boosting iterations.
                     - 'num_classes': int
                         Number of classes.
+                    - 'early_stopping_rounds': int, optional (default = None)
+                        Activates early stopping. The model will train until the validation score stops improving.
                     - 'verbosity': int, optional (default = 1)
                         Verbosity of the model.
                     - 'verbosity_interval': int, optional (default = 10)
@@ -1500,7 +1437,7 @@ def rum_train(
                     - 'optimise_alphas': bool, optional (default = False)
                         If True, the alphas are optimised through scipy.minimize. This is not recommended
                         for high dimensionality datasets as it can be computationally expensive.
-                    
+
 
     num_boost_round : int, optional (default = 100)
         Number of boosting iterations.
@@ -1597,8 +1534,8 @@ def rum_train(
     rum_booster : RUMBoost
         The trained RUMBoost model.
     """
-    #check if general training parameters are in model specification and store them
-    if 'general_params' not in model_specification:
+    # check if general training parameters are in model specification and store them
+    if "general_params" not in model_specification:
         raise ValueError("Model specification must contain general_params key")
     params = model_specification["general_params"]
 
@@ -1607,11 +1544,11 @@ def rum_train(
         if alias in params:
             verbosity = params[alias]
             verbose_interval = params.get("verbose_interval", 10)
-            
+
     # create predictor first
     params = copy.deepcopy(params)
     params = _choose_param_value(
-        main_param_name="objective", params=params, default_value=None
+        main_param_name="objective", params=params, default_value="multiclass"
     )
     fobj: Optional[_LGBM_CustomObjectiveFunction] = None
     if callable(params["objective"]):
@@ -1701,7 +1638,7 @@ def rum_train(
             or "mu" not in model_specification["nested_logit"]
         ):
             raise ValueError("Nested logit must contain nests key and mu key")
-        
+
         # store the nests and mu values
         rumb.nests = model_specification["nested_logit"]["nests"]
         rumb.mu = model_specification["nested_logit"]["mu"]
@@ -1716,7 +1653,7 @@ def rum_train(
                 nest_alt[alts] = n
             rumb.nest_alt = nest_alt.astype(int)
 
-        #type checks
+        # type checks
         if not isinstance(rumb.mu, np.ndarray):
             raise ValueError("Mu must be a numpy array")
         if not isinstance(rumb.nests, dict):
@@ -1727,7 +1664,7 @@ def rum_train(
             or "mu" not in model_specification["cross_nested_logit"]
         ):
             raise ValueError("Cross nested logit must contain alphas key and mu key")
-        
+
         # store the mu and alphas values
         rumb.mu = model_specification["cross_nested_logit"]["mu"]
         rumb.alphas = model_specification["cross_nested_logit"]["alphas"]
@@ -1735,12 +1672,12 @@ def rum_train(
         rumb.nest_alt = None
         f_obj = rumb.f_obj_cross_nested
 
-        #type checks
+        # type checks
         if not isinstance(rumb.mu, np.ndarray):
             raise ValueError("Mu must be a numpy array")
         if not isinstance(rumb.alphas, np.ndarray):
             raise ValueError("Alphas must be a numpy array")
-        
+
     else:
         # no nesting structure
         rumb.mu = None
@@ -1750,19 +1687,6 @@ def rum_train(
         f_obj = rumb.f_obj
         optimise_mu = False
         optimise_alphas = False
-
-    # check and store shared ensembles
-    if "shared_ensembles" in model_specification:
-        rumb.shared_ensembles = model_specification["shared_ensembles"]
-        if not isinstance(rumb.shared_ensembles, dict):
-            raise ValueError("Shared ensembles must be a dictionary")
-        rumb.shared_start_idx = [*rumb.shared_ensembles][0]
-    else:
-        rumb.shared_ensembles = None
-        rumb.shared_start_idx = 0
-
-    # preprocess parameters
-    rumb._preprocess_params(params, params_fe=params_fe)  # prepare J set of parameters
 
     # check dataset and preprocess it
     if isinstance(train_set, dict):
@@ -1794,16 +1718,18 @@ def rum_train(
         train_data_name = "training"
         name_valid_sets = ["valid_0"]
         for j, train_set_j in enumerate(rumb.train_set):
-            train_set_j._update_params(rumb.params[j])._set_predictor(
-                predictor
-            ).set_feature_name(feature_name).set_categorical_feature(
+            train_set_j._update_params(
+                rumb.rum_structure[j]["boosting_params"]
+            )._set_predictor(predictor).set_feature_name(
+                feature_name
+            ).set_categorical_feature(
                 categorical_feature
             )
             if rumb.valid_sets:
                 for _, valid_set_j in enumerate(rumb.valid_sets):
-                    valid_set_j[j]._update_params(rumb.params[j]).set_reference(
-                        train_set_j
-                    )
+                    valid_set_j[j]._update_params(
+                        rumb.rum_structure[j]["boosting_params"]
+                    ).set_reference(train_set_j)
     elif not isinstance(train_set, Dataset):
         raise TypeError("Training only accepts Dataset object or dictionary")
     else:
@@ -1850,7 +1776,9 @@ def rum_train(
     # live plotting
     if live_plotting:
         if not matplotlib_installed:
-            raise ImportError('Matplotlib is not installed. Please installed it to use live plotting')
+            raise ImportError(
+                "Matplotlib is not installed. Please installed it to use live plotting"
+            )
         fig, ax = init_plot()
         train_loss = []
         test_loss = []
@@ -1876,14 +1804,6 @@ def rum_train(
                         evaluation_result_list=None,
                     )
                 )
-
-            # update booster with custom binary objective function, and relevant features
-            if rumb.functional_effects and j < 2 * rumb.num_classes:
-                rumb._current_j = int(
-                    j / 2
-                )  # if functional effect keep same j for the two ensembles of each alternative
-            else:
-                rumb._current_j = j
 
             booster.update(train_set=None, fobj=f_obj)
 
@@ -1922,13 +1842,9 @@ def rum_train(
                     rumb._preds, rumb.labels
                 )
             else:
-                cross_entropy_train = cross_entropy_torch(
-                    rumb._preds, rumb.labels
-                )
+                cross_entropy_train = cross_entropy_torch(rumb._preds, rumb.labels)
         else:
-            cross_entropy_train = cross_entropy(
-                rumb._preds, rumb.labels
-            )
+            cross_entropy_train = cross_entropy(rumb._preds, rumb.labels)
         if rumb.valid_labels is not None:
             cross_entropy_test = []
             for k, val_labels in enumerate(rumb.valid_labels):
@@ -2034,13 +1950,11 @@ def rum_train(
         if live_plotting:
             train_loss.append(cross_entropy_train)
             test_loss.append(cross_entropy_test[0])
-            update_plots(
-                train_loss, test_loss, ax
-            )
+            update_plots(train_loss, test_loss, ax)
 
     if live_plotting:
         plt.ioff()
-    
+
     for booster in rumb.boosters:
         booster.best_score_lgb = collections.defaultdict(collections.OrderedDict)
         for dataset_name, eval_name, score, _ in evaluation_result_list:
