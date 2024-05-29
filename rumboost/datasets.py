@@ -849,8 +849,6 @@ def prepare_dataset(
     df_train,
     num_classes,
     df_test=None,
-    shared_ensembles=None,
-    functional_effects=False,
     target="choice",
     free_raw_data=False,
     save_dataset=None,
@@ -871,12 +869,6 @@ def prepare_dataset(
         The number of classes.
     df_test : list of pandas DataFrame, optional
         The list of test datasets.
-    shared_ensembles : dict, optional
-        The shared ensembles.
-    valid_names : list, optional
-        The names of the validation sets.
-    functional_effects : bool or dict, optional
-        If the model has functional effects.
     target : str, optional
         The target variable.
     free_raw_data : bool, optional
@@ -954,107 +946,57 @@ def prepare_dataset(
         for val_labs in valid_labels
     ]
 
-    if shared_ensembles:
-        shared_start_idx = [*shared_ensembles][0]
-
     train_set_J = []
     reduced_valid_sets_J = []
     for j, struct in enumerate(rum_structure):
         print("-" * 30 + "\n" + f"[{j+1}/{num_datasets}] \t Loading dataset {j+1}...")
         if struct:
-            if "columns" in struct:
-                # transforming labels for functional effects
-                if functional_effects and j < 2 * num_classes:
-                    l = int(j / 2)
-                else:
-                    l = j
+            if "variables" in struct:
+                train_set_j_data = df_train[
+                    struct["variables"]
+                ]  # only relevant features for the jth booster
 
-                train_set_j_data = df_train[struct["columns"]].to_numpy(
-                    dtype=np.float32
-                )  # only relevant features for the jth booster
-
-                if shared_ensembles:
-                    if l >= shared_start_idx:
-                        new_label = labels_j[:, shared_ensembles[l]].reshape(
-                            -1, order="F"
-                        )
-                        train_set_j = Dataset(
-                            train_set_j_data.reshape((-1, 1), order="A"),
-                            label=new_label,
-                            free_raw_data=free_raw_data,
-                            params={"verbosity": -1},
-                        )  # create and build dataset
-                    else:
-                        train_set_j = Dataset(
-                            train_set_j_data,
-                            label=labels_j[:, l],
-                            free_raw_data=free_raw_data,
-                            params={"verbosity": -1},
-                        )  # create and build dataset
-                else:
-                    train_set_j = Dataset(
-                        train_set_j_data,
-                        label=labels_j[:, l],
-                        free_raw_data=free_raw_data,
-                        params={"verbosity": -1},
-                    )  # create and build dataset
+                new_label = labels_j[:, struct["utility"]].reshape(
+                    -1, order="F"
+                )
+                train_set_j = Dataset(
+                    train_set_j_data.values.reshape(
+                        (num_obs[0] * len(struct["utility"]), -1), order="A"
+                    ),
+                    label=new_label,
+                    free_raw_data=free_raw_data,
+                )  # create and build dataset
+                categorical_feature = struct.get("categorical_feature", "auto")
+                train_set_j._update_params(
+                    struct["boosting_params"]
+                )._set_predictor(None).set_feature_name(
+                    "auto"
+                ).set_categorical_feature(
+                    categorical_feature
+                )
 
                 if df_test is not None:
                     reduced_valid_sets_j = []
                     for i, valid_set in enumerate(df_test):
                         # create and build validation sets
-                        valid_set_j_data = valid_set[struct["columns"]].to_numpy(
-                            dtype=np.float32
-                        )  # only relevant features for the jth booster
+                        valid_set.construct()
+                        valid_set_j_data = valid_set.get_data()[
+                            struct["variables"]
+                        ]  # only relevant features for the jth booster
 
-                        if shared_ensembles:
-                            if l >= shared_start_idx:
-                                label_valid = val_labels_j[i][
-                                    :, shared_ensembles[l]
-                                ].reshape(-1, order="F")
-                                valid_set_j = Dataset(
-                                    valid_set_j_data.reshape((-1, 1), order="A"),
-                                    label=label_valid,
-                                    free_raw_data=free_raw_data,
-                                    reference=train_set_j,
-                                    params={"verbosity": -1},
-                                )  # create and build dataset
-                            else:
-                                valid_set_j = Dataset(
-                                    valid_set_j_data,
-                                    label=val_labels_j[i][:, l],
-                                    free_raw_data=free_raw_data,
-                                    reference=train_set_j,
-                                    params={"verbosity": -1},
-                                )  # create and build dataset
-                        else:
-                            valid_set_j = Dataset(
-                                valid_set_j_data,
-                                label=val_labels_j[i][:, l],
-                                reference=train_set_j,
-                                free_raw_data=free_raw_data,
-                            )
-
-                        reduced_valid_sets_j.append(valid_set_j)
-
-                        if save_dataset:
-                            valid_set_j.save_binary(
-                                f"{save_dataset}_valid_set_{j}_{i}.bin"
-                            )
-
-                train_set_J.append(train_set_j)
-                if save_dataset:
-                    train_set_j.save_binary(f"{save_dataset}_train_set_{j}.bin")
-                if df_test is not None:
-                    reduced_valid_sets_J.append(reduced_valid_sets_j)
-                del (
-                    train_set_j_data,
-                    valid_set_j_data,
-                    train_set_j,
-                    valid_set_j,
-                )
-                gc.collect()
-                print("\t done! \n" + "-" * 30 + "\n")
+                        label_valid = val_labels_j[i][:, struct["utility"]].reshape(
+                            -1, order="F"
+                        )
+                        valid_set_j = Dataset(
+                            valid_set_j_data.values.reshape(
+                                (num_obs[i + 1] * len(struct["utility"]), -1),
+                                order="A",
+                            ),
+                            label=label_valid,
+                            free_raw_data=free_raw_data,
+                            reference=train_set_j,
+                        )  # create and build dataset
+                        valid_set_j._update_params(struct["boosting_params"])
 
             else:
                 # if no alternative specific datasets
