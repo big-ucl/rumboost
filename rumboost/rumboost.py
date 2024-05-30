@@ -1945,7 +1945,7 @@ def rum_train(
             rumb._update_mu_or_alphas(res, optimise_mu, optimise_alphas, alpha_shape)
 
         # update raw predictions
-        rumb.raw_preds = rumb._update_raw_preds(best_boosters)
+        rumb._update_raw_preds(best_boosters)
 
         # rollback unchosen boosters
         unchosen_boosters = set(range(len(rumb.boosters))) - set(best_boosters)
