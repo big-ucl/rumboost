@@ -173,35 +173,74 @@ class RUMBoost:
                     self._preds,
                     self.num_classes,
                     self.rum_structure[self._current_j]["utility"],
-                    self.labels_j,
+                    self.labels_j[self.subsample_idx, :],
                 )
             else:
                 grad, hess = _f_obj_torch(
                     self._preds,
                     self.num_classes,
                     self.rum_structure[self._current_j]["utility"],
-                    self.labels_j,
+                    self.labels_j[self.subsample_idx, :],
+                )
+
+            if self.subsample_idx.shape[0] < self.num_obs[0]:
+                grad_rescaled = torch.zeros(
+                    (
+                        len(self.rum_structure[self._current_j]["utility"]),
+                        self.num_obs[0],
+                    ),
+                    device=self.device,
+                )
+                hess_rescaled = torch.zeros(
+                    (
+                        len(self.rum_structure[self._current_j]["utility"]),
+                        self.num_obs[0],
+                    ),
+                    device=self.device,
+                )
+                grad_rescaled[:, self.subsample_idx] = grad.T.view(
+                    len(self.rum_structure[self._current_j]["utility"]), -1
+                )
+                hess_rescaled[:, self.subsample_idx] = hess.view(
+                    len(self.rum_structure[self._current_j]["utility"]), -1
+                )
+
+                return (
+                    grad_rescaled.view(-1).cpu().numpy(),
+                    hess_rescaled.view(-1).cpu().numpy(),
                 )
 
             return grad.cpu().numpy(), hess.cpu().numpy()
 
         j = self._current_j  # jth booster
-        preds = self._preds[:, self.rum_structure[j]["utility"]].reshape(
-            -1, order="F"
-        )  # corresponding predictions
+        preds = self._preds[:, self.rum_structure[j]["utility"]]
         factor = self.num_classes / (
             self.num_classes - 1
         )  # factor to correct redundancy (see Friedmann, Greedy Function Approximation)
         eps = 1e-6
-        labels = self.labels_j[:, self.rum_structure[j]["utility"]].reshape(
-            -1, order="F"
-        )
+        labels = self.labels_j[:, self.rum_structure[j]["utility"]][
+            self.subsample_idx, :
+        ]
         grad = preds - labels
         hess = np.maximum(
             factor * preds * (1 - preds), eps
         )  # truncate low values to avoid numerical errors
 
-        return grad, hess
+        if self.subsample_idx.size < self.num_obs[0]:
+            grad_rescaled = np.zeros(
+                (self.num_obs[0], len(self.rum_structure[j]["utility"]))
+            )
+            hess_rescaled = np.zeros(
+                (self.num_obs[0], len(self.rum_structure[j]["utility"]))
+            )
+            grad_rescaled[self.subsample_idx, :] = grad
+            hess_rescaled[self.subsample_idx, :] = hess
+
+            return grad_rescaled.reshape(-1, order="F"), hess_rescaled.reshape(
+                -1, order="F"
+            )
+
+        return grad.reshape(-1, order="F"), hess.reshape(-1, order="F")
 
     def f_obj_nest(self, _, __):
         """
@@ -217,7 +256,7 @@ class RUMBoost:
         if self.device is not None:
             if self.torch_compile:
                 grad, hess = _f_obj_nested_torch_compiled(
-                    self.labels,
+                    self.labels[self.subsample_idx],
                     self.preds_i_m,
                     self.preds_m,
                     self.num_classes,
@@ -228,7 +267,7 @@ class RUMBoost:
                 )
             else:
                 grad, hess = _f_obj_nested_torch(
-                    self.labels,
+                    self.labels[self.subsample_idx],
                     self.preds_i_m,
                     self.preds_m,
                     self.num_classes,
@@ -238,10 +277,39 @@ class RUMBoost:
                     self.rum_structure[self._current_j]["utility"],
                 )
 
+            if self.subsample_idx.shape[0] < self.num_obs[0]:
+                grad_rescaled = torch.zeros(
+                    (
+                        len(self.rum_structure[self._current_j]["utility"]),
+                        self.num_obs[0],
+                    ),
+                    device=self.device,
+                    dtype=torch.double
+                )
+                hess_rescaled = torch.zeros(
+                    (
+                        len(self.rum_structure[self._current_j]["utility"]),
+                        self.num_obs[0],
+                    ),
+                    device=self.device,
+                    dtype=torch.double
+                )
+                grad_rescaled[:, self.subsample_idx] = grad.T.view(
+                    len(self.rum_structure[self._current_j]["utility"]), -1
+                )
+                hess_rescaled[:, self.subsample_idx] = hess.view(
+                    len(self.rum_structure[self._current_j]["utility"]), -1
+                )
+
+                return (
+                    grad_rescaled.view(-1).cpu().numpy(),
+                    hess_rescaled.view(-1).cpu().numpy(),
+                )
+
             return grad.cpu().numpy(), hess.cpu().numpy()
 
         j = self._current_j
-        label = self.labels
+        label = self.labels[self.subsample_idx]
         factor = self.num_classes / (self.num_classes - 1)
         label_nest = self.nest_alt[label]
 
@@ -289,6 +357,20 @@ class RUMBoost:
         )
         hess *= factor
 
+        if self.subsample_idx.size < self.num_obs[0]:
+            grad_rescaled = np.zeros(
+                (self.num_obs[0], len(self.rum_structure[j]["utility"]))
+            )
+            hess_rescaled = np.zeros(
+                (self.num_obs[0], len(self.rum_structure[j]["utility"]))
+            )
+            grad_rescaled[self.subsample_idx, :] = grad
+            hess_rescaled[self.subsample_idx, :] = hess
+
+            return grad_rescaled.reshape(-1, order="F"), hess_rescaled.reshape(
+                -1, order="F"
+            )
+
         grad = grad.T.reshape(-1)
         hess = hess.T.reshape(-1)
 
@@ -308,7 +390,7 @@ class RUMBoost:
         if self.device is not None:
             if self.torch_compile:
                 grad, hess = _f_obj_cross_nested_torch_compiled(
-                    self.labels,
+                    self.labels[self.subsample_idx],
                     self.preds_i_m,
                     self.preds_m,
                     self._preds,
@@ -319,7 +401,7 @@ class RUMBoost:
                 )
             else:
                 grad, hess = _f_obj_cross_nested_torch(
-                    self.labels,
+                    self.labels[self.subsample_idx],
                     self.preds_i_m,
                     self.preds_m,
                     self._preds,
@@ -329,10 +411,39 @@ class RUMBoost:
                     self.rum_structure[self._current_j]["utility"],
                 )
 
+            if self.subsample_idx.shape[0] < self.num_obs[0]:
+                grad_rescaled = torch.zeros(
+                    (
+                        len(self.rum_structure[self._current_j]["utility"]),
+                        self.num_obs[0],
+                    ),
+                    device=self.device,
+                    dtype=torch.double
+                )
+                hess_rescaled = torch.zeros(
+                    (
+                        len(self.rum_structure[self._current_j]["utility"]),
+                        self.num_obs[0],
+                    ),
+                    device=self.device,
+                    dtype=torch.double
+                )
+                grad_rescaled[:, self.subsample_idx] = grad.T.view(
+                    len(self.rum_structure[self._current_j]["utility"]), -1
+                )
+                hess_rescaled[:, self.subsample_idx] = hess.view(
+                    len(self.rum_structure[self._current_j]["utility"]), -1
+                )
+
+                return (
+                    grad_rescaled.view(-1).cpu().numpy(),
+                    hess_rescaled.view(-1).cpu().numpy(),
+                )
+
             return grad.cpu().numpy(), hess.cpu().numpy()
 
         j = self._current_j
-        label = self.labels
+        label = self.labels[self.subsample_idx]
         data_idx = np.arange(self.preds_i_m.shape[0])
         factor = self.num_classes / (self.num_classes - 1)
 
@@ -412,6 +523,20 @@ class RUMBoost:
             ((-1 / pred_i**2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj**2)),
         )
         hess *= factor
+
+        if self.subsample_idx.size < self.num_obs[0]:
+            grad_rescaled = np.zeros(
+                (self.num_obs[0], len(self.rum_structure[j]["utility"]))
+            )
+            hess_rescaled = np.zeros(
+                (self.num_obs[0], len(self.rum_structure[j]["utility"]))
+            )
+            grad_rescaled[self.subsample_idx, :] = grad.squeeze()
+            hess_rescaled[self.subsample_idx, :] = hess.squeeze()
+
+            return grad_rescaled.reshape(-1, order="F"), hess_rescaled.reshape(
+                -1, order="F"
+            )
 
         grad = grad.T.reshape(-1)
         hess = hess.T.reshape(-1)
@@ -612,7 +737,9 @@ class RUMBoost:
         # using pytorch if required
         if self.device is not None:
             if data_idx == 0:
-                raw_preds = self.raw_preds.view(-1,self.num_obs[data_idx]).T
+                raw_preds = self.raw_preds.view(-1, self.num_obs[data_idx]).T[
+                    self.subsample_idx, :
+                ]
             else:
                 raw_preds = torch.zeros(
                     self.num_obs[data_idx] * self.num_classes, device=self.device
@@ -650,7 +777,9 @@ class RUMBoost:
 
         # reshaping raw predictions into num_obs, num_classes array
         if data_idx == 0:
-            raw_preds = self.raw_preds.reshape((self.num_obs[data_idx], -1), order="F")
+            raw_preds = self.raw_preds.reshape((self.num_obs[data_idx], -1), order="F")[
+                self.subsample_idx, :
+            ]
         else:
             raw_preds = np.zeros(self.num_obs[data_idx] * self.num_classes)
             for j, _ in enumerate(self.rum_structure):
@@ -1042,7 +1171,6 @@ class RUMBoost:
         best_boosters : list
             List of the best booster(s) to update.
         """
-        is_class_updated = np.array([False] * self.num_classes)
         for j in best_boosters:
             if self.device is not None:
                 self.raw_preds[self.booster_train_idx[j]] += torch.from_numpy(
@@ -1050,10 +1178,6 @@ class RUMBoost:
                 ).to(self.device)
             else:
                 self.raw_preds[self.booster_train_idx[j]] += self._current_preds[j]
-            is_class_updated[self.rum_structure[j]["utility"]] = True
-
-            if np.all(is_class_updated):
-                break
 
     def _update_mu_or_alphas(self, res, optimise_mu, optimise_alphas, alpha_shape):
         """Update mu or alphas for the cross-nested model.
@@ -1334,6 +1458,10 @@ def rum_train(
                         Number of boosting iterations.
                     - 'num_classes': int
                         Number of classes.
+                    - 'subsampling': float, optional (default = 1.0)
+                        Subsample ratio of gradient when boosting
+                    - 'subsampling_freq': int, optional (default = 0)
+                        Subsample frequency.
                     - 'early_stopping_rounds': int, optional (default = None)
                         Activates early stopping. The model will train until the validation score stops improving.
                     - 'verbosity': int, optional (default = 1)
@@ -1589,8 +1717,10 @@ def rum_train(
         and "cross_nested_logit" in model_specification
     ):
         raise ValueError("Cannot specify both nested_logit and cross_nested_logit")
-    
-    rumb.max_booster_to_update = params.get("max_booster_to_update", len(rumb.rum_structure))
+
+    rumb.max_booster_to_update = params.get(
+        "max_booster_to_update", len(rumb.rum_structure)
+    )
 
     # additional parameters to compete for best booster
     rumb.additional_params_idx = []
@@ -1804,6 +1934,34 @@ def rum_train(
         if rumb.alphas is not None:
             rumb.alphas = torch.from_numpy(rumb.alphas).to(rumb.device)
 
+    if "subsampling" in params:
+        subsample = params["subsampling"]
+        if subsample == 1.0:
+            subsample_freq = 0
+            if torch_tensors:
+                rumb.subsample_idx = torch.arange(rumb.num_obs[0])
+            else:
+                rumb.subsample_idx = np.arange(rumb.num_obs[0])
+        else:
+            subsample_freq = params.get("subsampling_freq", 0)
+            if torch_tensors:
+                rumb.subsample_idx = torch.randperm(
+                    rumb.num_obs[0], device=rumb.device
+                )[: int(subsample * rumb.num_obs[0])]
+            else:
+                rumb.subsample_idx = np.random.choice(
+                    np.arange(rumb.num_obs[0]),
+                    int(subsample * rumb.num_obs[0]),
+                    replace=False,
+                )
+    else:
+        subsample = 1.0
+        subsample_freq = 0
+        if torch_tensors:
+            rumb.subsample_idx = torch.arange(rumb.num_obs[0], device=rumb.device)
+        else:
+            rumb.subsample_idx = np.arange(rumb.num_obs[0])
+
     # live plotting
     if live_plotting:
         if not matplotlib_installed:
@@ -1887,7 +2045,7 @@ def rum_train(
                 booster.best_iteration = earlyStopException.best_iteration + 1
                 evaluation_result_list = earlyStopException.best_score
 
-        if rumb.mu is not None and (i + 1) % 20 == 0:
+        if rumb.mu is not None and (i + 1) % 50 == 0:
             params_to_optimise = []
 
             if optimise_mu:
@@ -1922,8 +2080,6 @@ def rum_train(
         if opt_mu_or_alpha_idx in best_boosters:
             best_boosters.remove(opt_mu_or_alpha_idx)
             rumb._update_mu_or_alphas(res, optimise_mu, optimise_alphas, alpha_shape)
-            print(f"New mu: {rumb.mu}")
-            print(f"New alphas: {rumb.alphas}")
 
         # update raw predictions
         rumb._update_raw_preds(best_boosters)
@@ -1932,6 +2088,19 @@ def rum_train(
         unchosen_boosters = set(range(len(rumb.boosters))) - set(best_boosters)
         rumb._rollback_boosters(unchosen_boosters)
 
+        # reshuffle indices
+        if subsample_freq > 0 and (i + 1) % subsample_freq == 0:
+            if torch_tensors:
+                rumb.subsample_idx = torch.randperm(
+                    rumb.num_obs[0], device=rumb.device
+                )[: int(subsample * rumb.num_obs[0])]
+            else:
+                rumb.subsample_idx = np.random.choice(
+                    np.arange(rumb.num_obs[0]),
+                    int(subsample * rumb.num_obs[0]),
+                    replace=False,
+                )
+
         # make predictions after boosting round to compute new cross entropy and for next iteration grad and hess
         rumb._preds = rumb._inner_predict()
 
@@ -1939,12 +2108,16 @@ def rum_train(
         if torch_tensors:
             if rumb.torch_compile:
                 cross_entropy_train = cross_entropy_torch_compiled(
-                    rumb._preds, rumb.labels
+                    rumb._preds, rumb.labels[rumb.subsample_idx]
                 )
             else:
-                cross_entropy_train = cross_entropy_torch(rumb._preds, rumb.labels)
+                cross_entropy_train = cross_entropy_torch(
+                    rumb._preds, rumb.labels[rumb.subsample_idx]
+                )
         else:
-            cross_entropy_train = cross_entropy(rumb._preds, rumb.labels)
+            cross_entropy_train = cross_entropy(
+                rumb._preds, rumb.labels[rumb.subsample_idx]
+            )
         if rumb.valid_labels is not None:
             cross_entropy_test = []
             for k, val_labels in enumerate(rumb.valid_labels):
