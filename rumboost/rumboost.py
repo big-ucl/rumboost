@@ -170,23 +170,17 @@ class RUMBoost:
         if self.device is not None:
             if self.torch_compile:
                 grad, hess = _f_obj_torch_compiled(
-                    self._current_j,
                     self._preds,
                     self.num_classes,
-                    self.shared_ensembles,
-                    self.shared_start_idx,
+                    self.rum_structure[self._current_j]["utility"],
                     self.labels_j,
-                    self.labels,
                 )
             else:
                 grad, hess = _f_obj_torch(
-                    self._current_j,
                     self._preds,
                     self.num_classes,
-                    self.shared_ensembles,
-                    self.shared_start_idx,
+                    self.rum_structure[self._current_j]["utility"],
                     self.labels_j,
-                    self.labels,
                 )
 
             return grad.cpu().numpy(), hess.cpu().numpy()
@@ -223,7 +217,6 @@ class RUMBoost:
         if self.device is not None:
             if self.torch_compile:
                 grad, hess = _f_obj_nested_torch_compiled(
-                    self._current_j,
                     self.labels,
                     self.preds_i_m,
                     self.preds_m,
@@ -231,12 +224,10 @@ class RUMBoost:
                     self.mu,
                     self.nests,
                     self.device,
-                    self.shared_ensembles,
-                    self.shared_start_idx,
+                    self.rum_structure[self._current_j]["utility"],
                 )
             else:
                 grad, hess = _f_obj_nested_torch(
-                    self._current_j,
                     self.labels,
                     self.preds_i_m,
                     self.preds_m,
@@ -244,8 +235,7 @@ class RUMBoost:
                     self.mu,
                     self.nests,
                     self.device,
-                    self.shared_ensembles,
-                    self.shared_start_idx,
+                    self.rum_structure[self._current_j]["utility"],
                 )
 
             return grad.cpu().numpy(), hess.cpu().numpy()
@@ -318,7 +308,6 @@ class RUMBoost:
         if self.device is not None:
             if self.torch_compile:
                 grad, hess = _f_obj_cross_nested_torch_compiled(
-                    self._current_j,
                     self.labels,
                     self.preds_i_m,
                     self.preds_m,
@@ -326,12 +315,10 @@ class RUMBoost:
                     self.num_classes,
                     self.mu,
                     self.device,
-                    self.shared_ensembles,
-                    self.shared_start_idx,
+                    self.rum_structure[self._current_j]["utility"],
                 )
             else:
                 grad, hess = _f_obj_cross_nested_torch(
-                    self._current_j,
                     self.labels,
                     self.preds_i_m,
                     self.preds_m,
@@ -339,8 +326,7 @@ class RUMBoost:
                     self.num_classes,
                     self.mu,
                     self.device,
-                    self.shared_ensembles,
-                    self.shared_start_idx,
+                    self.rum_structure[self._current_j]["utility"],
                 )
 
             return grad.cpu().numpy(), hess.cpu().numpy()
@@ -625,44 +611,40 @@ class RUMBoost:
         """
         # using pytorch if required
         if self.device is not None:
-            raw_preds = [
-                torch.from_numpy(booster._Booster__inner_predict(data_idx)).to(
-                    self.device
+            if data_idx == 0:
+                raw_preds = self.raw_preds.view(-1,self.num_obs[data_idx]).T
+            else:
+                raw_preds = torch.zeros(
+                    self.num_obs[data_idx] * self.num_classes, device=self.device
                 )
-                for booster in self.boosters
-            ]
+                for j, _ in enumerate(self.rum_structure):
+                    raw_preds[self.booster_valid_idx[j]] += torch.from_numpy(
+                        self.boosters[j]._Booster__inner_predict(data_idx)
+                    ).to(device=self.device)
+                raw_preds = raw_preds.view(-1, self.num_obs[data_idx]).T
             if self.torch_compile:
                 preds, pred_i_m, pred_m = _inner_predict_torch_compiled(
                     raw_preds,
-                    self.shared_ensembles,
-                    self.n_obs[data_idx],
-                    self.num_classes,
                     self.device,
-                    self.shared_start_idx,
-                    self.functional_effects,
                     self.nests,
                     self.mu,
                     self.alphas,
-                    data_idx,
                     utilities,
                 )
             else:
                 preds, pred_i_m, pred_m = _inner_predict_torch(
                     raw_preds,
-                    self.shared_ensembles,
-                    self.n_obs[data_idx],
-                    self.num_classes,
                     self.device,
-                    self.shared_start_idx,
-                    self.functional_effects,
                     self.nests,
                     self.mu,
                     self.alphas,
-                    data_idx,
                     utilities,
                 )
             if self.mu is not None:
-                return preds, pred_i_m, pred_m
+                if data_idx == 0:
+                    self.preds_i_m = pred_i_m
+                    self.preds_m = pred_m
+                return preds
             else:
                 return preds
 
@@ -704,7 +686,7 @@ class RUMBoost:
             preds = softmax(raw_preds, axis=1)
             return preds
 
-        return raw_preds, _, _
+        return raw_preds
 
     def _preprocess_data(
         self,
@@ -1009,7 +991,7 @@ class RUMBoost:
                     range(u * self.num_obs[0], u * self.num_obs[0] + self.num_obs[0])
                     for u in struct["utility"]
                 ]
-                booster_train_idx.append(np.r_[idx_ranges])
+                booster_train_idx.append(np.r_[idx_ranges].reshape(-1))
                 if is_valid_contain_train:
                     booster.set_train_data_name(train_data_name)
                 if self.valid_sets is not None:
@@ -1023,7 +1005,7 @@ class RUMBoost:
                             )
                             for u in struct["utility"]
                         ]
-                        booster_valid_idx.append(np.r_[idx_ranges])
+                        booster_valid_idx.append(np.r_[idx_ranges].reshape(-1))
                         booster.add_valid(valid_set[j], name_valid_set)
             finally:
                 self.train_set[j]._reverse_update_params()
@@ -1047,13 +1029,11 @@ class RUMBoost:
         """Find the best booster(s) to update and update the raw_predictions accordingly."""
 
         gains = np.array(self._current_gains)
-        max_boost = self.max_booster_to_update
-        best_boosters = np.argsort(
-            gains[np.argpartition(gains, -max_boost)[-max_boost:]]
-        )[::-1].tolist()
+        max_boost = np.minimum(self.max_booster_to_update, len(gains))
+        best_boosters = np.argsort(gains)[-max_boost:][::-1].tolist()
 
         return best_boosters
-    
+
     def _update_raw_preds(self, best_boosters):
         """Update the raw predictions of the RUMBoost model with the best booster(s) to update.
 
@@ -1064,12 +1044,17 @@ class RUMBoost:
         """
         is_class_updated = np.array([False] * self.num_classes)
         for j in best_boosters:
-            self.raw_preds[self.booster_train_idx[j]] += self._current_preds[j]
+            if self.device is not None:
+                self.raw_preds[self.booster_train_idx[j]] += torch.from_numpy(
+                    self._current_preds[j]
+                ).to(self.device)
+            else:
+                self.raw_preds[self.booster_train_idx[j]] += self._current_preds[j]
             is_class_updated[self.rum_structure[j]["utility"]] = True
 
             if np.all(is_class_updated):
                 break
-    
+
     def _update_mu_or_alphas(self, res, optimise_mu, optimise_alphas, alpha_shape):
         """Update mu or alphas for the cross-nested model.
 
@@ -1087,32 +1072,26 @@ class RUMBoost:
         if optimise_mu:
             if self.device is not None:
                 self.mu.add_(
-                    0.1
+                    0.01
                     * (
-                        torch.tensor(
-                            res.x[:len(self.mu)], device=self.device
-                        ).float()
+                        torch.tensor(res.x[: len(self.mu)], device=self.device).float()
                         - self.mu
                     )
                 )
             else:
-                self.mu += 0.1 * (res.x[:len(self.mu)] - self.mu)
+                self.mu += 0.01 * (res.x[: len(self.mu)] - self.mu)
         if optimise_alphas:
             if self.device is not None:
-                self.alphas.add_(
-                    0.1
-                    * (
-                        torch.tensor(
-                            res.x[len(self.mu) :].reshape(alpha_shape),
-                            device=self.device,
-                        ).float()
-                        - self.alphas
-                    )
-                )
+                alphas_opt = torch.tensor(
+                    res.x[len(self.mu) :].reshape(alpha_shape),
+                    device=self.device,
+                ).float()
+                alphas_opt = alphas_opt / alphas_opt.sum(dim=1)[:, None]
+                self.alphas.add_(0.01 * (alphas_opt - self.alphas))
             else:
-                self.alphas += 0.1 * (
-                    res.x[len(self.mu) :].reshape(alpha_shape) - self.alphas
-                )
+                alphas_opt = res.x[len(self.mu) :].reshape(alpha_shape)
+                alphas_opt = alphas_opt / alphas_opt.sum(axis=1)[:, None]
+                self.alphas += 0.01 * (alphas_opt - self.alphas)
 
     def _rollback_boosters(self, unchosen_boosters):
         """Rollback the unchosen booster(s)."""
@@ -1394,9 +1373,9 @@ def rum_train(
                         Keys are nests, and values are the the list of alternatives in the nest.
                         For example {0: [0, 1], 1: [2, 3]} means that alternative 0 and 1
                         are in nest 0, and alternative 2 and 3 are in nest 1.
-                    - 'optimise_mu': bool or list[bool], optional (default = True)
+                    - 'optimise_mu': bool or ndarray[bool], optional (default = True)
                         If True, the mu values are optimised through scipy.minimize.
-                        If a list of booleans, the length must be equal to the number of nests.
+                        If an array of booleans, the length must be equal to the number of nests.
                         By example, [True, False] means that mu_0 is optimised and mu_1 is fixed.
 
             - 'cross_nested_logit': dict
@@ -1598,8 +1577,6 @@ def rum_train(
         )
     rumb.num_classes = params.get("num_classes")  # saving number of classes
 
-    rumb.max_booster_to_update = params.get("max_booster_to_update", rumb.num_classes)
-
     # checking model specification
     if "rum_structure" not in model_specification:
         raise ValueError("Model specification must contain rum_structure key")
@@ -1612,6 +1589,8 @@ def rum_train(
         and "cross_nested_logit" in model_specification
     ):
         raise ValueError("Cannot specify both nested_logit and cross_nested_logit")
+    
+    rumb.max_booster_to_update = params.get("max_booster_to_update", len(rumb.rum_structure))
 
     # additional parameters to compete for best booster
     rumb.additional_params_idx = []
@@ -1632,7 +1611,7 @@ def rum_train(
 
         # mu optimisation initialisaiton
         optimise_mu = model_specification["nested_logit"].get("optimise_mu", True)
-        if isinstance(optimise_mu, list):
+        if isinstance(optimise_mu, np.ndarray):
             if len(optimise_mu) != len(rumb.mu):
                 raise ValueError(
                     "The length of optimise_mu must be equal to the number of nests"
@@ -1690,7 +1669,7 @@ def rum_train(
         else:
             bounds = None
 
-        if isinstance(optimise_alphas, np.array):
+        if isinstance(optimise_alphas, np.ndarray):
             if optimise_alphas.shape != rumb.alphas.shape:
                 raise ValueError(
                     "The shape of optimise_alphas must be equal to the shape of alphas"
@@ -1703,7 +1682,7 @@ def rum_train(
                     (
                         (0, 1)
                         if alpha
-                        else (rumb.alpha.flatten()[i], rumb.alpha.flatten()[i])
+                        else (rumb.alphas.flatten()[i], rumb.alphas.flatten()[i])
                     )
                     for i, alpha in enumerate(optimise_alphas.flatten().tolist())
                 ]
@@ -1735,7 +1714,7 @@ def rum_train(
         optimise_alphas = False
 
     if optimise_mu or optimise_alphas:
-        opt_mu_or_alpha_idx = len(rumb.rum_structure) + 1
+        opt_mu_or_alpha_idx = len(rumb.rum_structure)
         rumb.additional_params_idx.append(opt_mu_or_alpha_idx)
     else:
         opt_mu_or_alpha_idx = None
@@ -1908,7 +1887,7 @@ def rum_train(
                 booster.best_iteration = earlyStopException.best_iteration + 1
                 evaluation_result_list = earlyStopException.best_score
 
-        if rumb.mu is not None:
+        if rumb.mu is not None and (i + 1) % 20 == 0:
             params_to_optimise = []
 
             if optimise_mu:
@@ -1941,8 +1920,10 @@ def rum_train(
         best_boosters = rumb._find_best_booster()
 
         if opt_mu_or_alpha_idx in best_boosters:
-            best_boosters.pop(opt_mu_or_alpha_idx)
+            best_boosters.remove(opt_mu_or_alpha_idx)
             rumb._update_mu_or_alphas(res, optimise_mu, optimise_alphas, alpha_shape)
+            print(f"New mu: {rumb.mu}")
+            print(f"New alphas: {rumb.alphas}")
 
         # update raw predictions
         rumb._update_raw_preds(best_boosters)

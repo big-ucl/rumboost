@@ -4,11 +4,19 @@ from rumboost.metrics import cross_entropy
 
 try:
     import torch
-    from rumboost.torch_functions import cross_entropy_torch, cross_entropy_torch_compiled
+    from rumboost.torch_functions import (
+        cross_entropy_torch,
+        cross_entropy_torch_compiled,
+        _nest_probs_torch,
+        _nest_probs_torch_compiled,
+        _cross_nested_probs_torch,
+        _cross_nested_probs_torch_compiled,
+    )
 
     torch_installed = True
 except ImportError:
     torch_installed = False
+
 
 def nest_probs(raw_preds, mu, nests, nest_alt):
     """compute nested predictions.
@@ -153,47 +161,70 @@ def optimise_mu_or_alpha(
                 "PyTorch is not installed. Please install PyTorch to use the GPU."
             )
         if optimise_mu:
-            mu = torch.from_numpy(params_to_optimise[:rumb.mu.shape[0]]).to(
+            mu = torch.from_numpy(params_to_optimise[: rumb.mu.shape[0]]).to(
                 rumb.device
             )
             if optimise_alpha:
                 alphas = (
-                    torch.from_numpy(params_to_optimise[rumb.mu.shape[0]:])
+                    torch.from_numpy(params_to_optimise[rumb.mu.shape[0] :])
                     .view(alpha_shape)
                     .to(rumb.device)
                 )
                 alphas = alphas / alphas.sum(dim=1, keepdim=True)
+            else:
+                alphas = rumb.alphas
         elif optimise_alpha:
             alphas = (
                 torch.from_numpy(params_to_optimise).view(alpha_shape).to(rumb.device)
             )
             alphas = alphas / alphas.sum(dim=1, keepdim=True)
-    else:
-        if optimise_mu:
-            mu = params_to_optimise[: rumb.mu.shape[0]]
-            if optimise_alpha:
-                alphas = params_to_optimise[rumb.mu.shape[0]:].reshape(
-                    alpha_shape
+            mu = rumb.mu
+        if rumb.nests:
+            if rumb.torch_compile:
+                new_preds, _, _ = _nest_probs_torch_compiled(
+                    rumb.raw_preds.view(-1, rumb.num_obs[0]).T, mu, rumb.nests, rumb.device
                 )
-                alphas = alphas / alphas.sum(axis=1, keepdims=True)
-        elif optimise_alpha:
-            alphas = params_to_optimise.reshape(alpha_shape)
-            alphas = alphas / alphas.sum(axis=1, keepdims=True)
-
-    if rumb.nests:
-        new_preds, _, _ = nest_probs(
-            rumb.raw_preds, mu, rumb.nests, rumb.nest_alt
-        )
-    else:
-        new_preds, _, _ = cross_nested_probs(
-            rumb.raw_preds, mu, alphas
-        )
-    if rumb.device is not None:
+            else:
+                new_preds, _, _ = _nest_probs_torch(
+                    rumb.raw_preds.view(-1, rumb.num_obs[0]).T, mu, rumb.nests, rumb.device
+                )
+        else:
+            if rumb.torch_compile:
+                new_preds, _, _ = _cross_nested_probs_torch_compiled(
+                    rumb.raw_preds.view(-1, rumb.num_obs[0]).T, mu, alphas, rumb.device
+                )
+            else:
+                new_preds, _, _ = _cross_nested_probs_torch(
+                    rumb.raw_preds.view(-1, rumb.num_obs[0]).T, mu, alphas, rumb.device
+                )
         if rumb.torch_compile:
             loss = cross_entropy_torch_compiled(new_preds, labels)
         else:
             loss = cross_entropy_torch(new_preds, labels)
     else:
+        if optimise_mu:
+            mu = params_to_optimise[: rumb.mu.shape[0]]
+            if optimise_alpha:
+                alphas = params_to_optimise[rumb.mu.shape[0] :].reshape(alpha_shape)
+                alphas = alphas / alphas.sum(axis=1, keepdims=True)
+            else:
+                alphas = rumb.alphas
+        elif optimise_alpha:
+            alphas = params_to_optimise.reshape(alpha_shape)
+            alphas = alphas / alphas.sum(axis=1, keepdims=True)
+            mu = rumb.mu
+
+        if rumb.nests:
+            new_preds, _, _ = nest_probs(
+                rumb.raw_preds.reshape(rumb.num_obs[0], -1, order="F"),
+                mu,
+                rumb.nests,
+                rumb.nest_alt,
+            )
+        else:
+            new_preds, _, _ = cross_nested_probs(
+                rumb.raw_preds.reshape(rumb.num_obs[0], -1, order="F"), mu, alphas
+            )
         loss = cross_entropy(new_preds, labels)
 
     return loss
