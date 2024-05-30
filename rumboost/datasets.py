@@ -720,53 +720,51 @@ def load_preprocess_MTMC_all(
             ),
         )
 
-    zone_to_drop = [i for i in range(7965, 7978)]
-    mask = ~data["d_idx"].isin(zone_to_drop) & ~data["o_idx"].isin(zone_to_drop)
-    data = data[mask]
+    # try:
+    #     with open(
+    #         path + "strat_group_k_fold_mtmc_all.pickle",
+    #         "rb",
+    #     ) as f:
+    #         train_idx, test_idx = pickle.load(f)
+    # except FileNotFoundError:
+    #     # get all features
+    #     target = "choice"
+    #     features = [f for f in df_train.columns if f != target]
 
-    try:
-        with open(
-            path + "strat_group_k_fold_mtmc_all.pickle",
-            "rb",
-        ) as f:
-            train_idx, test_idx = pickle.load(f)
-    except FileNotFoundError:
-        # get all features
-        target = "choice"
-        features = [f for f in df_train.columns if f != target]
+    #     hh_id = df_train["HHNR"]
 
-        hh_id = df_train["HHNR"]
+    #     # k folds sampled by households for cross validation
+    #     train_idx = []
+    #     test_idx = []
+    #     gkf = GroupKFold()
+    #     for train_i, test_i in gkf.split(df_train[features], df_train[target], hh_id):
+    #         train_idx.append(train_i)
+    #         test_idx.append(test_i)
+    #     pickle.dump(
+    #         [train_idx, test_idx],
+    #         open(
+    #             path + "strat_group_k_fold_mtmc_all.pickle",
+    #             "wb",
+    #         ),
+    #     )
+    #     pickle.dump(
+    #         df_train,
+    #         open(
+    #             path + "train_set_switzerland.pkl",
+    #             "wb",
+    #         ),
+    #     )
+    #     pickle.dump(
+    #         df_test,
+    #         open(
+    #             path + "test_set_switzerland.pkl",
+    #             "wb",
+    #         ),
+    #     )
 
-        # k folds sampled by households for cross validation
-        train_idx = []
-        test_idx = []
-        gkf = GroupKFold()
-        for train_i, test_i in gkf.split(df_train[features], df_train[target], hh_id):
-            train_idx.append(train_i)
-            test_idx.append(test_i)
-        pickle.dump(
-            [train_idx, test_idx],
-            open(
-                path + "strat_group_k_fold_mtmc_all.pickle",
-                "wb",
-            ),
-        )
-        pickle.dump(
-            df_train,
-            open(
-                path + "train_set_switzerland.pkl",
-                "wb",
-            ),
-        )
-        pickle.dump(
-            df_test,
-            open(
-                path + "test_set_switzerland.pkl",
-                "wb",
-            ),
-        )
+    # folds = zip(train_idx, test_idx)
 
-    folds = zip(train_idx, test_idx)
+    folds = None
 
     return df_train, df_test, folds, z_idx
 
@@ -961,7 +959,7 @@ def prepare_dataset(
                 )
                 train_set_j = Dataset(
                     train_set_j_data.values.reshape(
-                        (num_obs[0] * len(struct["utility"]), -1), order="A"
+                        (num_obs * len(struct["utility"]), -1), order="A"
                     ),
                     label=new_label,
                     free_raw_data=free_raw_data,
@@ -979,8 +977,7 @@ def prepare_dataset(
                     reduced_valid_sets_j = []
                     for i, valid_set in enumerate(df_test):
                         # create and build validation sets
-                        valid_set.construct()
-                        valid_set_j_data = valid_set.get_data()[
+                        valid_set_j_data = valid_set[
                             struct["variables"]
                         ]  # only relevant features for the jth booster
 
@@ -989,7 +986,7 @@ def prepare_dataset(
                         )
                         valid_set_j = Dataset(
                             valid_set_j_data.values.reshape(
-                                (num_obs[i + 1] * len(struct["utility"]), -1),
+                                (num_obs_test[i] * len(struct["utility"]), -1),
                                 order="A",
                             ),
                             label=label_valid,
@@ -997,6 +994,27 @@ def prepare_dataset(
                             reference=train_set_j,
                         )  # create and build dataset
                         valid_set_j._update_params(struct["boosting_params"])
+
+                        reduced_valid_sets_j.append(valid_set_j)
+
+                        if save_dataset:
+                            valid_set_j.save_binary(
+                                f"{save_dataset}_valid_set_{j}_{i}.bin"
+                            )
+
+                train_set_J.append(train_set_j)
+                if save_dataset:
+                    train_set_j.save_binary(f"{save_dataset}_train_set_{j}.bin")
+                if df_test is not None:
+                    reduced_valid_sets_J.append(reduced_valid_sets_j)
+                del (
+                    train_set_j_data,
+                    valid_set_j_data,
+                    train_set_j,
+                    valid_set_j,
+                )
+                gc.collect()
+                print("\t done! \n" + "-" * 30 + "\n")
 
             else:
                 # if no alternative specific datasets

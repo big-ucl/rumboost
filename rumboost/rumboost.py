@@ -1196,14 +1196,14 @@ class RUMBoost:
         if optimise_mu:
             if self.device is not None:
                 self.mu.add_(
-                    0.01
+                    0.05
                     * (
                         torch.tensor(res.x[: len(self.mu)], device=self.device).float()
                         - self.mu
                     )
                 )
             else:
-                self.mu += 0.01 * (res.x[: len(self.mu)] - self.mu)
+                self.mu += 0.05 * (res.x[: len(self.mu)] - self.mu)
         if optimise_alphas:
             if self.device is not None:
                 alphas_opt = torch.tensor(
@@ -1211,11 +1211,11 @@ class RUMBoost:
                     device=self.device,
                 ).float()
                 alphas_opt = alphas_opt / alphas_opt.sum(dim=1)[:, None]
-                self.alphas.add_(0.01 * (alphas_opt - self.alphas))
+                self.alphas.add_(0.05 * (alphas_opt - self.alphas))
             else:
                 alphas_opt = res.x[len(self.mu) :].reshape(alpha_shape)
                 alphas_opt = alphas_opt / alphas_opt.sum(axis=1)[:, None]
-                self.alphas += 0.01 * (alphas_opt - self.alphas)
+                self.alphas += 0.05 * (alphas_opt - self.alphas)
 
     def _rollback_boosters(self, unchosen_boosters):
         """Rollback the unchosen booster(s)."""
@@ -1271,10 +1271,6 @@ class RUMBoost:
                     "nest_alt": self.nest_alt,
                     "num_classes": self.num_classes,
                     "num_obs": self.num_obs,
-                    "functional_effects": self.functional_effects,
-                    "shared_ensembles": self.shared_ensembles,
-                    "shared_start_idx": self.shared_start_idx,
-                    "params": self.params,
                     "labels": self.labels.cpu().numpy().tolist(),
                     "labels_j": labels_j_numpy,
                     "valid_labels": valid_labels_numpy,
@@ -1304,10 +1300,6 @@ class RUMBoost:
                     "nest_alt": self.nest_alt,
                     "num_classes": self.num_classes,
                     "num_obs": self.num_obs,
-                    "functional_effects": self.functional_effects,
-                    "shared_ensembles": self.shared_ensembles,
-                    "shared_start_idx": self.shared_start_idx,
-                    "params": self.params,
                     "labels": self.labels.tolist(),
                     "labels_j": labels_j_list,
                     "valid_labels": valid_labs,
