@@ -1462,6 +1462,8 @@ def rum_train(
                         Interval of the verbosity display. only used if verbosity > 1.
                     - 'max_booster_to_update': int, optional (default = num_classes)
                         Maximum number of boosters to update at each round.
+                    - 'save_model_interval': int, optional (default = 0)
+                        The interval at which the model will be saved during training.
 
             -'rum_structure' : list[dict[str, Any]]
                 List of dictionaries specifying the variable used to create the parameter ensemble,
@@ -1617,6 +1619,8 @@ def rum_train(
     if "general_params" not in model_specification:
         raise ValueError("Model specification must contain general_params key")
     params = model_specification["general_params"]
+
+    save_model_interval = params.get('save_model_interval', 0)
 
     # check if verbosity is in params
     for alias in _ConfigAliases.get("verbosity"):
@@ -2163,6 +2167,10 @@ def rum_train(
                     )
                 )
             break
+        
+        # save model
+        if save_model_interval > 0 and (i % save_model_interval == 0):
+            rumb.save_model(f'models/MTMC_switzerland_CNL_cpu_{i}')
 
         if live_plotting:
             train_loss.append(cross_entropy_train)
