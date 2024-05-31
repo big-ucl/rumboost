@@ -1242,10 +1242,14 @@ class RUMBoost:
         if self.device is not None:
             if self.labels_j:
                 labels_j_numpy = [l.cpu().numpy().tolist() for l in self.labels_j]
+            else:
+                labels_j_numpy = []
             if self.valid_labels:
                 valid_labels_numpy = [
                     v.cpu().numpy().tolist() for v in self.valid_labels
                 ]
+            else:
+                valid_labels_numpy = []
             rumb_to_dict = {
                 "boosters": models_str,
                 "attributes": {
@@ -2230,7 +2234,7 @@ def rum_train(
 
         # save model
         if save_model_interval > 0 and (i % save_model_interval == 0):
-            rumb.save_model(f"models/MTMC_switzerland_CNL_cpu_{i}")
+            rumb.save_model(f"models/MTMC_switzerland_CNL_gpu_{i}")
 
         if live_plotting:
             train_loss.append(cross_entropy_train)
