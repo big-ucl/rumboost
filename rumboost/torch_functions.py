@@ -410,10 +410,6 @@ def _cross_nested_probs_torch(raw_preds, mu, alphas, device):
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
 
-    n_obs, n_alt = raw_preds.shape[0], raw_preds.shape[1]
-    pred_i_m = torch.zeros((n_obs, n_alt, mu.shape[0]), device=device)
-    pred_m = torch.zeros((n_obs, n_alt, mu.shape[0]), device=device)
-
     # scaling and exponential of raw_preds, following by degree of memberships
     raw_preds_mu_alpha_3d = (alphas**mu)[None, :, :] * torch.exp(
         mu[None, None, :] * raw_preds[:, :, None]
@@ -425,9 +421,11 @@ def _cross_nested_probs_torch(raw_preds, mu, alphas, device):
     pred_i_m = raw_preds_mu_alpha_3d / torch.sum(
         raw_preds_mu_alpha_3d, dim=1, keepdim=True
     )
+    del raw_preds_mu_alpha_3d 
 
     # pred of choosing m
     pred_m = sum_in_nest / torch.sum(sum_in_nest, dim=1, keepdim=True)
+    del sum_in_nest
 
     # final predictions for choosing i
     preds = torch.sum(pred_i_m * pred_m[:, None, :], dim=2)
@@ -466,10 +464,6 @@ def _cross_nested_probs_torch_compiled(raw_preds, mu, alphas, device):
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
 
-    n_obs, n_alt = raw_preds.shape[0], raw_preds.shape[1]
-    pred_i_m = torch.zeros((n_obs, n_alt, mu.shape[0]), device=device)
-    pred_m = torch.zeros((n_obs, n_alt, mu.shape[0]), device=device)
-
     # scaling and exponential of raw_preds, following by degree of memberships
     raw_preds_mu_alpha_3d = (alphas**mu)[None, :, :] * torch.exp(
         mu[None, None, :] * raw_preds[:, :, None]
@@ -481,9 +475,11 @@ def _cross_nested_probs_torch_compiled(raw_preds, mu, alphas, device):
     pred_i_m = raw_preds_mu_alpha_3d / torch.sum(
         raw_preds_mu_alpha_3d, dim=1, keepdim=True
     )
+    del raw_preds_mu_alpha_3d 
 
     # pred of choosing m
     pred_m = sum_in_nest / torch.sum(sum_in_nest, dim=1, keepdim=True)
+    del sum_in_nest
 
     # final predictions for choosing i
     preds = torch.sum(pred_i_m * pred_m[:, None, :], dim=2)
@@ -552,12 +548,12 @@ def _f_obj_nested_torch(
         raise ImportError(
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
-    label = labels
+    label = labels.int()
     n_obs = preds_i_m.shape[0]
-    data_idx = torch.arange(n_obs, device=device)
+    data_idx = torch.arange(n_obs, device=device, dtype=torch.int32)
     factor = num_classes / (num_classes - 1)
     n_alt = preds_i_m.shape[1]
-    nest_alt = torch.zeros(n_alt, dtype=torch.int64, device=device)
+    nest_alt = torch.zeros(n_alt, dtype=torch.int32, device=device)
     for a, n in nests.items():
         nest_alt[n] = a
     label_nest = nest_alt[None, :].repeat(n_obs, 1)[data_idx, label]
@@ -622,9 +618,6 @@ def _f_obj_nested_torch(
         ),
     )
     hess.mul_(factor)
-
-    grad = grad.T.reshape(-1)
-    hess = hess.T.reshape(-1)
 
     return grad, hess
 
@@ -645,12 +638,12 @@ def _f_obj_nested_torch_compiled(
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
 
-    label = labels
+    label = labels.int()
     n_obs = preds_i_m.shape[0]
-    data_idx = torch.arange(n_obs, device=device)
+    data_idx = torch.arange(n_obs, device=device, dtype=torch.int32)
     factor = num_classes / (num_classes - 1)
     n_alt = preds_i_m.shape[1]
-    nest_alt = torch.zeros(n_alt, dtype=torch.int64, device=device)
+    nest_alt = torch.zeros(n_alt, dtype=torch.int32, device=device)
     for a, n in nests.items():
         nest_alt[n] = a
     label_nest = nest_alt[None, :].repeat(n_obs, 1)[data_idx, label]
@@ -716,9 +709,6 @@ def _f_obj_nested_torch_compiled(
     )
     hess.mul_(factor)
 
-    grad = grad.T.reshape(-1)
-    hess = hess.T.reshape(-1)
-
     return grad, hess
 
 
@@ -736,8 +726,8 @@ def _f_obj_cross_nested_torch(
         raise ImportError(
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
-    label = labels
-    data_idx = torch.arange(preds_i_m.shape[0], device=device)
+    label = labels.int()
+    data_idx = torch.arange(preds_i_m.shape[0], device=device, dtype=torch.int32)
     factor = num_classes / (num_classes - 1)
 
     pred_j_m = preds_i_m[
@@ -815,9 +805,6 @@ def _f_obj_cross_nested_torch(
         ((-1 / pred_i**2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj**2)),
     )
     hess.mul_(factor)
-
-    grad = grad.T.reshape(-1)
-    hess = hess.T.reshape(-1)
     
     return grad, hess
 
@@ -838,8 +825,8 @@ def _f_obj_cross_nested_torch_compiled(
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
 
-    label = labels
-    data_idx = torch.arange(preds_i_m.shape[0], device=device)
+    label = labels.int()
+    data_idx = torch.arange(preds_i_m.shape[0], device=device, dtype=torch.int32)
     factor = num_classes / (num_classes - 1)
 
     pred_j_m = preds_i_m[
@@ -917,9 +904,6 @@ def _f_obj_cross_nested_torch_compiled(
         ((-1 / pred_i**2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj**2)),
     )
     hess.mul_(factor)
-
-    grad = grad.T.reshape(-1)
-    hess = hess.T.reshape(-1)
     
     return grad, hess
 
@@ -949,10 +933,11 @@ def cross_entropy_torch(preds, labels):
     return (
         -torch.mean(
             torch.log(
-                preds[torch.arange(labels.shape[0], device=labels.device), labels]
+                preds[torch.arange(labels.shape[0], device=labels.device, dtype=torch.int32), labels.int()]
             )
         )
         .cpu()
+        .type(torch.float32)
         .numpy()
     )
 
