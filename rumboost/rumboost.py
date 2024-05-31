@@ -726,7 +726,9 @@ class RUMBoost:
                         .type(dtype=torch.bfloat16)
                         .to(device=self.device)
                     )
-                raw_preds = raw_preds.view(-1, self.num_obs[data_idx]).T
+                raw_preds = raw_preds.view(-1, self.num_obs[data_idx]).T[
+                    self.subsample_idx_valid, :
+                ]
             if self.torch_compile:
                 preds, pred_i_m, pred_m = _inner_predict_torch_compiled(
                     raw_preds,
@@ -1445,6 +1447,8 @@ def rum_train(
                         Subsample ratio of gradient when boosting
                     - 'subsampling_freq': int, optional (default = 0)
                         Subsample frequency.
+                    - 'subsample_valid': float, optional (default = 1.0)
+                        Subsample ratio of validation data.
                     - 'early_stopping_rounds': int, optional (default = None)
                         Activates early stopping. The model will train until the validation score stops improving.
                     - 'verbosity': int, optional (default = 1)
@@ -1677,8 +1681,8 @@ def rum_train(
             )
         dev_str = torch_tensors.get("device", "cpu")
         rumb.torch_compile = torch_tensors.get("torch_compile", False)
-        if 'batch_size' in torch_tensors:
-            rumb.batch_size = torch_tensors['batch_size']
+        if "batch_size" in torch_tensors:
+            rumb.batch_size = torch_tensors["batch_size"]
         else:
             rumb.batch_size = None
         if dev_str == "cuda":
@@ -1968,6 +1972,27 @@ def rum_train(
         else:
             rumb.subsample_idx = np.arange(rumb.num_obs[0])
 
+    if "subsample_valid" in params:
+        subsample_valid = params["subsample_valid"]
+        if torch_tensors:
+            rumb.subsample_idx_valid = torch.randperm(
+                rumb.num_obs[1], device=rumb.device
+            )[: int(subsample_valid * rumb.num_obs[1])]
+        else:
+            rumb.subsample_idx_valid = np.random.choice(
+                np.arange(rumb.num_obs[1]),
+                int(subsample_valid * rumb.num_obs[1]),
+                replace=False,
+            )
+    else:
+        subsample_valid = 1.0
+        if torch_tensors:
+            rumb.subsample_idx_valid = torch.arange(
+                rumb.num_obs[1], device=rumb.device, dtype=torch.int32
+            )
+        else:
+            rumb.subsample_idx_valid = np.arange(rumb.num_obs[1])
+
     # live plotting
     if live_plotting:
         if not matplotlib_installed:
@@ -2051,7 +2076,7 @@ def rum_train(
                 booster.best_iteration = earlyStopException.best_iteration + 1
                 evaluation_result_list = earlyStopException.best_score
 
-        if rumb.mu is not None and (i + 1) % 50 == 0:
+        if rumb.mu is not None and (i + 1) % 20 == 0:
             params_to_optimise = []
 
             if optimise_mu:
@@ -2114,6 +2139,18 @@ def rum_train(
                 batches = torch.split(permutations, rumb.batch_size)
             rumb.subsample_idx = batches[(i + 1) % len(batches)]
 
+        if subsample_valid < 1.0 and (i + 1) % 50:
+            if torch_tensors:
+                rumb.subsample_idx_valid = torch.randperm(
+                    rumb.num_obs[1], device=rumb.device
+                )[: int(subsample_valid * rumb.num_obs[1])]
+            else:
+                rumb.subsample_idx_valid = np.random.choice(
+                    np.arange(rumb.num_obs[1]),
+                    int(subsample_valid * rumb.num_obs[1]),
+                    replace=False,
+                )
+
         # make predictions after boosting round to compute new cross entropy and for next iteration grad and hess
         rumb._preds = rumb._inner_predict()
 
@@ -2138,14 +2175,20 @@ def rum_train(
                 if torch_tensors:
                     if rumb.torch_compile:
                         cross_entropy_test.append(
-                            cross_entropy_torch_compiled(preds_valid, val_labels)
+                            cross_entropy_torch_compiled(
+                                preds_valid, val_labels[rumb.subsample_idx_valid]
+                            )
                         )
                     else:
                         cross_entropy_test.append(
-                            cross_entropy_torch(preds_valid, val_labels)
+                            cross_entropy_torch(
+                                preds_valid, val_labels[rumb.subsample_idx_valid]
+                            )
                         )
                 else:
-                    cross_entropy_test.append(cross_entropy(preds_valid, val_labels))
+                    cross_entropy_test.append(
+                        cross_entropy(preds_valid, val_labels[rumb.subsample_idx_valid])
+                    )
 
             # update best score and best iteration
             if cross_entropy_test[0] < rumb.best_score:
