@@ -1577,8 +1577,8 @@ def rum_train(
             'torch_compile': bool
                 If True, the prediction, objective function and cross-entropy calculations will be compiled with torch.compile.
                 If used with GPU or cuda, it requires to be on a linux os.
-            'torch_minimal': bool, optional (default=False)
-                If True, the prediction, objective function and cross-entropy calculations will be performed with minimal memory usage.
+            'batch': bool, optional (default=False)
+                If True, the prediction, objective function and cross-entropy calculations will be performed in batches.
     live_plotting : bool, optional (default=False)
         If True, the training process will be displayed in a live plot.
 
@@ -1677,6 +1677,10 @@ def rum_train(
             )
         dev_str = torch_tensors.get("device", "cpu")
         rumb.torch_compile = torch_tensors.get("torch_compile", False)
+        if 'batch_size' in torch_tensors:
+            rumb.batch_size = torch_tensors['batch_size']
+        else:
+            rumb.batch_size = None
         if dev_str == "cuda":
             rumb.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         elif dev_str == "gpu":
@@ -1923,7 +1927,7 @@ def rum_train(
                 torch.from_numpy(rumb.alphas).type(torch.float16).to(rumb.device)
             )
 
-    if "subsampling" in params:
+    if "subsampling" in params and not rumb.batch_size:
         subsample = params["subsampling"]
         if subsample == 1.0:
             subsample_freq = 0
@@ -1936,15 +1940,24 @@ def rum_train(
         else:
             subsample_freq = params.get("subsampling_freq", 0)
             if torch_tensors:
-                rumb.subsample_idx = torch.randperm(
+                permutations = torch.randperm(
                     rumb.num_obs[0], device=rumb.device, dtype=torch.int32
-                )[: int(subsample * rumb.num_obs[0])]
+                )
+                rumb.subsample_idx = permutations[: int(subsample * rumb.num_obs[0])]
             else:
                 rumb.subsample_idx = np.random.choice(
                     np.arange(rumb.num_obs[0]),
                     int(subsample * rumb.num_obs[0]),
                     replace=False,
                 )
+    elif rumb.batch_size:
+        subsample = 1.0
+        subsample_freq = 0
+        permutations = torch.randperm(
+            rumb.num_obs[0], device=rumb.device, dtype=torch.int32
+        )
+        batches = torch.split(permutations, rumb.batch_size)
+        rumb.subsample_idx = batches[0]
     else:
         subsample = 1.0
         subsample_freq = 0
@@ -2093,6 +2106,13 @@ def rum_train(
                     int(subsample * rumb.num_obs[0]),
                     replace=False,
                 )
+        elif rumb.batch_size:
+            if (i + 1) % len(batches) == 0:
+                permutations = torch.randperm(
+                    rumb.num_obs[0], device=rumb.device, dtype=torch.int32
+                )
+                batches = torch.split(permutations, rumb.batch_size)
+            rumb.subsample_idx = batches[(i + 1) % len(batches)]
 
         # make predictions after boosting round to compute new cross entropy and for next iteration grad and hess
         rumb._preds = rumb._inner_predict()
