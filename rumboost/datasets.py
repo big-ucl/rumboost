@@ -906,12 +906,12 @@ def prepare_dataset(
                     + "\n"
                     + f"[{j+1}/{num_datasets}] \t Loading dataset {j+1}..."
                 )
-                train_set_J.append(Dataset(data=f"{load_dataset}_train_set_{j}.bin"))
+                train_set_J.append(Dataset(data=f"{load_dataset}_train_set_{j}.bin", free_raw_data=False))
                 if df_test is not None:
                     reduced_valid_sets_j = []
                     for i, _ in enumerate(df_test):
                         reduced_valid_sets_j.append(
-                            Dataset(data=f"{load_dataset}_valid_set_{j}_{i}.bin")
+                            Dataset(data=f"{load_dataset}_valid_set_{j}_{i}.bin", free_raw_data=False, reference=train_set_J[j])
                         )
                     reduced_valid_sets_J.append(reduced_valid_sets_j)
                 print("\t done! \n" + "-" * 30 + "\n")
@@ -953,13 +953,18 @@ def prepare_dataset(
                 train_set_j_data = df_train[
                     struct["variables"]
                 ]  # only relevant features for the jth booster
-
-                new_label = labels_j[:, struct["utility"]].reshape(
-                    -1, order="F"
-                )
+                
+                if struct['shared']==True:
+                    new_label = labels_j[:, struct["utility"][:len(struct['variables'])]].reshape(
+                        -1, order="F"
+                    )
+                else:
+                    new_label = labels_j[:, 0].reshape(
+                        -1, order="F"
+                    )
                 train_set_j = Dataset(
                     train_set_j_data.values.reshape(
-                        (num_obs * len(struct["utility"]), -1), order="A"
+                        (len(new_label), -1), order="A"
                     ),
                     label=new_label,
                     free_raw_data=free_raw_data,
@@ -981,16 +986,21 @@ def prepare_dataset(
                             struct["variables"]
                         ]  # only relevant features for the jth booster
 
-                        label_valid = val_labels_j[i][:, struct["utility"]].reshape(
-                            -1, order="F"
-                        )
+                        if struct['shared']==True:
+                            label_valid = val_labels_j[i][:, struct["utility"][:len(struct['variables'])]].reshape(
+                                -1, order="F"
+                            )
+                        else:
+                            label_valid = val_labels_j[i][:, 0].reshape(
+                                -1, order="F"
+                            )
                         valid_set_j = Dataset(
                             valid_set_j_data.values.reshape(
-                                (num_obs_test[i] * len(struct["utility"]), -1),
+                                (len(label_valid), -1),
                                 order="A",
                             ),
                             label=label_valid,
-                            free_raw_data=free_raw_data,
+                            free_raw_data=False,
                             reference=train_set_j,
                         )  # create and build dataset
                         valid_set_j._update_params(struct["boosting_params"])

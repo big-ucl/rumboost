@@ -289,7 +289,7 @@ class RUMBoost:
                     -1, order="F"
                 )
 
-            return grad, hess
+            return grad.T.reshape(-1), hess.T.reshape(-1)
 
         j = self._current_j
         label = self.labels[self.subsample_idx]
@@ -412,7 +412,8 @@ class RUMBoost:
                     -1, order="F"
                 )
 
-            return grad, hess
+
+            return grad.T.reshape(-1), hess.T.reshape(-1)
 
         j = self._current_j
         label = self.labels[self.subsample_idx]
@@ -719,7 +720,9 @@ class RUMBoost:
                     dtype=torch.bfloat16,
                 )
                 for j, _ in enumerate(self.rum_structure):
-                    raw_preds[self.booster_valid_idx[j]] += (
+                    raw_preds[
+                        self.booster_valid_idx[j][0] : self.booster_valid_idx[j][1]
+                    ] += (
                         torch.from_numpy(
                             self.boosters[j]._Booster__inner_predict(data_idx)
                         )
@@ -804,6 +807,7 @@ class RUMBoost:
         return_data: bool = False,
         free_raw_data: bool = True,
         construct_datasets: bool = False,
+        predictor: list[Booster] = None,
     ):
         """Set up J training (and, if specified, validation) datasets.
 
@@ -820,6 +824,8 @@ class RUMBoost:
             If True, the raw data is freed after the datasets are created.
         construct_datasets : bool, optional (default = False)
             If True, the datasets are constructed.
+        predictor : list of Booster, optional (default=None)
+            The list of predictors to be used for the datasets.
 
         Returns
         -------
@@ -829,6 +835,7 @@ class RUMBoost:
             If return_data is True, and reduced_valid_set is not None, return one or several list(s) with J preprocessed validation sets corresponding to the J boosters.
         """
         train_set_J = []
+        data_to_repeat = []
         reduced_valid_sets_J = []
         self.valid_labels = []
 
@@ -858,6 +865,12 @@ class RUMBoost:
         for j, struct in enumerate(self.rum_structure):
             if struct:
                 if "variables" in struct:
+                    if len(struct["variables"]) < len(struct["utility"]):
+                        raise ValueError(
+                            "The number of utility functions must be equal or \
+                            greater than the number of variables. Please repeat \
+                            the variable in rum_structure."
+                        )
                     train_set_j_data = data.get_data()[
                         struct["variables"]
                     ]  # only relevant features for the jth booster
@@ -873,9 +886,10 @@ class RUMBoost:
                         free_raw_data=free_raw_data,
                     )  # create and build dataset
                     categorical_feature = struct.get("categorical_feature", "auto")
+                    predictor_j = predictor[j] if predictor else None
                     train_set_j._update_params(
                         struct["boosting_params"]
-                    )._set_predictor(None).set_feature_name(
+                    )._set_predictor(predictor_j).set_feature_name(
                         "auto"
                     ).set_categorical_feature(
                         categorical_feature
@@ -1092,35 +1106,40 @@ class RUMBoost:
             booster_valid_idx = []
         for j, struct in enumerate(self.rum_structure):
             # construct booster and perform basic preparations
-            if self.num_obs[0] == 147737:
-                init_model = "models/init_model_" + str(j) + ".txt"
-            else:
-                init_model = None
             try:
                 booster = Booster(
                     params=struct["boosting_params"],
                     train_set=self.train_set[j],
-                    model_file=init_model,
                 )
-                idx_ranges = [
-                    range(u * self.num_obs[0], u * self.num_obs[0] + self.num_obs[0])
-                    for u in struct["utility"]
-                ]
-                booster_train_idx.append(np.r_[idx_ranges].reshape(-1))
+                print("[RUMBoost] [Warning]: assuming utility is contiguous and sorted")
+                if self.device is not None:
+                    idx_ranges = [
+                        struct["utility"][0] * self.num_obs[0],
+                        (struct["utility"][-1] + 1) * self.num_obs[0],
+                    ]
+                else:
+                    idx_ranges = range(
+                        struct["utility"][0] * self.num_obs[0],
+                        (struct["utility"][-1] + 1) * self.num_obs[0],
+                    )
+                booster_train_idx.append(idx_ranges)
                 if is_valid_contain_train:
                     booster.set_train_data_name(train_data_name)
                 if self.valid_sets is not None:
                     for i, (valid_set, name_valid_set) in enumerate(
                         zip(self.valid_sets, name_valid_sets)
                     ):
-                        idx_ranges = [
-                            range(
-                                u * self.num_obs[i + 1],
-                                u * self.num_obs[i + 1] + self.num_obs[i + 1],
+                        if self.device is not None:
+                            idx_ranges = [
+                                struct["utility"][0] * self.num_obs[i + 1],
+                                (struct["utility"][-1] + 1) * self.num_obs[i + 1],
+                            ]
+                        else:
+                            idx_ranges = range(
+                                struct["utility"][0] * self.num_obs[i + 1],
+                                (struct["utility"][-1] + 1) * self.num_obs[i + 1],
                             )
-                            for u in struct["utility"]
-                        ]
-                        booster_valid_idx.append(np.r_[idx_ranges].reshape(-1))
+                        booster_valid_idx.append(idx_ranges)
                         booster.add_valid(valid_set[j], name_valid_set)
             finally:
                 self.train_set[j]._reverse_update_params()
@@ -1159,7 +1178,9 @@ class RUMBoost:
         """
         for j in best_boosters:
             if self.device is not None:
-                self.raw_preds[self.booster_train_idx[j]] += (
+                self.raw_preds[
+                    self.booster_train_idx[j][0] : self.booster_train_idx[j][1]
+                ] += (
                     torch.from_numpy(self._current_preds[j])
                     .type(torch.bfloat16)
                     .to(self.device)
@@ -1418,7 +1439,7 @@ def rum_train(
     feval: Optional[
         Union[_LGBM_CustomMetricFunction, list[_LGBM_CustomMetricFunction]]
     ] = None,
-    init_model: Optional[Union[str, Path, Booster]] = None,
+    init_models: Optional[Union[list[str], list[Path], list[Booster]]] = None,
     feature_name: Union[list[str], str] = "auto",
     categorical_feature: Union[list[str], list[int], str] = "auto",
     keep_training_booster: bool = False,
@@ -1453,6 +1474,8 @@ def rum_train(
                         Subsample frequency.
                     - 'subsample_valid': float, optional (default = 1.0)
                         Subsample ratio of validation data.
+                    - 'batch_size': int, optional (default = 0)
+                        Batch size for the training. The batch size will override the subsampling.
                     - 'early_stopping_rounds': int, optional (default = None)
                         Activates early stopping. The model will train until the validation score stops improving.
                     - 'verbosity': int, optional (default = 1)
@@ -1550,8 +1573,9 @@ def rum_train(
 
         To ignore the default metric corresponding to the used objective,
         set the ``metric`` parameter to the string ``"None"`` in ``params``.
-    init_model : str, pathlib.Path, Booster or None, optional (default = None)
-        Filename of LightGBM model or Booster instance used for continue training.
+    init_models : list[str], list[pathlib.Path], list[Booster] or None, optional (default = None)
+        List of filenames of LightGBM model or Booster instance used for continue training. There
+        should be one model for each rum_structure dictionary.
     feature_name : list of str, or 'auto', optional (default = "auto")
         Feature names.
         If 'auto' and data is pandas DataFrame, data columns names are used.
@@ -1654,11 +1678,31 @@ def rum_train(
     if num_boost_round <= 0:
         raise ValueError("num_boost_round should be greater than zero.")
     predictor: Optional[_InnerPredictor] = None
-    if isinstance(init_model, (str, Path)):
-        predictor = _InnerPredictor(model_file=init_model, pred_parameter=params)
-    elif isinstance(init_model, Booster):
-        predictor = init_model._to_predictor(dict(init_model.params, **params))
-    init_iteration = predictor.num_total_iteration if predictor is not None else 0
+    if init_models is not None:
+        predictor = []
+        init_iteration = []
+        for j, init_model in enumerate(init_models):
+            if isinstance(init_model, (str, Path)):
+                predictor.append(
+                    _InnerPredictor.from_model_file(
+                        model_file=init_model,
+                        pred_parameter=model_specification["rum_structure"][j][
+                            "boosting_params"
+                        ],
+                    )
+                )
+            elif isinstance(init_model, Booster):
+                predictor.append(
+                    _InnerPredictor.from_booster(
+                        booster=init_model,
+                        pred_parameter=dict(init_model.params, **params),
+                    )
+                )
+
+    if predictor is not None:
+        init_iteration = predictor[0].current_iteration()
+    else:
+        init_iteration = 0
 
     # process callbacks
     if callbacks is None:
@@ -1685,10 +1729,6 @@ def rum_train(
             )
         dev_str = torch_tensors.get("device", "cpu")
         rumb.torch_compile = torch_tensors.get("torch_compile", False)
-        if "batch_size" in torch_tensors:
-            rumb.batch_size = torch_tensors["batch_size"]
-        else:
-            rumb.batch_size = None
         if dev_str == "cuda":
             rumb.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         elif dev_str == "gpu":
@@ -1722,6 +1762,8 @@ def rum_train(
     rumb.max_booster_to_update = params.get(
         "max_booster_to_update", len(rumb.rum_structure)
     )
+
+    rumb.batch_size = params.get("batch_size", 0)
 
     # additional parameters to compete for best booster
     rumb.additional_params_idx = []
@@ -1880,9 +1922,10 @@ def rum_train(
         train_data_name = "training"
         name_valid_sets = ["valid_0"]
         for j, train_set_j in enumerate(rumb.train_set):
+            predictor_j = predictor[j] if predictor else None
             train_set_j._update_params(
                 rumb.rum_structure[j]["boosting_params"]
-            )._set_predictor(predictor).set_feature_name(
+            )._set_predictor(predictor_j).set_feature_name(
                 feature_name
             ).set_categorical_feature(
                 categorical_feature
@@ -1895,7 +1938,7 @@ def rum_train(
     elif not isinstance(train_set, Dataset):
         raise TypeError("Training only accepts Dataset object or dictionary")
     else:
-        train_set._update_params(params)._set_predictor(predictor).set_feature_name(
+        train_set._update_params(params)._set_predictor(None).set_feature_name(
             feature_name
         ).set_categorical_feature(categorical_feature)
         reduced_valid_sets, name_valid_sets, is_valid_contain_train, train_data_name = (
@@ -2050,13 +2093,19 @@ def rum_train(
                 (booster.feature_importance("gain").sum() - temp_gain)
                 / (rumb.num_obs[0] * len(rumb.rum_structure[j]["utility"]))
             )
+
             # store new predictions
-            rumb._current_preds.append(
-                -booster._Booster__inner_predict_buffer[
-                    0
-                ]  # this should be first because it is going to be updated when calling __inner_predict()
-                + booster._Booster__inner_predict(0)
-            )
+            if num_boost_round == 1:
+                rumb._current_preds.append(
+                    booster._Booster__inner_predict(0)
+                )
+            else:
+                rumb._current_preds.append(
+                    -booster._Booster__inner_predict_buffer[
+                        0
+                    ]  # this should be first because it is going to be updated when calling __inner_predict()
+                    + booster._Booster__inner_predict(0)
+                )
 
             # check evaluation result. (from lightGBM initial code, check on all J binary boosters)
             evaluation_result_list = []
@@ -2080,7 +2129,7 @@ def rum_train(
                 booster.best_iteration = earlyStopException.best_iteration + 1
                 evaluation_result_list = earlyStopException.best_score
 
-        if rumb.mu is not None and (i + 1) % 20 == 0:
+        if optimise_mu or optimise_alphas:
             params_to_optimise = []
 
             if optimise_mu:
