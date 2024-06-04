@@ -188,7 +188,6 @@ def plot_parameters(
     xlabel_max=None,
     only_tt=False,
     only_1d=False,
-    with_fit=False,
     sm_tt_cost=False,
     save_file="",
 ):
@@ -202,7 +201,7 @@ def plot_parameters(
     X : pandas dataframe
         Features used to train the model, in a pandas dataframe.
     utility_name : dict
-        Dictionary mapping utilities indices to their names.
+        Dictionary mapping booster indices to their utility names.
     feature_names : list, optional (default = None)
         List of feature names.
     save_figure : bool, optional (default = False)
@@ -212,7 +211,7 @@ def plot_parameters(
     with_asc : bool, optional (default = False)
         If True, add the ASCs to all graphs (one is normalised, and asc_normalised must be True).
     xlabel_max : dict, optional (default = None)
-        Dictionary mapping feature names to their maximum value on the x axis.
+        Dictionary mapping boosters to their maximum value on the x axis.
     only_tt : bool, optional (default = False)
         If True, plot only travel time and distance.
     only_1d : bool, optional (default = False)
@@ -583,7 +582,7 @@ def plot_parameters(
                 plt.ylabel("{} utility".format(utility_names[u]))
 
                 if feature_names:
-                    plt.xlabel("{}".format(feature_names[u]))
+                    plt.xlabel("{}".format(feature_names[u][i]))
                 elif "dur" in f:
                     plt.xlabel("{} [h]".format(f))
                 elif "TIME" in f:
