@@ -155,6 +155,11 @@ class RUMBoost:
             with open(model_file, "r") as file:
                 self._from_dict(json.load(file))
 
+        if self.alphas:
+            self.alphas = np.array(self.alphas)
+        if self.mu:
+            self.mu = np.array(self.mu)
+
     def f_obj(self, _, __):
         """
         Objective function of the binary classification boosters, but based on softmax predictions.
@@ -205,6 +210,27 @@ class RUMBoost:
                     -1, order="F"
                 )
 
+            if not self.rum_structure[j]["shared"]:
+                grad = grad.sum(axis=1)
+                hess = hess.sum(axis=1)
+            elif len(self.rum_structure[j]["variables"]) < len(
+                self.rum_structure[j]["utility"]
+            ):
+                grad = grad.T.reshape(
+                    int(
+                        len(self.rum_structure[j]["utility"])
+                        / len(self.rum_structure[j]["variables"])
+                    ),
+                    -1,
+                ).sum(axis=0)
+                hess = hess.T.reshape(
+                    int(
+                        len(self.rum_structure[j]["utility"])
+                        / len(self.rum_structure[j]["variables"])
+                    ),
+                    -1,
+                ).sum(axis=0)
+
             return grad, hess
 
         preds = self._preds[:, self.rum_structure[j]["utility"]]
@@ -233,6 +259,27 @@ class RUMBoost:
             return grad_rescaled.reshape(-1, order="F"), hess_rescaled.reshape(
                 -1, order="F"
             )
+
+        if not self.rum_structure[j]["shared"]:
+            grad = grad.sum(axis=1)
+            hess = hess.sum(axis=1)
+        elif len(self.rum_structure[j]["variables"]) < len(
+            self.rum_structure[j]["utility"]
+        ):
+            grad = grad.T.reshape(
+                int(
+                    len(self.rum_structure[j]["utility"])
+                    / len(self.rum_structure[j]["variables"])
+                ),
+                -1,
+            ).sum(axis=0)
+            hess = hess.T.reshape(
+                int(
+                    len(self.rum_structure[j]["utility"])
+                    / len(self.rum_structure[j]["variables"])
+                ),
+                -1,
+            ).sum(axis=0)
 
         return grad.reshape(-1, order="F"), hess.reshape(-1, order="F")
 
@@ -288,6 +335,27 @@ class RUMBoost:
                 return grad_rescaled.reshape(-1, order="F"), hess_rescaled.reshape(
                     -1, order="F"
                 )
+
+            if not self.rum_structure[j]["shared"]:
+                grad = grad.sum(axis=1)
+                hess = hess.sum(axis=1)
+            elif len(self.rum_structure[j]["variables"]) < len(
+                self.rum_structure[j]["utility"]
+            ):
+                grad = grad.T.reshape(
+                    int(
+                        len(self.rum_structure[j]["utility"])
+                        / len(self.rum_structure[j]["variables"])
+                    ),
+                    -1,
+                ).sum(axis=0)
+                hess = hess.T.reshape(
+                    int(
+                        len(self.rum_structure[j]["utility"])
+                        / len(self.rum_structure[j]["variables"])
+                    ),
+                    -1,
+                ).sum(axis=0)
 
             return grad.T.reshape(-1), hess.T.reshape(-1)
 
@@ -354,6 +422,27 @@ class RUMBoost:
                 -1, order="F"
             )
 
+        if not self.rum_structure[j]["shared"]:
+            grad = grad.sum(axis=1)
+            hess = hess.sum(axis=1)
+        elif len(self.rum_structure[j]["variables"]) < len(
+            self.rum_structure[j]["utility"]
+        ):
+            grad = grad.T.reshape(
+                int(
+                    len(self.rum_structure[j]["utility"])
+                    / len(self.rum_structure[j]["variables"])
+                ),
+                -1,
+            ).sum(axis=0)
+            hess = hess.T.reshape(
+                int(
+                    len(self.rum_structure[j]["utility"])
+                    / len(self.rum_structure[j]["variables"])
+                ),
+                -1,
+            ).sum(axis=0)
+
         grad = grad.T.reshape(-1)
         hess = hess.T.reshape(-1)
 
@@ -412,6 +501,26 @@ class RUMBoost:
                     -1, order="F"
                 )
 
+            if not self.rum_structure[j]["shared"]:
+                grad = grad.sum(axis=1)
+                hess = hess.sum(axis=1)
+            elif len(self.rum_structure[j]["variables"]) < len(
+                self.rum_structure[j]["utility"]
+            ):
+                grad = grad.T.reshape(
+                    int(
+                        len(self.rum_structure[j]["utility"])
+                        / len(self.rum_structure[j]["variables"])
+                    ),
+                    -1,
+                ).sum(axis=0)
+                hess = hess.T.reshape(
+                    int(
+                        len(self.rum_structure[j]["utility"])
+                        / len(self.rum_structure[j]["variables"])
+                    ),
+                    -1,
+                ).sum(axis=0)
 
             return grad.T.reshape(-1), hess.T.reshape(-1)
 
@@ -511,6 +620,27 @@ class RUMBoost:
                 -1, order="F"
             )
 
+        if not self.rum_structure[j]["shared"]:
+            grad = grad.sum(axis=1)
+            hess = hess.sum(axis=1)
+        elif len(self.rum_structure[j]["variables"]) < len(
+            self.rum_structure[j]["utility"]
+        ):
+            grad = grad.T.reshape(
+                int(
+                    len(self.rum_structure[j]["utility"])
+                    / len(self.rum_structure[j]["variables"])
+                ),
+                -1,
+            ).sum(axis=0)
+            hess = hess.T.reshape(
+                int(
+                    len(self.rum_structure[j]["utility"])
+                    / len(self.rum_structure[j]["variables"])
+                ),
+                -1,
+            ).sum(axis=0)
+
         grad = grad.T.reshape(-1)
         hess = hess.T.reshape(-1)
 
@@ -575,11 +705,21 @@ class RUMBoost:
         new_data, _ = self._preprocess_data(
             data, return_data=True, free_raw_data=False, construct_datasets=True
         )
-        # compute U
 
-        # using pytorch if required
         if self.device is not None:
-            raw_preds = [
+
+            self.device = torch.device(self.device)
+            if isinstance(self.mu, np.ndarray):
+                self.mu = torch.from_numpy(self.mu).type(torch.float32).to(
+                    device=self.device
+                )
+            if isinstance(self.alphas, np.ndarray):
+                self.alphas = torch.from_numpy(self.alphas).type(torch.float32).to(
+                    device=self.device
+                )
+
+
+            booster_preds = [
                 torch.from_numpy(
                     booster.predict(
                         new_data[k].get_data(),
@@ -591,43 +731,50 @@ class RUMBoost:
                         data_has_header,
                         validate_features,
                     )
-                ).to(self.device)
+                )
+                .type(torch.bfloat16)
+                .to(device=self.device)
                 for k, booster in enumerate(self.boosters)
             ]
-            if self.torch_compile:
-                preds, pred_i_m, pred_m = _predict_torch_compiled(
-                    raw_preds,
-                    self.shared_ensembles,
-                    data.num_data(),
-                    self.num_classes,
-                    self.device,
-                    self.shared_start_idx,
-                    self.functional_effects,
-                    self.nests,
-                    self.mu,
-                    self.alphas,
-                    utilities,
-                )
-            else:
-                preds, pred_i_m, pred_m = _predict_torch(
-                    raw_preds,
-                    self.shared_ensembles,
-                    data.num_data(),
-                    self.num_classes,
-                    self.device,
-                    self.shared_start_idx,
-                    self.functional_effects,
-                    self.nests,
-                    self.mu,
-                    self.alphas,
-                    utilities,
-                )
-            if self.mu is not None:
-                return preds, pred_i_m, pred_m
-            else:
-                return preds
+            raw_preds = torch.zeros(
+                data.num_data() * self.num_classes,
+                device=self.device,
+                dtype=torch.bfloat16,
+            )
 
-        raw_preds = [
+            # reshaping raw predictions into num_obs, num_classes array
+            for j, struct in enumerate(self.rum_structure):
+                if not struct["shared"]:
+                    raw_preds[struct["utility"][0] * data.num_data():(struct["utility"][-1] + 1) * data.num_data()] += booster_preds[j].repeat(
+                        len(struct["utility"])
+                    )
+                else:
+                    raw_preds[struct["utility"][0] * data.num_data():(struct["utility"][-1] + 1) * data.num_data()] += booster_preds[j].repeat(
+                        int(len(struct["utility"]) / len(struct["variables"]))
+                    )
+
+            raw_preds = raw_preds.view(-1, data.num_data()).T
+            if self.torch_compile:
+                preds, pred_i_m, pred_m = _inner_predict_torch_compiled(
+                    raw_preds,
+                    self.device,
+                    self.nests,
+                    self.mu,
+                    self.alphas,
+                    utilities,
+                )
+            else:
+                preds, pred_i_m, pred_m = _inner_predict_torch(
+                    raw_preds,
+                    self.device,
+                    self.nests,
+                    self.mu,
+                    self.alphas,
+                    utilities,
+                )
+            return preds
+
+        booster_preds = [
             booster.predict(
                 new_data[k].get_data(),
                 start_iteration,
@@ -641,33 +788,30 @@ class RUMBoost:
             for k, booster in enumerate(self.boosters)
         ]
 
-        # if shared ensembles, get the shared predictions out and reorder them for easier addition later
-        if self.shared_ensembles:
-            raw_shared_preds = np.zeros((data.num_data(), self.num_classes))
-            for i, arr in enumerate(raw_preds[self.shared_start_idx :]):
-                raw_shared_preds[
-                    :, self.shared_ensembles[i + self.shared_start_idx]
-                ] += arr.reshape(-1, data.num_data()).T
-            if self.shared_start_idx == 0:
-                raw_preds = np.zeros((data.num_data(), self.num_classes))
+        raw_preds = np.zeros((data.num_data() * self.num_classes))
+        # reshaping raw predictions into num_obs, num_classes array
+        for j, struct in enumerate(self.rum_structure):
+            idx_ranges = range(
+                struct["utility"][0] * data.num_data(),
+                (struct["utility"][-1] + 1) * data.num_data(),
+            )
+            if not struct["shared"]:
+                raw_preds[idx_ranges] += np.tile(
+                    booster_preds[j], len(struct["utility"])
+                )
             else:
-                raw_preds = np.array(raw_preds[: self.shared_start_idx]).T
-        else:
-            raw_preds = np.array(raw_preds).T
-
-        # if functional effect, sum the two ensembles (of attributes and socio-economic characteristics) of each alternative
-        if self.functional_effects:
-            raw_preds = raw_preds.reshape((-1, self.num_classes, 2)).sum(axis=2)
-
-        # if shared ensembles, add the shared ensembles to the individual specific ensembles
-        if self.shared_ensembles:
-            raw_preds += raw_shared_preds
+                raw_preds[idx_ranges] += np.tile(
+                    booster_preds[j],
+                    int(len(struct["utility"]) / len(struct["variables"])),
+                )
+        raw_preds = raw_preds.reshape((data.num_data(), -1), order="F")
 
         # compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
         if self.nests:
             preds, pred_i_m, pred_m = nest_probs(
                 raw_preds, mu=self.mu, nests=self.nests, nest_alt=self.nest_alt
             )
+
             return preds
 
         # compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
@@ -675,6 +819,7 @@ class RUMBoost:
             preds, pred_i_m, pred_m = cross_nested_probs(
                 raw_preds, mu=self.mu, alphas=self.alphas
             )
+
             return preds
 
         # softmax
@@ -720,15 +865,35 @@ class RUMBoost:
                     dtype=torch.bfloat16,
                 )
                 for j, _ in enumerate(self.rum_structure):
-                    raw_preds[
-                        self.booster_valid_idx[j][0] : self.booster_valid_idx[j][1]
-                    ] += (
-                        torch.from_numpy(
-                            self.boosters[j]._Booster__inner_predict(data_idx)
+                    if not self.rum_structure[j]["shared"]:
+                        raw_preds[
+                            self.booster_valid_idx[j][0] : self.booster_valid_idx[j][1]
+                        ] += (
+                            torch.from_numpy(
+                                np.tile(
+                                    self.boosters[j]._Booster__inner_predict(data_idx),
+                                    len(self.rum_structure[j]["utility"]),
+                                )
+                            )
+                            .type(dtype=torch.bfloat16)
+                            .to(device=self.device)
                         )
-                        .type(dtype=torch.bfloat16)
-                        .to(device=self.device)
-                    )
+                    else:
+                        raw_preds[
+                            self.booster_valid_idx[j][0] : self.booster_valid_idx[j][1]
+                        ] += (
+                            torch.from_numpy(
+                                np.tile(
+                                    self.boosters[j]._Booster__inner_predict(data_idx),
+                                    int(
+                                        len(self.rum_structure[j]["utility"])
+                                        / len(self.rum_structure[j]["variables"])
+                                    ),
+                                )
+                            )
+                            .type(dtype=torch.bfloat16)
+                            .to(device=self.device)
+                        )
                 raw_preds = raw_preds.view(-1, self.num_obs[data_idx]).T[
                     self.subsample_idx_valid, :
                 ]
@@ -766,9 +931,19 @@ class RUMBoost:
         else:
             raw_preds = np.zeros(self.num_obs[data_idx] * self.num_classes)
             for j, _ in enumerate(self.rum_structure):
-                raw_preds[self.booster_valid_idx[j]] += self.boosters[
-                    j
-                ]._Booster__inner_predict(data_idx)
+                if not self.rum_structure[j]["shared"]:
+                    raw_preds[self.booster_valid_idx[j]] += np.tile(
+                        self.boosters[j]._Booster__inner_predict(data_idx),
+                        len(self.rum_structure[j]["utility"]),
+                    )
+                else:
+                    raw_preds[self.booster_valid_idx[j]] += np.tile(
+                        self.boosters[j]._Booster__inner_predict(data_idx),
+                        int(
+                            len(self.rum_structure[j]["utility"])
+                            / len(self.rum_structure[j]["variables"])
+                        ),
+                    )
             raw_preds = raw_preds.reshape((self.num_obs[data_idx], -1), order="F")
 
         # compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
@@ -865,22 +1040,19 @@ class RUMBoost:
         for j, struct in enumerate(self.rum_structure):
             if struct:
                 if "variables" in struct:
-                    if len(struct["variables"]) < len(struct["utility"]):
-                        raise ValueError(
-                            "The number of utility functions must be equal or \
-                            greater than the number of variables. Please repeat \
-                            the variable in rum_structure."
-                        )
                     train_set_j_data = data.get_data()[
                         struct["variables"]
                     ]  # only relevant features for the jth booster
 
-                    new_label = self.labels_j[:, struct["utility"]].reshape(
-                        -1, order="F"
-                    )
+                    if struct["shared"] == True:
+                        new_label = self.labels_j[
+                            :, struct["utility"][: len(struct["variables"])]
+                        ].reshape(-1, order="F")
+                    else:
+                        new_label = self.labels_j[:, 0].reshape(-1, order="F")
                     train_set_j = Dataset(
                         train_set_j_data.values.reshape(
-                            (self.num_obs[0] * len(struct["utility"]), -1), order="A"
+                            (len(new_label), -1), order="A"
                         ),
                         label=new_label,
                         free_raw_data=free_raw_data,
@@ -906,19 +1078,26 @@ class RUMBoost:
                                 struct["variables"]
                             ]  # only relevant features for the jth booster
 
-                            label_valid = val_labels_j[i][:, struct["utility"]].reshape(
-                                -1, order="F"
-                            )
+                            if struct["shared"] == True:
+                                label_valid = val_labels_j[i][
+                                    :, struct["utility"][: len(struct["variables"])]
+                                ].reshape(-1, order="F")
+                            else:
+                                label_valid = val_labels_j[i][:, 0].reshape(
+                                    -1, order="F"
+                                )
                             valid_set_j = Dataset(
                                 valid_set_j_data.values.reshape(
-                                    (self.num_obs[i + 1] * len(struct["utility"]), -1),
+                                    (len(label_valid), -1),
                                     order="A",
                                 ),
                                 label=label_valid,
                                 free_raw_data=free_raw_data,
                                 reference=train_set_j,
                             )  # create and build dataset
-                            valid_set_j._update_params(struct["boosting_params"])
+                            valid_set_j._update_params(
+                                struct["boosting_params"]
+                            )._set_predictor(predictor_j)
                             if construct_datasets:
                                 valid_set_j.construct()
 
@@ -1069,9 +1248,7 @@ class RUMBoost:
                     continue
                 if not isinstance(valid_data, Dataset):
                     raise TypeError("Training only accepts Dataset object")
-                reduced_valid_sets.append(
-                    valid_data._update_params(params).set_reference(train_set)
-                )
+                reduced_valid_sets.append(valid_data._update_params(params))
                 if valid_names is not None and len(valid_names) > i:
                     name_valid_sets.append(valid_names[i])
                 else:
@@ -1100,6 +1277,8 @@ class RUMBoost:
             True if the training set is in the validation sets.
         name_valid_sets : list[str]
             List of names of validation sets.
+        init_models : list of Booster, optional (default=None)
+            The list of initial models to be used for the boosters.
         """
         booster_train_idx = []
         if self.valid_sets is not None:
@@ -1111,8 +1290,10 @@ class RUMBoost:
                     params=struct["boosting_params"],
                     train_set=self.train_set[j],
                 )
-                print("[RUMBoost] [Warning]: assuming utility is contiguous and sorted")
                 if self.device is not None:
+                    print(
+                        "[RUMBoost] [Warning]: assuming utility is contiguous and sorted"
+                    )
                     idx_ranges = [
                         struct["utility"][0] * self.num_obs[0],
                         (struct["utility"][-1] + 1) * self.num_obs[0],
@@ -1205,7 +1386,7 @@ class RUMBoost:
         if optimise_mu:
             if self.device is not None:
                 self.mu.add_(
-                    0.05
+                    0.1
                     * (
                         torch.tensor(
                             res.x[: len(self.mu)],
@@ -1216,7 +1397,7 @@ class RUMBoost:
                     )
                 )
             else:
-                self.mu += 0.05 * (res.x[: len(self.mu)] - self.mu)
+                self.mu += 0.1 * (res.x[: len(self.mu)] - self.mu)
         if optimise_alphas:
             if self.device is not None:
                 alphas_opt = torch.tensor(
@@ -1225,11 +1406,11 @@ class RUMBoost:
                     dtype=torch.float16,
                 )
                 alphas_opt = alphas_opt / alphas_opt.sum(dim=1)[:, None]
-                self.alphas.add_(0.05 * (alphas_opt - self.alphas))
+                self.alphas.add_(0.1 * (alphas_opt - self.alphas))
             else:
                 alphas_opt = res.x[len(self.mu) :].reshape(alpha_shape)
                 alphas_opt = alphas_opt / alphas_opt.sum(axis=1)[:, None]
-                self.alphas += 0.05 * (alphas_opt - self.alphas)
+                self.alphas += 0.1 * (alphas_opt - self.alphas)
 
     def _rollback_boosters(self, unchosen_boosters):
         """Rollback the unchosen booster(s)."""
@@ -1490,17 +1671,19 @@ def rum_train(
             -'rum_structure' : list[dict[str, Any]]
                 List of dictionaries specifying the variable used to create the parameter ensemble,
                 and their monotonicity or interaction. The list must contain one dictionary for each parameter.
-                Each dictionary has three required keys:
+                Each dictionary has four required keys:
 
-                    'utility': list of alternatives in which the parameter ensemble is used
-                    'variables': list of columns from the train_set included in that parameter_ensemble
-                    'boosting_params': dict
+                    - 'utility': list of alternatives in which the parameter ensemble is used
+                    - 'variables': list of columns from the train_set included in that parameter_ensemble
+                    - 'boosting_params': dict
                         Dictionary containing the boosting parameters for the parameter ensemble.
                         If num_classes > 2, please specify params['objective'] = 'multiclass'.
                         These parameters are the same than Lightgbm parameters. More information here:
                         https://lightgbm.readthedocs.io/en/latest/Parameters.html. If the verbose is greater than 1,
                         RUMBoost accepts the additional parameter 'verbose_interval', an integer
                         representing the interval in between each loss diplay.
+                    - 'shared': bool
+                        If True, the parameter ensemble is shared across all alternatives.
 
         The other keys are optional and can be:
 
@@ -1795,6 +1978,7 @@ def rum_train(
             bounds = [(1, 10)] * len(rumb.mu)
         else:
             bounds = None
+            optimise_mu = False
         optimise_alphas = False
         alpha_shape = None
 
@@ -1841,6 +2025,7 @@ def rum_train(
             bounds = [(1, 10)] * len(rumb.mu)
         else:
             bounds = None
+            optimise_mu = False
 
         if isinstance(optimise_alphas, np.ndarray):
             if optimise_alphas.shape != rumb.alphas.shape:
@@ -1869,6 +2054,7 @@ def rum_train(
             alpha_shape = rumb.alphas.shape
         else:
             alpha_shape = None
+            optimise_alphas = False
 
         # type checks
         if not isinstance(rumb.mu, np.ndarray):
@@ -1934,7 +2120,7 @@ def rum_train(
                 for _, valid_set_j in enumerate(rumb.valid_sets):
                     valid_set_j[j]._update_params(
                         rumb.rum_structure[j]["boosting_params"]
-                    ).set_reference(train_set_j)
+                    )._set_predictor(predictor_j)
     elif not isinstance(train_set, Dataset):
         raise TypeError("Training only accepts Dataset object or dictionary")
     else:
@@ -1945,7 +2131,7 @@ def rum_train(
             rumb._preprocess_valids(train_set, params, valid_sets)
         )  # prepare validation sets
         rumb._preprocess_data(
-            train_set, reduced_valid_sets
+            train_set, reduced_valid_sets, predictor=predictor
         )  # prepare J datasets with relevant features
         if rumb.mu is not None:
             rumb.labels_j = None
@@ -2057,6 +2243,29 @@ def rum_train(
         )
     else:
         rumb.raw_preds = np.zeros(rumb.num_classes * rumb.num_obs[0])
+    if init_models:
+        for j, booster in enumerate(rumb.boosters):
+            if not rumb.rum_structure[j]["shared"]:
+                init_pred = np.tile(
+                    booster._Booster__inner_predict(0),
+                    len(rumb.rum_structure[j]["utility"]),
+                )
+            else:
+                init_pred = np.tile(
+                    booster._Booster__inner_predict(0),
+                    int(
+                        len(rumb.rum_structure[j]["utility"])
+                        / len(rumb.rum_structure[j]["variables"])
+                    ),
+                )
+                if torch_tensors:
+                    rumb.raw_preds[
+                        rumb.booster_train_idx[j][0] : rumb.booster_train_idx[j][1]
+                    ] += (
+                        torch.from_numpy(init_pred).type(torch.bfloat16).to(rumb.device)
+                    )
+                else:
+                    rumb.raw_preds[rumb.booster_train_idx[j]] += init_pred
 
     rumb._preds = rumb._inner_predict()
 
@@ -2091,13 +2300,36 @@ def rum_train(
             # store update gain
             rumb._current_gains.append(
                 (booster.feature_importance("gain").sum() - temp_gain)
-                / (rumb.num_obs[0] * len(rumb.rum_structure[j]["utility"]))
+                / (
+                    rumb.num_obs[0] * len(rumb.rum_structure[j]["utility"])
+                )  # we normalise with the full number of observations even when not predicting for all alternatives since the gradient are summed in the objective function
             )
 
-            # store new predictions
-            if num_boost_round == 1:
+            # store current predictions
+            if not rumb.rum_structure[j]["shared"]:
                 rumb._current_preds.append(
-                    booster._Booster__inner_predict(0)
+                    np.tile(
+                        -booster._Booster__inner_predict_buffer[  # this should be first because it is going to be updated when calling __inner_predict()
+                            0
+                        ]
+                        + booster._Booster__inner_predict(0),
+                        len(rumb.rum_structure[j]["utility"]),
+                    )
+                )
+            elif len(rumb.rum_structure[j]["variables"]) < len(
+                rumb.rum_structure[j]["utility"]
+            ):
+                rumb._current_preds.append(
+                    np.tile(
+                        -booster._Booster__inner_predict_buffer[
+                            0
+                        ]  # this should be first because it is going to be updated when calling __inner_predict()
+                        + booster._Booster__inner_predict(0),
+                        int(
+                            len(rumb.rum_structure[j]["utility"])
+                            / len(rumb.rum_structure[j]["variables"])
+                        ),
+                    )
                 )
             else:
                 rumb._current_preds.append(
@@ -2154,6 +2386,7 @@ def rum_train(
                     alpha_shape,
                 ),
                 bounds=bounds,
+                method="Powell",
             )
 
             rumb._current_gains.append(rumb.best_score_train - res.fun)

@@ -163,39 +163,39 @@ def optimise_mu_or_alpha(
         if optimise_mu:
             mu = (
                 torch.from_numpy(params_to_optimise[: rumb.mu.shape[0]])
-                .type(torch.float16)
+                .type(torch.float64)
                 .to(rumb.device)
             )
             if optimise_alpha:
                 alphas = (
                     torch.from_numpy(params_to_optimise[rumb.mu.shape[0] :])
-                    .type(torch.float16)
+                    .type(torch.float64)
                     .view(alpha_shape)
                     .to(rumb.device)
                 )
                 alphas = alphas / alphas.sum(dim=1, keepdim=True)
             else:
-                alphas = rumb.alphas
+                alphas = rumb.alphas.type(torch.float64)
         elif optimise_alpha:
             alphas = (
                 torch.from_numpy(params_to_optimise)
-                .type(torch.float16)
+                .type(torch.float64)
                 .view(alpha_shape)
                 .to(rumb.device)
             )
             alphas = alphas / alphas.sum(dim=1, keepdim=True)
-            mu = rumb.mu
+            mu = rumb.mu.type(torch.float64)
         if rumb.nests:
             if rumb.torch_compile:
                 new_preds, _, _ = _nest_probs_torch_compiled(
-                    rumb.raw_preds.view(-1, rumb.num_obs[0]).T[rumb.subsample_idx, :],
+                    rumb.raw_preds.view(-1, rumb.num_obs[0]).T[rumb.subsample_idx, :].type(torch.float64),
                     mu,
                     rumb.nests,
                     rumb.device,
                 )
             else:
                 new_preds, _, _ = _nest_probs_torch(
-                    rumb.raw_preds.view(-1, rumb.num_obs[0]).T[rumb.subsample_idx, :],
+                    rumb.raw_preds.view(-1, rumb.num_obs[0]).T[rumb.subsample_idx, :].type(torch.float64),
                     mu,
                     rumb.nests,
                     rumb.device,
@@ -203,14 +203,14 @@ def optimise_mu_or_alpha(
         else:
             if rumb.torch_compile:
                 new_preds, _, _ = _cross_nested_probs_torch_compiled(
-                    rumb.raw_preds.view(-1, rumb.num_obs[0]).T[rumb.subsample_idx, :],
+                    rumb.raw_preds.view(-1, rumb.num_obs[0]).T[rumb.subsample_idx, :].type(torch.float64),
                     mu,
                     alphas,
                     rumb.device,
                 )
             else:
                 new_preds, _, _ = _cross_nested_probs_torch(
-                    rumb.raw_preds.view(-1, rumb.num_obs[0]).T[rumb.subsample_idx, :],
+                    rumb.raw_preds.view(-1, rumb.num_obs[0]).T[rumb.subsample_idx, :].type(torch.float64),
                     mu,
                     alphas,
                     rumb.device,
