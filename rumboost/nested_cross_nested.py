@@ -175,7 +175,7 @@ def optimise_mu_or_alpha(
                 )
                 alphas = alphas / alphas.sum(dim=1, keepdim=True)
             else:
-                alphas = rumb.alphas.type(torch.float64)
+                alphas = rumb.alphas.type(torch.float64) if rumb.alphas is not None else None
         elif optimise_alpha:
             alphas = (
                 torch.from_numpy(params_to_optimise)
@@ -184,7 +184,7 @@ def optimise_mu_or_alpha(
                 .to(rumb.device)
             )
             alphas = alphas / alphas.sum(dim=1, keepdim=True)
-            mu = rumb.mu.type(torch.float64)
+            mu = rumb.mu.type(torch.float64) if rumb.mu is not None else None
         if rumb.nests:
             if rumb.torch_compile:
                 new_preds, _, _ = _nest_probs_torch_compiled(

@@ -969,7 +969,7 @@ def prepare_dataset(
                     label=new_label,
                     free_raw_data=free_raw_data,
                 )  # create and build dataset
-                categorical_feature = struct.get("categorical_feature", "auto")
+                categorical_feature = struct['boosting_params'].get("categorical_feature", "auto")
                 train_set_j._update_params(
                     struct["boosting_params"]
                 )._set_predictor(None).set_feature_name(

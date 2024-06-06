@@ -206,9 +206,8 @@ class RUMBoost:
                     -1, len(self.rum_structure[j]["utility"]), order="F"
                 )
 
-                return grad_rescaled.reshape(-1, order="F"), hess_rescaled.reshape(
-                    -1, order="F"
-                )
+                grad = grad_rescaled
+                hess = hess_rescaled
 
             if not self.rum_structure[j]["shared"]:
                 grad = grad.sum(axis=1)
@@ -231,7 +230,7 @@ class RUMBoost:
                     -1,
                 ).sum(axis=0)
 
-            return grad, hess
+            return grad.reshape(-1, order="F"), hess.reshape(-1, order="F")
 
         preds = self._preds[:, self.rum_structure[j]["utility"]]
         factor = self.num_classes / (
@@ -256,9 +255,8 @@ class RUMBoost:
             grad_rescaled[self.subsample_idx, :] = grad
             hess_rescaled[self.subsample_idx, :] = hess
 
-            return grad_rescaled.reshape(-1, order="F"), hess_rescaled.reshape(
-                -1, order="F"
-            )
+            grad = grad_rescaled
+            hess = hess_rescaled
 
         if not self.rum_structure[j]["shared"]:
             grad = grad.sum(axis=1)
@@ -332,9 +330,8 @@ class RUMBoost:
                 grad_rescaled[self.subsample_idx.cpu().numpy(), :] = grad
                 hess_rescaled[self.subsample_idx.cpu().numpy(), :] = hess
 
-                return grad_rescaled.reshape(-1, order="F"), hess_rescaled.reshape(
-                    -1, order="F"
-                )
+                grad = grad_rescaled
+                hess = hess_rescaled
 
             if not self.rum_structure[j]["shared"]:
                 grad = grad.sum(axis=1)
@@ -418,9 +415,8 @@ class RUMBoost:
             grad_rescaled[self.subsample_idx, :] = grad
             hess_rescaled[self.subsample_idx, :] = hess
 
-            return grad_rescaled.reshape(-1, order="F"), hess_rescaled.reshape(
-                -1, order="F"
-            )
+            grad = grad_rescaled
+            hess = hess_rescaled
 
         if not self.rum_structure[j]["shared"]:
             grad = grad.sum(axis=1)
@@ -497,9 +493,8 @@ class RUMBoost:
                 grad_rescaled[self.subsample_idx.cpu().numpy(), :] = grad.squeeze()
                 hess_rescaled[self.subsample_idx.cpu().numpy(), :] = hess.squeeze()
 
-                return grad_rescaled.reshape(-1, order="F"), hess_rescaled.reshape(
-                    -1, order="F"
-                )
+                grad = grad_rescaled
+                hess = hess_rescaled
 
             if not self.rum_structure[j]["shared"]:
                 grad = grad.sum(axis=1)
@@ -616,9 +611,8 @@ class RUMBoost:
             grad_rescaled[self.subsample_idx, :] = grad.squeeze()
             hess_rescaled[self.subsample_idx, :] = hess.squeeze()
 
-            return grad_rescaled.reshape(-1, order="F"), hess_rescaled.reshape(
-                -1, order="F"
-            )
+            grad = grad_rescaled
+            hess = hess_rescaled
 
         if not self.rum_structure[j]["shared"]:
             grad = grad.sum(axis=1)
@@ -732,14 +726,14 @@ class RUMBoost:
                         validate_features,
                     )
                 )
-                .type(torch.bfloat16)
+                .type(torch.float32)
                 .to(device=self.device)
                 for k, booster in enumerate(self.boosters)
             ]
             raw_preds = torch.zeros(
                 data.num_data() * self.num_classes,
                 device=self.device,
-                dtype=torch.bfloat16,
+                dtype=torch.float32,
             )
 
             # reshaping raw predictions into num_obs, num_classes array
@@ -755,7 +749,7 @@ class RUMBoost:
 
             raw_preds = raw_preds.view(-1, data.num_data()).T
             if self.torch_compile:
-                preds, pred_i_m, pred_m = _inner_predict_torch_compiled(
+                preds, _, _ = _inner_predict_torch_compiled(
                     raw_preds,
                     self.device,
                     self.nests,
@@ -764,7 +758,7 @@ class RUMBoost:
                     utilities,
                 )
             else:
-                preds, pred_i_m, pred_m = _inner_predict_torch(
+                preds, _, _ = _inner_predict_torch(
                     raw_preds,
                     self.device,
                     self.nests,
@@ -808,7 +802,7 @@ class RUMBoost:
 
         # compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
         if self.nests:
-            preds, pred_i_m, pred_m = nest_probs(
+            preds, _, _ = nest_probs(
                 raw_preds, mu=self.mu, nests=self.nests, nest_alt=self.nest_alt
             )
 
@@ -816,7 +810,7 @@ class RUMBoost:
 
         # compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
         if self.alphas is not None:
-            preds, pred_i_m, pred_m = cross_nested_probs(
+            preds, _, _ = cross_nested_probs(
                 raw_preds, mu=self.mu, alphas=self.alphas
             )
 
@@ -862,7 +856,7 @@ class RUMBoost:
                 raw_preds = torch.zeros(
                     self.num_obs[data_idx] * self.num_classes,
                     device=self.device,
-                    dtype=torch.bfloat16,
+                    dtype=torch.float32,
                 )
                 for j, _ in enumerate(self.rum_structure):
                     if not self.rum_structure[j]["shared"]:
@@ -875,7 +869,7 @@ class RUMBoost:
                                     len(self.rum_structure[j]["utility"]),
                                 )
                             )
-                            .type(dtype=torch.bfloat16)
+                            .type(dtype=torch.float32)
                             .to(device=self.device)
                         )
                     else:
@@ -891,7 +885,7 @@ class RUMBoost:
                                     ),
                                 )
                             )
-                            .type(dtype=torch.bfloat16)
+                            .type(dtype=torch.float32)
                             .to(device=self.device)
                         )
                 raw_preds = raw_preds.view(-1, self.num_obs[data_idx]).T[
@@ -915,13 +909,11 @@ class RUMBoost:
                     self.alphas,
                     utilities,
                 )
-            if self.mu is not None:
-                if data_idx == 0:
-                    self.preds_i_m = pred_i_m
-                    self.preds_m = pred_m
-                return preds
-            else:
-                return preds
+            if self.mu is not None and data_idx == 0:
+                self.preds_i_m = pred_i_m
+                self.preds_m = pred_m
+
+            return preds
 
         # reshaping raw predictions into num_obs, num_classes array
         if data_idx == 0:
@@ -1057,7 +1049,7 @@ class RUMBoost:
                         label=new_label,
                         free_raw_data=free_raw_data,
                     )  # create and build dataset
-                    categorical_feature = struct.get("categorical_feature", "auto")
+                    categorical_feature = struct['boosting_params'].get("categorical_feature", "auto")
                     predictor_j = predictor[j] if predictor else None
                     train_set_j._update_params(
                         struct["boosting_params"]
@@ -1124,7 +1116,7 @@ class RUMBoost:
             return train_set_J, reduced_valid_sets_J
 
     def _preprocess_params(
-        self, params: dict, return_params: bool = False, params_fe: dict = None
+        self, params: dict, return_params: bool = False
     ):
         """Set up J set of parameters.
 
@@ -1134,8 +1126,6 @@ class RUMBoost:
             Dictionary containing parameters. The syntax must follow the one from LightGBM.
         return_params : bool, optional (default = False)
             If True, returns the J sets of parameters (and potential validation sets)
-        params_fe: dict, optional (default=None)
-            Second set of parameters, for the functional effect model. These parameters are applied to the socio-economic characteristics ensembles
 
         Returns
         -------
@@ -1144,55 +1134,21 @@ class RUMBoost:
         """
 
         # create the J parameters dictionaries
-        if params_fe is not None:  # for functional effect, two sets of parameters
-            params_J = [
-                (
-                    {
-                        **copy.deepcopy(params),
-                        "learning_rate": params.get("learning_rate", 0.1) * 0.5,
-                        "verbosity": -1,
-                        "objective": "binary",
-                        "num_classes": 1,
-                        "monotone_constraints": (
-                            struct.get("monotone_constraints", []) if struct else []
-                        ),
-                        "interaction_constraints": (
-                            struct.get("interaction_constraints", []) if struct else []
-                        ),
-                    }
-                    if i % 2 == 0
-                    else {
-                        **copy.deepcopy(params_fe),
-                        "learning_rate": params_fe.get("learning_rate", 0.1) * 0.5,
-                        "verbosity": -1,
-                        "objective": "binary",
-                        "num_classes": 1,
-                        "monotone_constraints": (
-                            struct.get("monotone_constraints", []) if struct else []
-                        ),
-                        "interaction_constraints": (
-                            struct.get("interaction_constraints", []) if struct else []
-                        ),
-                    }
-                )
-                for i, struct in enumerate(self.rum_structure)
-            ]
-        else:
-            params_J = [
-                {
-                    **copy.deepcopy(params),
-                    "verbosity": -1,
-                    "objective": "binary",
-                    "num_classes": 1,
-                    "monotone_constraints": (
-                        struct.get("monotone_constraints", []) if struct else []
-                    ),
-                    "interaction_constraints": (
-                        struct.get("interaction_constraints", []) if struct else []
-                    ),
-                }
-                for struct in self.rum_structure
-            ]
+        params_J = [
+            {
+                **copy.deepcopy(params),
+                "verbosity": -1,
+                "objective": "binary",
+                "num_classes": 1,
+                "monotone_constraints": (
+                    struct.get("monotone_constraints", []) if struct else []
+                ),
+                "interaction_constraints": (
+                    struct.get("interaction_constraints", []) if struct else []
+                ),
+            }
+            for struct in self.rum_structure
+        ]
 
         # store the set of parameters in RUMBoost
         self.params = params_J
@@ -1363,7 +1319,7 @@ class RUMBoost:
                     self.booster_train_idx[j][0] : self.booster_train_idx[j][1]
                 ] += (
                     torch.from_numpy(self._current_preds[j])
-                    .type(torch.bfloat16)
+                    .type(torch.float32)
                     .to(self.device)
                 )
             else:
@@ -1391,7 +1347,7 @@ class RUMBoost:
                         torch.tensor(
                             res.x[: len(self.mu)],
                             device=self.device,
-                            dtype=torch.float16,
+                            dtype=torch.float32,
                         )
                         - self.mu
                     )
@@ -1403,7 +1359,7 @@ class RUMBoost:
                 alphas_opt = torch.tensor(
                     res.x[len(self.mu) :].reshape(alpha_shape),
                     device=self.device,
-                    dtype=torch.float16,
+                    dtype=torch.float32,
                 )
                 alphas_opt = alphas_opt / alphas_opt.sum(dim=1)[:, None]
                 self.alphas.add_(0.1 * (alphas_opt - self.alphas))
@@ -1883,7 +1839,7 @@ def rum_train(
                 )
 
     if predictor is not None:
-        init_iteration = predictor[0].current_iteration()
+        init_iteration = np.max([predictor[j].current_iteration() for j in range(len(predictor))])
     else:
         init_iteration = 0
 
@@ -2109,6 +2065,7 @@ def rum_train(
         name_valid_sets = ["valid_0"]
         for j, train_set_j in enumerate(rumb.train_set):
             predictor_j = predictor[j] if predictor else None
+            train_set_j.construct()
             train_set_j._update_params(
                 rumb.rum_structure[j]["boosting_params"]
             )._set_predictor(predictor_j).set_feature_name(
@@ -2158,10 +2115,10 @@ def rum_train(
                 for valid_labs in rumb.valid_labels
             ]
         if rumb.mu is not None:
-            rumb.mu = torch.from_numpy(rumb.mu).type(torch.float16).to(rumb.device)
+            rumb.mu = torch.from_numpy(rumb.mu).type(torch.float32).to(rumb.device)
         if rumb.alphas is not None:
             rumb.alphas = (
-                torch.from_numpy(rumb.alphas).type(torch.float16).to(rumb.device)
+                torch.from_numpy(rumb.alphas).type(torch.float32).to(rumb.device)
             )
 
     if "subsampling" in params and not rumb.batch_size:
@@ -2239,7 +2196,7 @@ def rum_train(
     # initial predictions
     if torch_tensors:
         rumb.raw_preds = torch.zeros(
-            rumb.num_classes * rumb.num_obs[0], device=rumb.device, dtype=torch.bfloat16
+            rumb.num_classes * rumb.num_obs[0], device=rumb.device, dtype=torch.float32
         )
     else:
         rumb.raw_preds = np.zeros(rumb.num_classes * rumb.num_obs[0])
@@ -2262,7 +2219,7 @@ def rum_train(
                     rumb.raw_preds[
                         rumb.booster_train_idx[j][0] : rumb.booster_train_idx[j][1]
                     ] += (
-                        torch.from_numpy(init_pred).type(torch.bfloat16).to(rumb.device)
+                        torch.from_numpy(init_pred).type(torch.float32).to(rumb.device)
                     )
                 else:
                     rumb.raw_preds[rumb.booster_train_idx[j]] += init_pred
