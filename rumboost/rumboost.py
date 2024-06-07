@@ -2258,7 +2258,7 @@ def rum_train(
             rumb._current_gains.append(
                 (booster.feature_importance("gain").sum() - temp_gain)
                 / (
-                    rumb.num_obs[0] * len(rumb.rum_structure[j]["utility"])
+                    rumb.num_obs[0] * len(rumb.rum_structure[j]["variables"])
                 )  # we normalise with the full number of observations even when not predicting for all alternatives since the gradient are summed in the objective function
             )
 
