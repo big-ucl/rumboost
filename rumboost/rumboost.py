@@ -209,7 +209,9 @@ class RUMBoost:
                 grad = grad_rescaled
                 hess = hess_rescaled
 
-            if not self.rum_structure[j]["shared"]:
+            if not self.rum_structure[j]["shared"] and len(
+                self.rum_structure[j]["utility"]
+            ) > 1:
                 grad = grad.sum(axis=1)
                 hess = hess.sum(axis=1)
             elif len(self.rum_structure[j]["variables"]) < len(
@@ -258,7 +260,9 @@ class RUMBoost:
             grad = grad_rescaled
             hess = hess_rescaled
 
-        if not self.rum_structure[j]["shared"]:
+        if not self.rum_structure[j]["shared"] and len(
+            self.rum_structure[j]["utility"]
+        ) > 1:
             grad = grad.sum(axis=1)
             hess = hess.sum(axis=1)
         elif len(self.rum_structure[j]["variables"]) < len(
@@ -1040,8 +1044,10 @@ class RUMBoost:
                         new_label = self.labels_j[
                             :, struct["utility"][: len(struct["variables"])]
                         ].reshape(-1, order="F")
+                        feature_names = "auto"
                     else:
                         new_label = self.labels_j[:, 0].reshape(-1, order="F")
+                        feature_names = struct["variables"]
                     train_set_j = Dataset(
                         train_set_j_data.values.reshape(
                             (len(new_label), -1), order="A"
@@ -1054,7 +1060,7 @@ class RUMBoost:
                     train_set_j._update_params(
                         struct["boosting_params"]
                     )._set_predictor(predictor_j).set_feature_name(
-                        "auto"
+                        feature_names
                     ).set_categorical_feature(
                         categorical_feature
                     )

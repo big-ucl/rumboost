@@ -958,10 +958,12 @@ def prepare_dataset(
                     new_label = labels_j[:, struct["utility"][:len(struct['variables'])]].reshape(
                         -1, order="F"
                     )
+                    feature_names = "auto"
                 else:
                     new_label = labels_j[:, 0].reshape(
                         -1, order="F"
                     )
+                    feature_names = struct["variables"]
                 train_set_j = Dataset(
                     train_set_j_data.values.reshape(
                         (len(new_label), -1), order="A"
@@ -973,7 +975,7 @@ def prepare_dataset(
                 train_set_j._update_params(
                     struct["boosting_params"]
                 )._set_predictor(None).set_feature_name(
-                    "auto"
+                    feature_names
                 ).set_categorical_feature(
                     categorical_feature
                 )

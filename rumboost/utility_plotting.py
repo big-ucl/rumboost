@@ -187,7 +187,7 @@ def plot_parameters(
     with_asc=False,
     xlabel_max=None,
     only_tt=False,
-    only_1d=False,
+    only_1d=True,
     sm_tt_cost=False,
     save_file="",
 ):
@@ -214,8 +214,8 @@ def plot_parameters(
         Dictionary mapping boosters to their maximum value on the x axis.
     only_tt : bool, optional (default = False)
         If True, plot only travel time and distance.
-    only_1d : bool, optional (default = False)
-        If True, plot only the features separately.
+    only_1d : bool, optional (default = True)
+        If False, plot only the features separately.
     sm_tt_cost : bool, optional (default = False)
         If True, plot only the swissmetro travel time and cost on the same figure.
     save_file : str, optional (default='')
@@ -579,10 +579,10 @@ def plot_parameters(
                 # plot parameters
                 plt.figure(figsize=(3.49, 2.09), dpi=1000)
                 # plt.title('Influence of {} on the predictive function ({} utility)'.format(f, utility_names[u]), fontdict={'fontsize':  16})
-                plt.ylabel("{} utility".format(utility_names[u]))
+                plt.ylabel("{} utility".format(utility_names[int(u)]))
 
                 if feature_names:
-                    plt.xlabel("{}".format(feature_names[u][i]))
+                    plt.xlabel("{}".format(feature_names[int(u)][i]))
                 elif "dur" in f:
                     plt.xlabel("{} [h]".format(f))
                 elif "TIME" in f:
