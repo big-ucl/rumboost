@@ -894,7 +894,6 @@ class RUMBoost:
                 raw_preds = raw_preds.view(-1, self.num_obs[data_idx]).T[
                     self.subsample_idx_valid, :
                 ]
-            raw_preds = torch.nan_to_num(raw_preds)
             if self.torch_compile:
                 preds, pred_i_m, pred_m = _inner_predict_torch_compiled(
                     raw_preds,
@@ -913,14 +912,6 @@ class RUMBoost:
                     self.alphas,
                     utilities,
                 )
-
-            if preds.isnan().any():
-                preds = torch.nan_to_num(preds)
-                preds = torch.nn.functional.softmax(preds, dim=1)
-                if pred_i_m.isnan().any():
-                    pred_i_m = torch.nan_to_num(pred_i_m)
-                if pred_m.isnan().any():
-                    pred_m = torch.nan_to_num(pred_m)
             
             if self.mu is not None and data_idx == 0:
                 self.preds_i_m = pred_i_m
