@@ -29,7 +29,6 @@ from rumboost.nested_cross_nested import (
     cross_nested_probs,
     optimise_mu_or_alpha,
 )
-from rumboost.utility_plotting import update_plots, init_plot
 
 try:
     import torch
@@ -1588,7 +1587,6 @@ def rum_train(
     keep_training_booster: bool = False,
     callbacks: Optional[list[Callable]] = None,
     torch_tensors: dict = None,
-    live_plotting: bool = False,
 ) -> RUMBoost:
     """Perform the RUM training with given parameters.
 
@@ -1754,10 +1752,6 @@ def rum_train(
             'torch_compile': bool
                 If True, the prediction, objective function and cross-entropy calculations will be compiled with torch.compile.
                 If used with GPU or cuda, it requires to be on a linux os.
-            'batch': bool, optional (default=False)
-                If True, the prediction, objective function and cross-entropy calculations will be performed in batches.
-    live_plotting : bool, optional (default=False)
-        If True, the training process will be displayed in a live plot.
 
     Note
     ----
@@ -2189,16 +2183,6 @@ def rum_train(
         else:
             rumb.subsample_idx_valid = np.arange(rumb.num_obs[1])
 
-    # live plotting
-    if live_plotting:
-        if not matplotlib_installed:
-            raise ImportError(
-                "Matplotlib is not installed. Please installed it to use live plotting"
-            )
-        fig, ax = init_plot()
-        train_loss = []
-        test_loss = []
-
     # initial predictions
     if torch_tensors:
         rumb.raw_preds = torch.zeros(
@@ -2480,14 +2464,6 @@ def rum_train(
         # save model
         if save_model_interval > 0 and (i % save_model_interval == 0):
             rumb.save_model(f"models/MTMC_switzerland_CNL_gpu_{i}")
-
-        if live_plotting:
-            train_loss.append(cross_entropy_train)
-            test_loss.append(cross_entropy_test[0])
-            update_plots(train_loss, test_loss, ax)
-
-    if live_plotting:
-        plt.ioff()
 
     for booster in rumb.boosters:
         booster.best_score_lgb = collections.defaultdict(collections.OrderedDict)
