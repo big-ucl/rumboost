@@ -182,13 +182,14 @@ def plot_parameters(
     X,
     utility_names,
     feature_names=None,
-    save_figure=False,
     asc_normalised=True,
     with_asc=False,
     xlabel_max=None,
     only_tt=False,
     only_1d=True,
     sm_tt_cost=False,
+    num_iteration=None,
+    ylim=None,
     save_file="",
 ):
     """
@@ -202,10 +203,9 @@ def plot_parameters(
         Features used to train the model, in a pandas dataframe.
     utility_name : dict
         Dictionary mapping booster indices to their utility names.
+        Keys should be a string of the booster index, and values should be the utility name.
     feature_names : list, optional (default = None)
         List of feature names.
-    save_figure : bool, optional (default = False)
-        If True, save the plot as a png file.
     asc_normalised : bool, optional (default = False)
         If True, scale down utilities to be zero at the y axis.
     with_asc : bool, optional (default = False)
@@ -218,10 +218,14 @@ def plot_parameters(
         If False, plot only the features separately.
     sm_tt_cost : bool, optional (default = False)
         If True, plot only the swissmetro travel time and cost on the same figure.
+    num_iteration : int, optional (default = None)
+        The number of iterations to plot. If None, plot all iterations.
+    ylim : list[tuple], optional (default = None)
+        List of tuples containing the y limits for each plot.
     save_file : str, optional (default='')
-        The name to save the figure with.
+        The name to save the figure with. The figure will be saved only if save_file is not an empty string.
     """
-    weights_arranged = weights_to_plot_v2(model)
+    weights_arranged = weights_to_plot_v2(model, num_iteration=num_iteration)
 
     if with_asc:
         ASCs = get_asc(weights_arranged)
@@ -299,7 +303,7 @@ def plot_parameters(
 
         plt.tight_layout()
 
-        if save_figure:
+        if save_file:
             plt.savefig("Figures/RUMBoost/SwissMetro/travel_time.png")
 
         # plot for travel time on one figure
@@ -341,7 +345,7 @@ def plot_parameters(
 
         plt.tight_layout()
 
-        if save_figure:
+        if save_file:
             plt.savefig("Figures/RUMBoost/SwissMetro/cost.png")
 
     if not only_1d:
@@ -405,7 +409,7 @@ def plot_parameters(
 
         plt.tight_layout()
 
-        if save_figure:
+        if save_file:
             plt.savefig("Figures/RUMBoost/LPMC/travel_time.png")
 
         # plot for distance on one figure
@@ -440,7 +444,7 @@ def plot_parameters(
 
         plt.tight_layout()
 
-        if save_figure:
+        if save_file:
             plt.savefig("Figures/RUMBoost/LPMC/cost.png")
 
         plt.show()
@@ -491,7 +495,7 @@ def plot_parameters(
 
         plt.tight_layout()
 
-        if save_figure:
+        if save_file:
             plt.savefig("Figures/RUMBoost/LPMC/age.png")
 
         plt.show()
@@ -542,7 +546,7 @@ def plot_parameters(
 
         plt.tight_layout()
 
-        if save_figure:
+        if save_file:
             plt.savefig("Figures/RUMBoost/LPMC/departure_time.png")
 
         plt.show()
@@ -579,10 +583,10 @@ def plot_parameters(
                 # plot parameters
                 plt.figure(figsize=(3.49, 2.09), dpi=1000)
                 # plt.title('Influence of {} on the predictive function ({} utility)'.format(f, utility_names[u]), fontdict={'fontsize':  16})
-                plt.ylabel("{} utility".format(utility_names[int(u)]))
+                plt.ylabel("{} utility".format(utility_names[u]))
 
                 if feature_names:
-                    plt.xlabel("{}".format(feature_names[int(u)][i]))
+                    plt.xlabel("{}".format(feature_names[u][i]))
                 elif "dur" in f:
                     plt.xlabel("{} [h]".format(f))
                 elif "TIME" in f:
@@ -609,22 +613,23 @@ def plot_parameters(
                             weights_arranged[u][f]["Splitting points"][-1] * 1.05,
                         ]
                     )
-                plt.ylim(
-                    [
-                        np.min(non_lin_func)
-                        - 0.05 * (np.max(non_lin_func) - np.min(non_lin_func)),
-                        np.max(non_lin_func)
-                        + 0.05 * (np.max(non_lin_func) - np.min(non_lin_func)),
-                    ]
-                )
+                if ylim:
+                    plt.ylim(ylim[int(u)])
+                else:
+                    plt.ylim(
+                        [
+                            np.min(non_lin_func)
+                            - 0.05 * (np.max(non_lin_func) - np.min(non_lin_func)),
+                            np.max(non_lin_func)
+                            + 0.05 * (np.max(non_lin_func) - np.min(non_lin_func)),
+                        ]
+                    )
 
                 plt.tight_layout()
 
-                if save_figure:
+                if save_file:
                     plt.savefig(
-                        "{}{} utility, {} feature.png".format(
-                            save_file, utility_names[u], f
-                        )
+                        f"{save_file}{utility_names[u]}/{num_iteration:003}.png", facecolor="white"
                     )
 
                 plt.show()
@@ -2004,7 +2009,7 @@ def get_child(
         )
 
 
-def get_weights(model):
+def get_weights(model, num_iteration=None):
     """
     Get leaf values from a RUMBoost model.
 
@@ -2012,6 +2017,8 @@ def get_weights(model):
     ----------
     model : RUMBoost
         A trained RUMBoost object.
+    num_iteration : int, optional (default = None)
+        The number of iterations to consider in the model.
 
     Returns
     -------
@@ -2025,7 +2032,7 @@ def get_weights(model):
 
     """
     # using self object or a given model
-    model_json = model.dump_model()
+    model_json = model.dump_model(num_iteration=num_iteration)
 
     weights = []
     weights_2d = []
@@ -2085,7 +2092,7 @@ def get_weights(model):
     return weights_df, weights_2d_df, weights_market_df
 
 
-def weights_to_plot_v2(model, market_segm=False):
+def weights_to_plot_v2(model, market_segm=False, num_iteration = None):
     """
     Arrange weights by ascending splitting points and cumulative sum of weights.
 
@@ -2093,6 +2100,10 @@ def weights_to_plot_v2(model, market_segm=False):
     ----------
     model : RUMBoost
         A trained RUMBoost object.
+    market_segm : bool, optional (default = False)
+        If True, the weights are arranged for market segmentation.
+    num_iteration : int, optional (default = None)
+        The number of iterations to consider in the model.
 
     Returns
     -------
@@ -2103,9 +2114,9 @@ def weights_to_plot_v2(model, market_segm=False):
 
     # get raw weights
     if market_segm:
-        _, _, weights = get_weights(model)
+        _, _, weights = get_weights(model, num_iteration = num_iteration)
     else:
-        weights, _, _ = get_weights(model)
+        weights, _, _ = get_weights(model, num_iteration = num_iteration)
 
     weights_for_plot = {}
     # for all features
@@ -2272,6 +2283,3 @@ def function_2d(weights_2d, x_vect, y_vect):
 
     return contour_plot_values
 
-def plot_specific_iteration():
-    """Plot the specific iteration of the RUMBoost model"""
-    pass
