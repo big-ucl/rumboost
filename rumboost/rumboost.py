@@ -1929,10 +1929,10 @@ def rum_train(
                 raise ValueError(
                     "The length of optimise_mu must be equal to the number of nests"
                 )
-            bounds = [(1, 10) if opt else (1, 1) for opt in optimise_mu]
+            bounds = [(1, 2.5) if opt else (1, 1) for opt in optimise_mu]
             optimise_mu = True
         elif optimise_mu:
-            bounds = [(1, 10)] * len(rumb.mu)
+            bounds = [(1, 2.5)] * len(rumb.mu)
         else:
             bounds = None
             optimise_mu = False
@@ -1976,10 +1976,10 @@ def rum_train(
                 raise ValueError(
                     "The length of optimise_mu must be equal to the number of nests"
                 )
-            bounds = [(1, 5) if opt else (1, 1) for opt in optimise_mu]
+            bounds = [(1, 2.5) if opt else (1, 1) for opt in optimise_mu]
             optimise_mu = True
         elif optimise_mu:
-            bounds = [(1, 5)] * len(rumb.mu)
+            bounds = [(1, 2.5)] * len(rumb.mu)
         else:
             bounds = None
             optimise_mu = False
