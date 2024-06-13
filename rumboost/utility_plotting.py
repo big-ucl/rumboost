@@ -629,7 +629,7 @@ def plot_parameters(
 
                 if save_file:
                     plt.savefig(
-                        f"{save_file}{utility_names[u]}/{num_iteration:003}.png", facecolor="white"
+                        f"{save_file}_{utility_names[u]}_{feature_names[u][i]}.png", facecolor="white"
                     )
 
                 plt.show()
@@ -2158,6 +2158,11 @@ def weights_to_plot_v2(model, market_segm=False, num_iteration = None):
                         h + float(ordered_data.loc[j, "Left leaf value"])
                         for h in function_value[:-1]
                     ]
+
+            for s in split_points:
+                if '||' in str(s):
+                    numbers = s.split('||')
+                    split_points[split_points.index(s)] = str(np.mean([float(i) for i in numbers]))
 
             weights_for_plot[str(i)][f] = {
                 "Splitting points": split_points,
