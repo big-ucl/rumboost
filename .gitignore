@@ -23,6 +23,7 @@ preprocessed_dataset/
 experiment/
 myriad/
 swiss_model_analysis.*
+a lot of*
 
 #vs_code
 *.deb

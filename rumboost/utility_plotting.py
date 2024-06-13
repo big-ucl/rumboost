@@ -1339,13 +1339,13 @@ def plot_spline(
             plt.figure(figsize=(3.49, 2.09), dpi=1000)
 
             # data
-            plt.scatter(x_plot, y_plot_norm, color="k", s=0.3)
+            plt.scatter(x_plot, y_plot_norm, color="k", s=0.3, zorder=1)
 
             # splines
-            plt.plot(x_spline, y_spline_norm, color="#5badc7")
+            plt.plot(x_spline, y_spline_norm, color="#5badc7", zorder=2)
 
             # knots position
-            plt.scatter(x_knot, y_knot_norm, color="#CC5500", s=1)
+            plt.scatter(x_knot, y_knot_norm, color="#CC5500", s=1.5, zorder=3)
 
             plt.legend(
                 ["Data", "Splines ({})".format(spline_collection[u][f]), "Knots"]
@@ -1365,8 +1365,12 @@ def plot_spline(
                 plt.xlabel("{} [km]".format(f))
             else:
                 plt.xlabel("{}".format(f))
+
+            plt.xlim([-0.2, 3.3])
+            plt.ylim([-9, 0.3])
             if save_fig:
-                plt.savefig(save_file + "{} utility, {} feature.png".format(u, f))
+                # plt.savefig(save_file + "{} utility, {} feature.png".format(u, f))
+                plt.savefig(save_file, facecolor='white')
             plt.show()
 
 
