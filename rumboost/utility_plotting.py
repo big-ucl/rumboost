@@ -2049,7 +2049,8 @@ def get_weights(model, num_iteration=None):
             split_points = []
             market_segm = False
 
-            if "split_feature" not in trees:
+            #skipping empty trees
+            if "split_feature" not in trees["tree_structure"]:
                 continue
 
             get_child(
