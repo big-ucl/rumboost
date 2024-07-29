@@ -1388,7 +1388,8 @@ class RUMBoost:
         self.boosters = []
         for model_str in models["boosters"]:
             self._append(Booster(model_str=model_str))
-        self.__dict__.update(models["attributes"])
+        if "attributes" in models:
+            self.__dict__.update(models["attributes"])
 
     def _to_dict(
         self, num_iteration: Optional[int], start_iteration: int, importance_type: str

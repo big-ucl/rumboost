@@ -410,7 +410,7 @@ def plot_parameters(
         plt.tight_layout()
 
         if save_file:
-            plt.savefig("Figures/RUMBoost/LPMC/travel_time.png")
+            plt.savefig(f"Figures/RUMBoost/LPMC/travel_time_iteration_{num_iteration}.png")
 
         # plot for distance on one figure
         plt.figure(figsize=(3.49, 3.49), dpi=1000)
