@@ -208,9 +208,10 @@ class RUMBoost:
                 grad = grad_rescaled
                 hess = hess_rescaled
 
-            if not self.rum_structure[j]["shared"] and len(
-                self.rum_structure[j]["utility"]
-            ) > 1:
+            if (
+                not self.rum_structure[j]["shared"]
+                and len(self.rum_structure[j]["utility"]) > 1
+            ):
                 grad = grad.sum(axis=1)
                 hess = hess.sum(axis=1)
             elif len(self.rum_structure[j]["variables"]) < len(
@@ -259,9 +260,10 @@ class RUMBoost:
             grad = grad_rescaled
             hess = hess_rescaled
 
-        if not self.rum_structure[j]["shared"] and len(
-            self.rum_structure[j]["utility"]
-        ) > 1:
+        if (
+            not self.rum_structure[j]["shared"]
+            and len(self.rum_structure[j]["utility"]) > 1
+        ):
             grad = grad.sum(axis=1)
             hess = hess.sum(axis=1)
         elif len(self.rum_structure[j]["variables"]) < len(
@@ -707,14 +709,15 @@ class RUMBoost:
 
             self.device = torch.device(self.device)
             if isinstance(self.mu, np.ndarray):
-                self.mu = torch.from_numpy(self.mu).type(torch.float32).to(
-                    device=self.device
+                self.mu = (
+                    torch.from_numpy(self.mu).type(torch.float32).to(device=self.device)
                 )
             if isinstance(self.alphas, np.ndarray):
-                self.alphas = torch.from_numpy(self.alphas).type(torch.float32).to(
-                    device=self.device
+                self.alphas = (
+                    torch.from_numpy(self.alphas)
+                    .type(torch.float32)
+                    .to(device=self.device)
                 )
-
 
             booster_preds = [
                 torch.from_numpy(
@@ -742,11 +745,17 @@ class RUMBoost:
             # reshaping raw predictions into num_obs, num_classes array
             for j, struct in enumerate(self.rum_structure):
                 if not struct["shared"]:
-                    raw_preds[struct["utility"][0] * data.num_data():(struct["utility"][-1] + 1) * data.num_data()] += booster_preds[j].repeat(
-                        len(struct["utility"])
-                    )
+                    raw_preds[
+                        struct["utility"][0]
+                        * data.num_data() : (struct["utility"][-1] + 1)
+                        * data.num_data()
+                    ] += booster_preds[j].repeat(len(struct["utility"]))
                 else:
-                    raw_preds[struct["utility"][0] * data.num_data():(struct["utility"][-1] + 1) * data.num_data()] += booster_preds[j].repeat(
+                    raw_preds[
+                        struct["utility"][0]
+                        * data.num_data() : (struct["utility"][-1] + 1)
+                        * data.num_data()
+                    ] += booster_preds[j].repeat(
                         int(len(struct["utility"]) / len(struct["variables"]))
                     )
 
@@ -813,9 +822,7 @@ class RUMBoost:
 
         # compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
         if self.alphas is not None:
-            preds, _, _ = cross_nested_probs(
-                raw_preds, mu=self.mu, alphas=self.alphas
-            )
+            preds, _, _ = cross_nested_probs(raw_preds, mu=self.mu, alphas=self.alphas)
 
             return preds
 
@@ -912,11 +919,11 @@ class RUMBoost:
                     self.alphas,
                     utilities,
                 )
-            
+
             if self.mu is not None and data_idx == 0:
                 self.preds_i_m = pred_i_m
                 self.preds_m = pred_m
-                
+
             return preds
 
         # reshaping raw predictions into num_obs, num_classes array
@@ -1055,7 +1062,9 @@ class RUMBoost:
                         label=new_label,
                         free_raw_data=free_raw_data,
                     )  # create and build dataset
-                    categorical_feature = struct['boosting_params'].get("categorical_feature", "auto")
+                    categorical_feature = struct["boosting_params"].get(
+                        "categorical_feature", "auto"
+                    )
                     predictor_j = predictor[j] if predictor else None
                     train_set_j._update_params(
                         struct["boosting_params"]
@@ -1121,9 +1130,7 @@ class RUMBoost:
         if return_data:
             return train_set_J, reduced_valid_sets_J
 
-    def _preprocess_params(
-        self, params: dict, return_params: bool = False
-    ):
+    def _preprocess_params(self, params: dict, return_params: bool = False):
         """Set up J set of parameters.
 
         Parameters
@@ -1405,11 +1412,11 @@ class RUMBoost:
                 )
             )
         if self.device is not None:
-            if self.labels_j:
+            if self.labels_j is not None:
                 labels_j_numpy = [l.cpu().numpy().tolist() for l in self.labels_j]
             else:
                 labels_j_numpy = []
-            if self.valid_labels:
+            if self.valid_labels is not None:
                 valid_labels_numpy = [
                     v.cpu().numpy().tolist() for v in self.valid_labels
                 ]
@@ -1442,11 +1449,11 @@ class RUMBoost:
                 },
             }
         else:
-            if self.labels_j:
+            if self.labels_j is not None:
                 labels_j_list = [l.tolist() for l in self.labels_j]
             else:
                 labels_j_list = []
-            if self.valid_labels:
+            if self.valid_labels is not None:
                 valid_labs = [v.tolist() for v in self.valid_labels]
             else:
                 valid_labs = []
@@ -1456,8 +1463,8 @@ class RUMBoost:
                     "best_iteration": self.best_iteration,
                     "best_score": float(self.best_score),
                     "best_score_train": float(self.best_score_train),
-                    "alphas": self.alphas.tolist(),
-                    "mu": self.mu.tolist(),
+                    "alphas": self.alphas.tolist() if self.alphas is not None else None,
+                    "mu": self.mu.tolist() if self.mu is not None else None,
                     "nests": self.nests,
                     "nest_alt": self.nest_alt,
                     "num_classes": self.num_classes,
@@ -1841,7 +1848,9 @@ def rum_train(
                 )
 
     if predictor is not None:
-        init_iteration = np.max([predictor[j].current_iteration() for j in range(len(predictor))])
+        init_iteration = np.max(
+            [predictor[j].current_iteration() for j in range(len(predictor))]
+        )
     else:
         init_iteration = 0
 

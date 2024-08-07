@@ -102,7 +102,10 @@ def load_preprocess_LPMC(
 
 
 def load_preprocess_SwissMetro(
-    test_size: float = 0.3, random_state: int = 42, full_data=False
+    test_size: float = 0.3,
+    random_state: int = 42,
+    full_data=False,
+    path="../Data/",
 ):
     """
     Load and preprocess the SwissMetro dataset. See Biogeme website for data.
@@ -113,6 +116,10 @@ def load_preprocess_SwissMetro(
         The proportion of data used for test set.
     random_state : int, optional (default = 42)
         For reproducibility in the train-test split
+    full_data : bool, optional (default = False)
+        If the full dataset should be returned.
+    path : str, optional
+        The path to the data.
 
     Returns
     -------
@@ -123,12 +130,12 @@ def load_preprocess_SwissMetro(
     """
     if not sklearn_installed:
         raise ImportError("scikit-learn is required for this function.")
-    df = pd.read_csv("../Data/swissmetro.dat", sep="\t")
+    df = pd.read_csv(path + "swissmetro.dat", sep="\t")
 
     label_name = {"CHOICE": "choice"}
 
     # remove irrelevant choices and purposes
-    keep = ((df["PURPOSE"] != 1) * (df["PURPOSE"] != 3) + (df["CHOICE"] == 0)) == 0
+    keep = ((df["CHOICE"] != 0) * (df["CAR_AV"] == 1)) > 0
     df = df[keep]
 
     # apply cost to people without GA
@@ -138,7 +145,7 @@ def load_preprocess_SwissMetro(
     # rescale choice from 0 to 2
     df.loc[:, "CHOICE"] = df["CHOICE"] - 1
 
-    # age dummies
+    # luggage dummies
     df.loc[:, "SEV_LUGGAGES"] = (df["LUGGAGE"] == 3).astype(int)
 
     # origin
@@ -153,6 +160,22 @@ def load_preprocess_SwissMetro(
     )
     df.loc[:, "DEST_TIC"] = df["DEST"].apply(lambda x: 1 if x in [21] else 0)
 
+    # purpose
+    df.loc[:, "PURPOSE_1"] = (df["PURPOSE"] == 1).astype(int)
+    df.loc[:, "PURPOSE_2"] = (df["PURPOSE"] == 2).astype(int)
+    df.loc[:, "PURPOSE_3"] = (df["PURPOSE"] == 3).astype(int)
+    df.loc[:, "PURPOSE_4"] = (df["PURPOSE"] == 4).astype(int)
+    df.loc[:, "PURPOSE_5"] = (df["PURPOSE"] == 5).astype(int)
+    df.loc[:, "PURPOSE_6"] = (df["PURPOSE"] == 6).astype(int)
+    df.loc[:, "PURPOSE_7"] = (df["PURPOSE"] == 7).astype(int)
+    df.loc[:, "PURPOSE_8"] = (df["PURPOSE"] == 8).astype(int)
+
+    # age
+    df.loc[:, "AGE_1"] = (df["AGE"] == 1).astype(int)
+    df.loc[:, "AGE_2"] = (df["AGE"] == 2).astype(int)
+    df.loc[:, "AGE_3"] = (df["AGE"] == 3).astype(int)
+    df.loc[:, "AGE_4"] = (df["AGE"] == 4).astype(int)
+
     # final dataset
     df_final = df[
         [
@@ -166,26 +189,31 @@ def load_preprocess_SwissMetro(
             "CAR_TT",
             "CAR_CO",
             "MALE",
-            "SM_SEATS",
-            "SEV_LUGGAGES",
             "FIRST",
-            "ORIG_ROM",
-            "ORIG_TIC",
-            "DEST_ROM",
-            "DEST_TIC",
+            "PURPOSE_1",
+            "PURPOSE_2",
+            "PURPOSE_3",
+            "PURPOSE_4",
+            "PURPOSE_5",
+            "PURPOSE_6",
+            "PURPOSE_7",
+            "PURPOSE_8",
+            "AGE_1",
+            "AGE_2",
             "CHOICE",
         ]
-    ]
+    ]  #'SM_SEATS', 'SEV_LUGGAGES','ORIG_ROM', 'ORIG_TIC', 'DEST_ROM', 'DEST_TIC', 'AGE_3', 'AGE_4',
 
     df_final = df_final.rename(columns=label_name)
 
     if full_data:
         return df_final
-    # split dataset
-    df_train, df_test = train_test_split(
-        df_final, test_size=test_size, random_state=random_state
-    )
 
+    # split by household
+    gsp = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
+    train_idx, test_idx = next(gsp.split(df_final, groups=df_final["ID"]))
+    df_train, df_test = df_final.iloc[train_idx], df_final.iloc[test_idx]
+    
     hh_id = df_train.index.tolist()
 
     # k folds sampled by households for cross validation
@@ -193,7 +221,7 @@ def load_preprocess_SwissMetro(
     test_idx = []
     try:
         train_idx, test_idx = pickle.load(
-            open("../Data/strat_group_k_fold_swissmetro.pickle", "rb")
+            open(path + "strat_group_k_fold_swissmetro.pickle", "rb")
         )
     except FileNotFoundError:
         for train_i, test_i in stratified_group_k_fold(
@@ -217,7 +245,7 @@ def load_preprocess_SwissMetro(
             test_idx.append(test_i)
         pickle.dump(
             [train_idx, test_idx],
-            open("../Data/strat_group_k_fold_swissmetro.pickle", "wb"),
+            open(path + "strat_group_k_fold_swissmetro.pickle", "wb"),
         )
 
     folds = zip(train_idx, test_idx)
@@ -906,12 +934,20 @@ def prepare_dataset(
                     + "\n"
                     + f"[{j+1}/{num_datasets}] \t Loading dataset {j+1}..."
                 )
-                train_set_J.append(Dataset(data=f"{load_dataset}_train_set_{j}.bin", free_raw_data=False))
+                train_set_J.append(
+                    Dataset(
+                        data=f"{load_dataset}_train_set_{j}.bin", free_raw_data=False
+                    )
+                )
                 if df_test is not None:
                     reduced_valid_sets_j = []
                     for i, _ in enumerate(df_test):
                         reduced_valid_sets_j.append(
-                            Dataset(data=f"{load_dataset}_valid_set_{j}_{i}.bin", free_raw_data=False, reference=train_set_J[j])
+                            Dataset(
+                                data=f"{load_dataset}_valid_set_{j}_{i}.bin",
+                                free_raw_data=False,
+                                reference=train_set_J[j],
+                            )
                         )
                     reduced_valid_sets_J.append(reduced_valid_sets_j)
                 print("\t done! \n" + "-" * 30 + "\n")
@@ -953,30 +989,26 @@ def prepare_dataset(
                 train_set_j_data = df_train[
                     struct["variables"]
                 ]  # only relevant features for the jth booster
-                
-                if struct['shared']==True:
-                    new_label = labels_j[:, struct["utility"][:len(struct['variables'])]].reshape(
-                        -1, order="F"
-                    )
+
+                if struct["shared"] == True:
+                    new_label = labels_j[
+                        :, struct["utility"][: len(struct["variables"])]
+                    ].reshape(-1, order="F")
                     feature_names = "auto"
                 else:
-                    new_label = labels_j[:, 0].reshape(
-                        -1, order="F"
-                    )
+                    new_label = labels_j[:, 0].reshape(-1, order="F")
                     feature_names = struct["variables"]
                 train_set_j = Dataset(
-                    train_set_j_data.values.reshape(
-                        (len(new_label), -1), order="A"
-                    ),
+                    train_set_j_data.values.reshape((len(new_label), -1), order="A"),
                     label=new_label,
                     free_raw_data=free_raw_data,
                 )  # create and build dataset
-                categorical_feature = struct['boosting_params'].get("categorical_feature", "auto")
-                train_set_j._update_params(
-                    struct["boosting_params"]
-                )._set_predictor(None).set_feature_name(
-                    feature_names
-                ).set_categorical_feature(
+                categorical_feature = struct["boosting_params"].get(
+                    "categorical_feature", "auto"
+                )
+                train_set_j._update_params(struct["boosting_params"])._set_predictor(
+                    None
+                ).set_feature_name(feature_names).set_categorical_feature(
                     categorical_feature
                 )
 
@@ -988,14 +1020,12 @@ def prepare_dataset(
                             struct["variables"]
                         ]  # only relevant features for the jth booster
 
-                        if struct['shared']==True:
-                            label_valid = val_labels_j[i][:, struct["utility"][:len(struct['variables'])]].reshape(
-                                -1, order="F"
-                            )
+                        if struct["shared"] == True:
+                            label_valid = val_labels_j[i][
+                                :, struct["utility"][: len(struct["variables"])]
+                            ].reshape(-1, order="F")
                         else:
-                            label_valid = val_labels_j[i][:, 0].reshape(
-                                -1, order="F"
-                            )
+                            label_valid = val_labels_j[i][:, 0].reshape(-1, order="F")
                         valid_set_j = Dataset(
                             valid_set_j_data.values.reshape(
                                 (len(label_valid), -1),
