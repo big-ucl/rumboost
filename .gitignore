@@ -24,6 +24,7 @@ experiment/
 myriad/
 swiss_model_analysis.*
 a lot of*
+rumboost_nn.py
 
 #vs_code
 *.deb
