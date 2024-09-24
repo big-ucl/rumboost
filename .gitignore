@@ -24,7 +24,6 @@ experiment/
 myriad/
 swiss_model_analysis.*
 a lot of*
-rumboost_nn.py
 
 #vs_code
 *.deb
@@ -34,6 +33,7 @@ models/
 
 #random scripts
 mtmc_switzerland.py
+rumboost_nn.py
 
 #biogeme files
 *.iter
