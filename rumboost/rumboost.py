@@ -1641,7 +1641,6 @@ def rum_train(
                 List of dictionaries specifying the variable used to create the parameter ensemble,
                 and their monotonicity or interaction. The list must contain one dictionary for each parameter.
                 Each dictionary has four required keys:
-
                     - 'utility': list of alternatives in which the parameter ensemble is used
                     - 'variables': list of columns from the train_set included in that parameter_ensemble
                     - 'boosting_params': dict
