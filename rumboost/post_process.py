@@ -32,11 +32,19 @@ def split_fe_model(model: RUMBoost):
 
     attributes_model.boosters = [b for i, b in enumerate(model.boosters) if i % 2 == 0]
     attributes_model.rum_structure = model.rum_structure[::2]
+    attributes_model.num_classes = model.num_classes
+    attributes_model.device = model.device
+    attributes_model.nests = model.nests
+    attributes_model.alphas = model.alphas
 
     socio_economic_model.boosters = [
         b for i, b in enumerate(model.boosters) if i % 2 == 1
     ]
     socio_economic_model.rum_structure = model.rum_structure[1::2]
+    socio_economic_model.num_classes = model.num_classes
+    socio_economic_model.device = model.device
+    socio_economic_model.nests = model.nests
+    socio_economic_model.alphas = model.alphas
 
     return attributes_model, socio_economic_model
 
