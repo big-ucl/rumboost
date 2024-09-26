@@ -2186,12 +2186,13 @@ def rum_train(
             )
     else:
         subsample_valid = 1.0
-        if torch_tensors:
-            rumb.subsample_idx_valid = torch.arange(
-                rumb.num_obs[1], device=rumb.device, dtype=torch.int32
-            )
-        else:
-            rumb.subsample_idx_valid = np.arange(rumb.num_obs[1])
+        if len(rumb.num_obs) > 1:  # if there are validation sets
+            if torch_tensors:
+                rumb.subsample_idx_valid = torch.arange(
+                    rumb.num_obs[1], device=rumb.device, dtype=torch.int32
+                )
+            else:
+                rumb.subsample_idx_valid = np.arange(rumb.num_obs[1])
 
     # initial predictions
     if torch_tensors:
@@ -2411,7 +2412,7 @@ def rum_train(
             cross_entropy_train = cross_entropy(
                 rumb._preds, rumb.labels[rumb.subsample_idx]
             )
-        if rumb.valid_labels is not None:
+        if len(rumb.num_obs) > 1:  # only if there are validation sets
             cross_entropy_test = []
             for k, val_labels in enumerate(rumb.valid_labels):
                 preds_valid = rumb._inner_predict(k + 1)
