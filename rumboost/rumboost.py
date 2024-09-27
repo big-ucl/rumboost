@@ -1668,10 +1668,12 @@ def rum_train(
                         Keys are nests, and values are the the list of alternatives in the nest.
                         For example {0: [0, 1], 1: [2, 3]} means that alternative 0 and 1
                         are in nest 0, and alternative 2 and 3 are in nest 1.
-                    - 'optimise_mu': bool or ndarray[bool], optional (default = True)
+                    - 'optimise_mu': bool or list[bool], optional (default = True)
                         If True, the mu values are optimised through scipy.minimize.
-                        If an array of booleans, the length must be equal to the number of nests.
+                        If a list of booleans, the length must be equal to the number of nests.
                         By example, [True, False] means that mu_0 is optimised and mu_1 is fixed.
+                    - 'optim_interval': int, optional (default = 20)
+                        Interval at which the mu values are optimised.
 
             - 'cross_nested_logit': dict
                 Cross-nested logit model specification. The dictionary must contain:
@@ -1691,6 +1693,8 @@ def rum_train(
                         for high dimensionality datasets as it can be computationally expensive.
                         If an array of boolean, the array must have the same size than alphas. By example
                         if optimise_alphas_ij = True, alphas_ij will be optimised.
+                    - 'optim_interval': int, optional (default = 20)
+                        Interval at which the mu and/or alpha values are optimised.
 
 
     num_boost_round : int, optional (default = 100)
@@ -1933,15 +1937,17 @@ def rum_train(
 
         # mu optimisation initialisaiton
         optimise_mu = model_specification["nested_logit"].get("optimise_mu", True)
-        if isinstance(optimise_mu, np.ndarray):
+        if isinstance(optimise_mu, list):
             if len(optimise_mu) != len(rumb.mu):
                 raise ValueError(
                     "The length of optimise_mu must be equal to the number of nests"
                 )
             bounds = [(1, 2.5) if opt else (1, 1) for opt in optimise_mu]
             optimise_mu = True
+            optim_interval = model_specification["nested_logit"].get("optim_interval", 20)
         elif optimise_mu:
             bounds = [(1, 2.5)] * len(rumb.mu)
+            optim_interval = model_specification["nested_logit"].get("optim_interval", 20)
         else:
             bounds = None
             optimise_mu = False
@@ -1987,8 +1993,10 @@ def rum_train(
                 )
             bounds = [(1, 2.5) if opt else (1, 1) for opt in optimise_mu]
             optimise_mu = True
+            optim_interval = model_specification["cross_nested_logit"].get("optim_interval", 20)
         elif optimise_mu:
             bounds = [(1, 2.5)] * len(rumb.mu)
+            optim_interval = model_specification["cross_nested_logit"].get("optim_interval", 20)
         else:
             bounds = None
             optimise_mu = False
@@ -2013,11 +2021,13 @@ def rum_train(
             )
             optimise_alphas = True
             alpha_shape = rumb.alphas.shape
+            optim_interval = model_specification["cross_nested_logit"].get("optim_interval", 20)
         elif optimise_alphas:
             if not bounds:
                 bounds = []
             bounds.extend([(0, 1)] * rumb.alphas.flatten().size)
             alpha_shape = rumb.alphas.shape
+            optim_interval = model_specification["cross_nested_logit"].get("optim_interval", 20)
         else:
             alpha_shape = None
             optimise_alphas = False
@@ -2319,7 +2329,7 @@ def rum_train(
                 booster.best_iteration = earlyStopException.best_iteration + 1
                 evaluation_result_list = earlyStopException.best_score
 
-        if optimise_mu or optimise_alphas:
+        if optimise_mu or optimise_alphas and (i + 1) % optim_interval == 0:
             params_to_optimise = []
 
             if optimise_mu:
@@ -2344,7 +2354,7 @@ def rum_train(
                     alpha_shape,
                 ),
                 bounds=bounds,
-                method="Powell",
+                method="L-BFGS-B",
             )
 
             rumb._current_gains.append(rumb.best_score_train - res.fun)
