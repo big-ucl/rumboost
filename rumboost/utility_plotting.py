@@ -410,7 +410,9 @@ def plot_parameters(
         plt.tight_layout()
 
         if save_file:
-            plt.savefig(f"Figures/RUMBoost/LPMC/travel_time_iteration_{num_iteration}.png")
+            plt.savefig(
+                f"Figures/RUMBoost/LPMC/travel_time_iteration_{num_iteration}.png"
+            )
 
         # plot for distance on one figure
         plt.figure(figsize=(3.49, 3.49), dpi=1000)
@@ -629,7 +631,8 @@ def plot_parameters(
 
                 if save_file:
                     plt.savefig(
-                        f"{save_file}_{utility_names[u]}_{feature_names[u][i]}.png", facecolor="white"
+                        f"{save_file}_{utility_names[u]}_{feature_names[u][i]}.png",
+                        facecolor="white",
                     )
 
                 plt.show()
@@ -1370,7 +1373,7 @@ def plot_spline(
             plt.ylim([-9, 0.3])
             if save_fig:
                 # plt.savefig(save_file + "{} utility, {} feature.png".format(u, f))
-                plt.savefig(save_file, facecolor='white')
+                plt.savefig(save_file, facecolor="white")
             plt.show()
 
 
@@ -1491,14 +1494,14 @@ def plot_VoT(
         plt.show()
 
 
-def plot_pop_VoT(data_test, util_collection, attribute_VoT, save_figure=False):
+def plot_pop_VoT(data_train, util_collection, attribute_VoT, save_figure=False):
     """
     Plot the Value of Time for the given observations.
 
     Parameters
     ----------
-    data_test : pd.DataFrame
-        The test dataset.
+    data_train : pd.DataFrame
+        The training dataset.
     util_collection : dict
         A dictionary containing the utility function (spline or tree) to use for all features in all utilities where the VoT is computed. it follows this structure {utility: {feature: tree/spline function}}
     attribute_VoT : dict
@@ -1545,7 +1548,7 @@ def plot_pop_VoT(data_test, util_collection, attribute_VoT, save_figure=False):
         d_f1 = util_collection[u][f1].derivative()
         d_f2 = util_collection[u][f2].derivative()
 
-        VoT_pop = d_f1(data_test[f1]) / d_f2(data_test[f2])
+        VoT_pop = d_f1(data_train[f1]) / d_f2(data_train[f2])
 
         filtered_VoT_pop = VoT_pop[~np.isnan(VoT_pop)]
 
@@ -2049,7 +2052,7 @@ def get_weights(model, num_iteration=None):
             split_points = []
             market_segm = False
 
-            #skipping empty trees
+            # skipping empty trees
             if "split_feature" not in trees["tree_structure"]:
                 continue
 
@@ -2100,7 +2103,7 @@ def get_weights(model, num_iteration=None):
     return weights_df, weights_2d_df, weights_market_df
 
 
-def weights_to_plot_v2(model, market_segm=False, num_iteration = None):
+def weights_to_plot_v2(model, market_segm=False, num_iteration=None):
     """
     Arrange weights by ascending splitting points and cumulative sum of weights.
 
@@ -2122,9 +2125,9 @@ def weights_to_plot_v2(model, market_segm=False, num_iteration = None):
 
     # get raw weights
     if market_segm:
-        _, _, weights = get_weights(model, num_iteration = num_iteration)
+        _, _, weights = get_weights(model, num_iteration=num_iteration)
     else:
-        weights, _, _ = get_weights(model, num_iteration = num_iteration)
+        weights, _, _ = get_weights(model, num_iteration=num_iteration)
 
     weights_for_plot = {}
     # for all features
@@ -2168,9 +2171,11 @@ def weights_to_plot_v2(model, market_segm=False, num_iteration = None):
                     ]
 
             for s in split_points:
-                if '||' in str(s):
-                    numbers = s.split('||')
-                    split_points[split_points.index(s)] = str(np.mean([float(i) for i in numbers]))
+                if "||" in str(s):
+                    numbers = s.split("||")
+                    split_points[split_points.index(s)] = str(
+                        np.mean([float(i) for i in numbers])
+                    )
 
             weights_for_plot[str(i)][f] = {
                 "Splitting points": split_points,
@@ -2295,4 +2300,3 @@ def function_2d(weights_2d, x_vect, y_vect):
             contour_plot_values[:i_x, :i_y] += weights_2d["area_value"].iloc[k]
 
     return contour_plot_values
-

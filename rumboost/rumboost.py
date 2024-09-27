@@ -1931,12 +1931,14 @@ def rum_train(
 
         # store the nests and mu values
         rumb.nests = model_specification["nested_logit"]["nests"]
-        rumb.mu = model_specification["nested_logit"]["mu"]
+        rumb.mu = copy.copy(model_specification["nested_logit"]["mu"])
         rumb.alphas = None
         f_obj = rumb.f_obj_nest
 
         # mu optimisation initialisaiton
-        optimise_mu = model_specification["nested_logit"].get("optimise_mu", True)
+        optimise_mu = copy.copy(
+            model_specification["nested_logit"].get("optimise_mu", True)
+        )
         if isinstance(optimise_mu, list):
             if len(optimise_mu) != len(rumb.mu):
                 raise ValueError(
@@ -1944,10 +1946,14 @@ def rum_train(
                 )
             bounds = [(1, 2.5) if opt else (1, 1) for opt in optimise_mu]
             optimise_mu = True
-            optim_interval = model_specification["nested_logit"].get("optim_interval", 20)
+            optim_interval = model_specification["nested_logit"].get(
+                "optim_interval", 20
+            )
         elif optimise_mu:
             bounds = [(1, 2.5)] * len(rumb.mu)
-            optim_interval = model_specification["nested_logit"].get("optim_interval", 20)
+            optim_interval = model_specification["nested_logit"].get(
+                "optim_interval", 20
+            )
         else:
             bounds = None
             optimise_mu = False
@@ -1975,15 +1981,17 @@ def rum_train(
             raise ValueError("Cross nested logit must contain alphas key and mu key")
 
         # store the mu and alphas values
-        rumb.mu = model_specification["cross_nested_logit"]["mu"]
-        rumb.alphas = model_specification["cross_nested_logit"]["alphas"]
+        rumb.mu = copy.copy(model_specification["cross_nested_logit"]["mu"])
+        rumb.alphas = copy.copy(model_specification["cross_nested_logit"]["alphas"])
         rumb.nests = None
         rumb.nest_alt = None
         f_obj = rumb.f_obj_cross_nested
 
-        optimise_mu = model_specification["cross_nested_logit"].get("optimise_mu", True)
-        optimise_alphas = model_specification["cross_nested_logit"].get(
-            "optimise_alphas", False
+        optimise_mu = copy.copy(
+            model_specification["cross_nested_logit"].get("optimise_mu", True)
+        )
+        optimise_alphas = copy.copy(
+            model_specification["cross_nested_logit"].get("optimise_alphas", False)
         )
 
         if isinstance(optimise_mu, list):
@@ -1993,10 +2001,14 @@ def rum_train(
                 )
             bounds = [(1, 2.5) if opt else (1, 1) for opt in optimise_mu]
             optimise_mu = True
-            optim_interval = model_specification["cross_nested_logit"].get("optim_interval", 20)
+            optim_interval = model_specification["cross_nested_logit"].get(
+                "optim_interval", 20
+            )
         elif optimise_mu:
             bounds = [(1, 2.5)] * len(rumb.mu)
-            optim_interval = model_specification["cross_nested_logit"].get("optim_interval", 20)
+            optim_interval = model_specification["cross_nested_logit"].get(
+                "optim_interval", 20
+            )
         else:
             bounds = None
             optimise_mu = False
@@ -2021,13 +2033,17 @@ def rum_train(
             )
             optimise_alphas = True
             alpha_shape = rumb.alphas.shape
-            optim_interval = model_specification["cross_nested_logit"].get("optim_interval", 20)
+            optim_interval = model_specification["cross_nested_logit"].get(
+                "optim_interval", 20
+            )
         elif optimise_alphas:
             if not bounds:
                 bounds = []
             bounds.extend([(0, 1)] * rumb.alphas.flatten().size)
             alpha_shape = rumb.alphas.shape
-            optim_interval = model_specification["cross_nested_logit"].get("optim_interval", 20)
+            optim_interval = model_specification["cross_nested_logit"].get(
+                "optim_interval", 20
+            )
         else:
             alpha_shape = None
             optimise_alphas = False
@@ -2069,7 +2085,12 @@ def rum_train(
         ]  # assign the J previously preprocessed datasets
         rumb.labels = train_set["labels"]
         if rumb.mu is None:
-            rumb.labels_j = train_set.get("labels_j", None)
+            if not train_set.get("labels_j", None):
+                rumb.labels_j = (
+                    rumb.labels[:, None] == np.array(range(rumb.num_classes))[None, :]
+                ).astype(np.int8)
+            else:
+                rumb.labels_j = train_set["labels_j"]
         else:
             rumb.labels_j = None
         rumb.num_obs = [train_set["num_data"]]
@@ -2329,7 +2350,7 @@ def rum_train(
                 booster.best_iteration = earlyStopException.best_iteration + 1
                 evaluation_result_list = earlyStopException.best_score
 
-        if optimise_mu or optimise_alphas and (i + 1) % optim_interval == 0:
+        if (optimise_mu or optimise_alphas) and ((i + 1) % optim_interval == 0):
             params_to_optimise = []
 
             if optimise_mu:
@@ -2354,7 +2375,7 @@ def rum_train(
                     alpha_shape,
                 ),
                 bounds=bounds,
-                method="L-BFGS-B",
+                method="SLSQP",
             )
 
             rumb._current_gains.append(rumb.best_score_train - res.fun)
