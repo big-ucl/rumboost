@@ -118,22 +118,12 @@ class RUMBoost:
             Nested and cross-nested attributes:
             - nests : dict
                 Dictionary of nests.
-            - mu : list
-                List of mu values.
+            - mu : ndarray
+                array of mu values.
             - alphas : ndarray
                 Array of alpha values.
-
-            Shared ensembles attributes:
-            - shared_ensembles : list of list of int
-                List of shared ensembles.
-            - shared_start_idx : int
-                Starting index of shared ensembles.
             - nest_alt : dict
                 Dictionary of alternative nests.
-
-            Functional effects attributes:
-            - functional_effects : bool
-                Whether to use functional effects.
 
             Torch tensors attributes:
             - device : str
@@ -144,6 +134,8 @@ class RUMBoost:
             Early stopping attributes:
             - best_score : float
                 Best score.
+            - best_score_train : float
+                Best score on training set.
             - best_iteration : int
                 Best iteration.
         """
@@ -154,9 +146,9 @@ class RUMBoost:
             with open(model_file, "r") as file:
                 self._from_dict(json.load(file))
 
-        if self.alphas:
+        if self.alphas is not None:  # numpy.ndarray so need to specify not None
             self.alphas = np.array(self.alphas)
-        if self.mu:
+        if self.mu is not None:  # numpy.ndarray so need to specify not None
             self.mu = np.array(self.mu)
 
     def f_obj(self, _, __):
@@ -682,16 +674,6 @@ class RUMBoost:
             Used only if data is pandas DataFrame.
         utilities : bool, optional (default=True)
             If True, return raw utilities for each class, without generating probabilities.
-        nests : dict, optional (default=None)
-            If not none, compute predictions with the nested probability function. The dictionary keys are alternatives number and their values are
-            their nest number. By example {0:0, 1:1, 2:0} means that alt 0 and 2 are in nest 0 and alt 1 is in nest 1.
-        mu : list, optional (default=None)
-            Only used, and required, if nests is True. It is the list of mu values for each nest.
-            The first value correspond to the first nest and so on.
-        alphas : ndarray, optional (default=None)
-            An array of J (alternatives) by M (nests).
-            alpha_jn represents the degree of membership of alternative j to nest n
-            By example, alpha_12 = 0.5 means that alternative one belongs 50% to nest 2.
 
         Returns
         -------
@@ -1129,44 +1111,6 @@ class RUMBoost:
         self.valid_sets = np.array(reduced_valid_sets_J).T.tolist()
         if return_data:
             return train_set_J, reduced_valid_sets_J
-
-    def _preprocess_params(self, params: dict, return_params: bool = False):
-        """Set up J set of parameters.
-
-        Parameters
-        ----------
-        params : dict
-            Dictionary containing parameters. The syntax must follow the one from LightGBM.
-        return_params : bool, optional (default = False)
-            If True, returns the J sets of parameters (and potential validation sets)
-
-        Returns
-        -------
-        params_J : list[dict]
-            A list of dictionary containing J (or 2*J if functional effect model) sets of parameters.
-        """
-
-        # create the J parameters dictionaries
-        params_J = [
-            {
-                **copy.deepcopy(params),
-                "verbosity": -1,
-                "objective": "binary",
-                "num_classes": 1,
-                "monotone_constraints": (
-                    struct.get("monotone_constraints", []) if struct else []
-                ),
-                "interaction_constraints": (
-                    struct.get("interaction_constraints", []) if struct else []
-                ),
-            }
-            for struct in self.rum_structure
-        ]
-
-        # store the set of parameters in RUMBoost
-        self.params = params_J
-        if return_params:
-            return params_J
 
     def _preprocess_valids(
         self, train_set: Dataset, params: dict, valid_sets=None, valid_names=None
@@ -2162,7 +2106,7 @@ def rum_train(
                 torch.from_numpy(rumb.alphas).type(torch.float32).to(rumb.device)
             )
 
-    if "subsampling" in params and not rumb.batch_size:
+    if "subsampling" in params and rumb.batch_size > 0:
         subsample = params["subsampling"]
         if subsample == 1.0:
             subsample_freq = 0
@@ -2185,7 +2129,7 @@ def rum_train(
                     int(subsample * rumb.num_obs[0]),
                     replace=False,
                 )
-    elif rumb.batch_size:
+    elif rumb.batch_size > 0:
         subsample = 1.0
         subsample_freq = 0
         permutations = torch.randperm(
