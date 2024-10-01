@@ -50,110 +50,112 @@ def toy_valid_set():
     )
 
 
-toy_attributes = {
-    "best_iteration": 100,
-    "best_score": 0.5,
-    "best_score_train": 0.3,
-    "alphas": np.array([[0.5, 0.5], [1, 0], [0, 1]]),
-    "mu": np.array([1, 1]),
-    "optimise_mu": [True, False],
-    "optimise_alphas": np.array([[True, True], [False, False], [False, False]]),
-    "optim_interval": 20,
-    "nests": {0: [0, 1], 1: [2]},
-    "nest_alt": np.array([0, 0, 1]),
-    "num_classes": 3,
-    "num_obs": [4, 3],
-    "functional_effects": False,
-    "shared_ensembles": {3: [0, 1, 2]},
-    "shared_start_idx": 3,
-    "labels": np.array([0, 1, 2, 1]),
-    "labels_j": [
-        np.array([1, 0, 0]),
-        np.array([0, 1, 0]),
-        np.array([0, 0, 1]),
-        np.array([0, 1, 0]),
-    ],
-    "valid_labels": np.array([2, 1, 0]),
-    "device": None,
-    "torch_compile": False,
-    "general_params": {
-        "n_jobs": -1,
-        "num_classes": 3,  # important
-        "verbosity": 0,  # specific RUMBoost parameter
-        "verbosity_interval": 1,
-        "min_data_in_bin": 1,
-        "num_iterations": 10,
-        "early_stopping_round": None,
-        "subsampling": 1.0,
-        "subsampling_freq": 0,
-        "subsample_valid": 1.0,
-        "batch_size": 0,
-        "max_booster_to_update": 3,
-        "save_model_interval": 0,
-    },
-    "rum_structure": [
-        {
-            "utility": [0],
-            "variables": ["0", "1"],
-            "boosting_params": {
-                "monotone_constraints_method": "advanced",
-                "monotone_constraints": [1, -1],
-                "interaction_constraints": [[0], [1]],
-                "learning_rate": 0.1,
-                "max_depth": 1,
-                "min_data_in_leaf": 1,
-                "min_gain_to_split": 0,
-            },
-            "shared": False,
+@pytest.fixture
+def toy_attributes():
+    return {
+        "best_iteration": 100,
+        "best_score": 0.5,
+        "best_score_train": 0.3,
+        "alphas": np.array([[0.5, 0.5], [1, 0], [0, 1]]),
+        "mu": np.array([1, 1]),
+        "optimise_mu": [True, False],
+        "optimise_alphas": np.array([[True, True], [False, False], [False, False]]),
+        "optim_interval": 20,
+        "nests": {0: [0, 1], 1: [2]},
+        "nest_alt": np.array([0, 0, 1]),
+        "num_classes": 3,
+        "num_obs": [4, 3],
+        "functional_effects": False,
+        "shared_ensembles": {3: [0, 1, 2]},
+        "shared_start_idx": 3,
+        "labels": np.array([0, 1, 2, 1]),
+        "labels_j": [
+            np.array([1, 0, 0]),
+            np.array([0, 1, 0]),
+            np.array([0, 0, 1]),
+            np.array([0, 1, 0]),
+        ],
+        "valid_labels": np.array([2, 1, 0]),
+        "device": None,
+        "torch_compile": False,
+        "general_params": {
+            "n_jobs": -1,
+            "num_classes": 3,  # important
+            "verbosity": 0,  # specific RUMBoost parameter
+            "verbosity_interval": 1,
+            "min_data_in_bin": 1,
+            "num_iterations": 10,
+            "early_stopping_round": None,
+            "subsampling": 1.0,
+            "subsampling_freq": 0,
+            "subsample_valid": 1.0,
+            "batch_size": 0,
+            "max_booster_to_update": 3,
+            "save_model_interval": 0,
         },
-        {
-            "utility": [1],
-            "variables": ["1", "2"],
-            "boosting_params": {
-                "monotone_constraints_method": "advanced",
-                "monotone_constraints": [1, -1],
-                "interaction_constraints": [[0], [1]],
-                "learning_rate": 0.1,
-                "max_depth": 1,
-                "min_data_in_leaf": 1,
-                "min_gain_to_split": 0,
+        "rum_structure": [
+            {
+                "utility": [0],
+                "variables": ["0", "1"],
+                "boosting_params": {
+                    "monotone_constraints_method": "advanced",
+                    "monotone_constraints": [1, -1],
+                    "interaction_constraints": [[0], [1]],
+                    "learning_rate": 0.1,
+                    "max_depth": 1,
+                    "min_data_in_leaf": 1,
+                    "min_gain_to_split": 0,
+                },
+                "shared": False,
             },
-            "shared": False,
-        },
-        {
-            "utility": [2],
-            "variables": ["0", "2"],
-            "boosting_params": {
-                "monotone_constraints_method": "advanced",
-                "monotone_constraints": [1, -1],
-                "interaction_constraints": [[0], [1]],
-                "learning_rate": 0.1,
-                "max_depth": 1,
-                "min_data_in_leaf": 1,
-                "min_gain_to_split": 0,
+            {
+                "utility": [1],
+                "variables": ["1", "2"],
+                "boosting_params": {
+                    "monotone_constraints_method": "advanced",
+                    "monotone_constraints": [1, -1],
+                    "interaction_constraints": [[0], [1]],
+                    "learning_rate": 0.1,
+                    "max_depth": 1,
+                    "min_data_in_leaf": 1,
+                    "min_gain_to_split": 0,
+                },
+                "shared": False,
             },
-            "shared": False,
-        },
-        {
-            "utility": [0, 1, 2],
-            "variables": ["3", "4", "5"],
-            "boosting_params": {
-                "monotone_constraints_method": "advanced",
-                "monotone_constraints": [1],
-                "interaction_constraints": [[0]],
-                "learning_rate": 0.1,
-                "max_depth": 1,
-                "min_data_in_leaf": 1,
-                "min_gain_to_split": 0,
+            {
+                "utility": [2],
+                "variables": ["0", "2"],
+                "boosting_params": {
+                    "monotone_constraints_method": "advanced",
+                    "monotone_constraints": [1, -1],
+                    "interaction_constraints": [[0], [1]],
+                    "learning_rate": 0.1,
+                    "max_depth": 1,
+                    "min_data_in_leaf": 1,
+                    "min_gain_to_split": 0,
+                },
+                "shared": False,
             },
-            "shared": True,
-        },
-    ],
-}
+            {
+                "utility": [0, 1, 2],
+                "variables": ["3", "4", "5"],
+                "boosting_params": {
+                    "monotone_constraints_method": "advanced",
+                    "monotone_constraints": [1],
+                    "interaction_constraints": [[0]],
+                    "learning_rate": 0.1,
+                    "max_depth": 1,
+                    "min_data_in_leaf": 1,
+                    "min_gain_to_split": 0,
+                },
+                "shared": True,
+            },
+        ],
+    }
 
 
 @pytest.fixture
-def create_model_spec(model_type="MNL"):
+def create_model_spec(model_type="MNL", toy_attributes=toy_attributes):
     """
     Create a model specification for the RUMBoost object
     Model_type can be "MNL", "Nested Logit" or "Cross Nested Logit"
@@ -185,7 +187,7 @@ def create_model_spec(model_type="MNL"):
 
 
 @pytest.fixture
-def create_torch_tensors(use_torch=False):
+def create_torch_tensors(use_torch=False, toy_attributes=toy_attributes):
     """
     Create torch tensors for the RUMBoost object
     """
@@ -198,7 +200,7 @@ def create_torch_tensors(use_torch=False):
     return torch_tensors
 
 
-def test_rumboost_object(toy_train_set, toy_valid_set):
+def test_rumboost_object(toy_train_set, toy_valid_set, toy_attributes):
 
     # create a rumboost object
     model = rumb.RUMBoost(model_file=None, **toy_attributes)
