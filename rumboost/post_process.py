@@ -32,19 +32,26 @@ def split_fe_model(model: RUMBoost):
 
     attributes_model.boosters = [b for i, b in enumerate(model.boosters) if i % 2 == 0]
     attributes_model.rum_structure = model.rum_structure[::2]
+    attributes_model.num_classes = model.num_classes
+    attributes_model.device = model.device
+    attributes_model.nests = model.nests
+    attributes_model.alphas = model.alphas
 
     socio_economic_model.boosters = [
         b for i, b in enumerate(model.boosters) if i % 2 == 1
     ]
     socio_economic_model.rum_structure = model.rum_structure[1::2]
+    socio_economic_model.num_classes = model.num_classes
+    socio_economic_model.device = model.device
+    socio_economic_model.nests = model.nests
+    socio_economic_model.alphas = model.alphas
 
     return attributes_model, socio_economic_model
 
 
 def bootstrap(
     dataset: pd.DataFrame,
-    params: dict,
-    rum_structure: list[dict],
+    model_specification: dict,
     num_it: int = 100,
     seed: int = 42,
 ):
@@ -55,10 +62,9 @@ def bootstrap(
     ----------
     dataset: pd.DataFrame
         A dataset used to train RUMBoost
-    params: dict
-        A dictionary used to train RUMBoost
-    rum_structure: list[dict]
-        A list of dictionaries used to specify the structure of RUMBoost
+    model_specification: dict
+        A dictionary containing the model specification used to train the model.
+        It should follow the same structure than in the rum_train() function.
     num_it: int, optional (default=100)
         The number of bootstrapping iterations
     seed: int, optional (default=42)
@@ -89,7 +95,7 @@ def bootstrap(
         )
 
         models.append(
-            rum_train(params, dataset_train, rum_structure, valid_sets=[valid_set])
+            rum_train(dataset_train, model_specification, valid_sets=[valid_set])
         )
 
     return models
