@@ -29,6 +29,12 @@ from rumboost.nested_cross_nested import (
     cross_nested_probs,
     optimise_mu_or_alpha,
 )
+from rumboost.ordinal import (
+    diff_to_threshold,
+    threshold_to_diff,
+    optimise_thresholds_func,
+    proportional_odds_preds,
+)
 
 try:
     import torch
@@ -637,6 +643,21 @@ class RUMBoost:
 
         return grad, hess
 
+    def f_obj_proportional_odds(self, _, __):
+        """
+        Objective function of the binary classification boosters, for a proportional odds rumboost.
+
+        Returns
+        -------
+        grad : numpy array
+            The gradient with the cross-entropy loss function and proportional odds probabilities.
+        hess : numpy array
+            The hessian with the cross-entropy loss function and proportional odds probabilities (second derivative approximation rather than the hessian).
+        """
+        labels = self.labels[self.subsample_idx]
+        #grad = np.where(labels == 0, )
+        return None
+
     def predict(
         self,
         data,
@@ -807,6 +828,12 @@ class RUMBoost:
             preds, _, _ = cross_nested_probs(raw_preds, mu=self.mu, alphas=self.alphas)
 
             return preds
+        
+        if self.thresholds is not None:
+            if self.ord_model == "proportional_odds":
+                preds = proportional_odds_preds(raw_preds, self.thresholds)
+
+            return preds
 
         # softmax
         if not utilities:
@@ -950,6 +977,12 @@ class RUMBoost:
             if data_idx == 0:
                 self.preds_i_m = pred_i_m
                 self.preds_m = pred_m
+
+            return preds
+
+        if self.thresholds is not None:
+            if self.ord_model == "proportional_odds":
+                preds = proportional_odds_preds(raw_preds, self.thresholds)
 
             return preds
 
@@ -1640,6 +1673,21 @@ def rum_train(
                     - 'optim_interval': int, optional (default = 20)
                         Interval at which the mu and/or alpha values are optimised.
 
+            - 'ordinal_logit': dict
+                Ordinal logit model specification. The length of rum_structure
+                must be one. It is currently not possible to have
+                different utility functions per classes.
+                The dictionary must contain:
+                    - 'model': str, default = 'proportional_odds'
+                        The type of ordinal model. It can be:
+                            - 'proportional_odds': the proportional odds model.
+                            - 'unimodal_poisson': the unimodal poisson model.
+                            - 'unimodal_binomial': the unimodal binomial model.
+                            - 'coral': a rank consistent binary decomposition model.
+                    - 'optim_interval': int, optional (default = 20)
+                        Interval at which the thresholds are optimised. This is only
+                        used for the proportional odds and the coral models. If 0,
+                        the thresholds are fixed.
 
     num_boost_round : int, optional (default = 100)
         Number of boosting iterations.
@@ -1851,10 +1899,22 @@ def rum_train(
         raise ValueError("rum_structure must be a list")
 
     if (
-        "nested_logit" in model_specification
-        and "cross_nested_logit" in model_specification
+        (
+            "nested_logit" in model_specification
+            and "cross_nested_logit" in model_specification
+        )
+        or (
+            "nested_logit" in model_specification
+            and "ordinal_logit" in model_specification
+        )
+        or (
+            "cross_nested_logit" in model_specification
+            and "ordinal_logit" in model_specification
+        )
     ):
-        raise ValueError("Cannot specify both nested_logit and cross_nested_logit")
+        raise ValueError(
+            "Only one model specification can be used at a time. Choose between nested_logit, cross_nested_logit or ordinal_logit"
+        )
 
     rumb.max_booster_to_update = params.get(
         "max_booster_to_update", len(rumb.rum_structure)
@@ -1911,6 +1971,11 @@ def rum_train(
             for n, alts in rumb.nests.items():
                 nest_alt[alts] = n
             rumb.nest_alt = nest_alt.astype(int)
+
+        # not ordinal logit
+        rumb.ord_model = None
+        optimise_thresholds = False
+        rumb.thresholds = None
 
         # type checks
         if not isinstance(rumb.mu, np.ndarray):
@@ -1992,11 +2057,59 @@ def rum_train(
             alpha_shape = None
             optimise_alphas = False
 
+        # not ordinal logit
+        rumb.ord_model = None
+        optimise_thresholds = False
+        rumb.thresholds = None
+
         # type checks
         if not isinstance(rumb.mu, np.ndarray):
             raise ValueError("Mu must be a numpy array")
         if not isinstance(rumb.alphas, np.ndarray):
             raise ValueError("Alphas must be a numpy array")
+    elif "ordinal_logit" in model_specification:
+        if set([u for rum in rumb.rum_structure for u in rum["utility"]]) != {
+            0
+        }:  # check if all utility functions are the same
+            raise ValueError(
+                "Ordinal logit requires the same utility function for all parameter ensembles"
+            )
+        if rumb.num_classes == 2:
+            raise ValueError("Ordinal logit requires a minimum of 3 classes")
+        if "model" not in model_specification["ordinal_logit"]:
+            raise ValueError("Ordinal logit must contain model key")
+        ordinal_model = model_specification["ordinal_logit"]["model"]
+        optim_interval = model_specification["ordinal_logit"].get("optim_interval", 20)
+        if ordinal_model not in [
+            "proportional_odds",
+            "unimodal_poisson",
+            "unimodal_binomial",
+            "coral",
+        ]:
+            raise ValueError(
+                "Ordinal logit model must be proportional_odds, unimodal_poisson, unimodal_binomial or coral"
+            )
+        if ordinal_model == "proportional_odds":
+            f_obj = rumb.f_obj_proportional_odds
+            optimise_thresholds = optim_interval > 0
+            rumb.thresholds = np.arange(rumb.num_classes - 1)
+            bounds = [(None, None)]
+            bounds.extend([(0, None)] * (rumb.num_classes - 2))
+        elif ordinal_model == "unimodal_poisson":
+            f_obj = rumb.f_obj_unimodal_poisson
+            optimise_thresholds = False
+            rumb.thresholds = None
+        elif ordinal_model == "unimodal_binomial":
+            f_obj = rumb.f_obj_unimodal_binomial
+            optimise_thresholds = False
+            rumb.thresholds = None
+        elif ordinal_model == "coral":
+            f_obj = rumb.f_obj_coral
+            optimise_thresholds = optim_interval > 0
+            rumb.thresholds = np.arange(rumb.num_classes - 1)
+            bounds = [(None, None)]
+            bounds.extend([(0, None)] * (rumb.num_classes - 2))
+        rumb.ord_model = ordinal_model
 
     else:
         # no nesting structure
@@ -2004,9 +2117,12 @@ def rum_train(
         rumb.nests = None
         rumb.nest_alt = None
         rumb.alphas = None
+        rumb.ord_model = None
+        rumb.thresholds = None
         f_obj = rumb.f_obj
         optimise_mu = False
         optimise_alphas = False
+        optimise_thresholds = False
 
     if optimise_mu or optimise_alphas:
         opt_mu_or_alpha_idx = len(rumb.rum_structure)
@@ -2323,6 +2439,21 @@ def rum_train(
             )
 
             rumb._current_gains.append(rumb.best_score_train - res.fun)
+
+        if optimise_thresholds and ((i + 1) % optim_interval == 0):
+
+            thresh_diff = threshold_to_diff(rumb.thresholds)
+
+            # update thresholds
+            res = minimize(
+                optimise_thresholds_func,
+                np.array(thresh_diff),
+                args=(rumb.labels[rumb.subsample_idx], rumb.raw_preds[rumb.subsample_idx]),
+                bounds=bounds,
+                method="SLSQP",
+            )
+
+            rumb.thresholds = diff_to_threshold(res.x)
 
         # find best booster and update raw predictions
         best_boosters = rumb._find_best_booster()
