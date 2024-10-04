@@ -19,9 +19,9 @@ def proportional_odds_preds(raw_preds, thresholds):
         List of probabilities of each ordinal class
     """
     preds = np.zeros((raw_preds.shape[0], thresholds.shape[0] + 1))
-    sigmoids = expit(thresholds[None, :] - raw_preds[:, None])
+    sigmoids = expit(raw_preds - thresholds)
     preds[:, 0] = 1-sigmoids[:, 0]
-    preds[:, 1:-1] = np.diff(sigmoids[:, :-1], axis=1)
+    preds[:, 1:-1] = - np.diff(sigmoids, axis=1)
     preds[:, -1] = sigmoids[:, -1]
 
     return preds

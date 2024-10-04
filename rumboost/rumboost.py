@@ -5,7 +5,7 @@ import copy
 import json
 import numpy as np
 
-from scipy.special import softmax
+from scipy.special import softmax, expit
 from scipy.optimize import minimize
 from operator import attrgetter
 from pathlib import Path
@@ -130,6 +130,12 @@ class RUMBoost:
                 Array of alpha values.
             - nest_alt : dict
                 Dictionary of alternative nests.
+
+            Ordinal attributes:
+            - ord_model : str
+                Type of ordinal model.
+            - thresholds : list of float
+                Thresholds for ordinal model.
 
             Torch tensors attributes:
             - device : str
@@ -655,8 +661,34 @@ class RUMBoost:
             The hessian with the cross-entropy loss function and proportional odds probabilities (second derivative approximation rather than the hessian).
         """
         labels = self.labels[self.subsample_idx]
-        #grad = np.where(labels == 0, )
-        return None
+        preds = self._preds
+        thresholds = self.thresholds
+        thresholds = np.append(thresholds, 0)
+        raw_preds = self.raw_preds[self.subsample_idx]
+        grad = np.where(
+            labels == 0,
+            expit(raw_preds - thresholds[0]),
+            np.where(
+                labels == len(thresholds),
+                preds[:, -1] - 1,
+                expit(raw_preds - thresholds[labels - 1])
+                + expit(raw_preds - thresholds[labels])
+                - 1,
+            ),
+        )
+        hess = np.where(
+            labels == 0,
+            preds[:, 0] * expit(raw_preds - thresholds[0]),
+            np.where(
+                labels == len(thresholds),
+                preds[:, -1] * (1 - preds[:, -1]),
+                expit(raw_preds - thresholds[labels - 1])
+                * (1 - expit(raw_preds - thresholds[labels - 1]))
+                + expit(raw_preds - thresholds[labels])
+                * (1 - expit(raw_preds - thresholds[labels])),
+            ),
+        )
+        return grad, hess
 
     def predict(
         self,
@@ -828,7 +860,7 @@ class RUMBoost:
             preds, _, _ = cross_nested_probs(raw_preds, mu=self.mu, alphas=self.alphas)
 
             return preds
-        
+
         if self.thresholds is not None:
             if self.ord_model == "proportional_odds":
                 preds = proportional_odds_preds(raw_preds, self.thresholds)
@@ -1415,6 +1447,12 @@ class RUMBoost:
                     ),
                     "nests": self.nests,
                     "nest_alt": self.nest_alt,
+                    "ord_model": self.ord_model,
+                    "thresholds": (
+                        self.thresholds.cpu().numpy().tolist()
+                        if self.thresholds is not None
+                        else None
+                    ),
                     "num_classes": self.num_classes,
                     "num_obs": self.num_obs,
                     "labels": self.labels.cpu().numpy().tolist(),
@@ -1444,6 +1482,12 @@ class RUMBoost:
                     "mu": self.mu.tolist() if self.mu is not None else None,
                     "nests": self.nests,
                     "nest_alt": self.nest_alt,
+                    "ord_model": self.ord_model,
+                    "thresholds": (
+                        self.thresholds.tolist()
+                        if self.thresholds is not None
+                        else None
+                    ),
                     "num_classes": self.num_classes,
                     "num_obs": self.num_obs,
                     "labels": self.labels.tolist(),
@@ -2110,9 +2154,18 @@ def rum_train(
             bounds = [(None, None)]
             bounds.extend([(0, None)] * (rumb.num_classes - 2))
         rumb.ord_model = ordinal_model
+        rumb.num_classes = 1
+
+        # no nesting structure
+        optimise_mu = False
+        optimise_alphas = False
+        rumb.mu = None
+        rumb.nests = None
+        rumb.nest_alt = None
+        rumb.alphas = None
 
     else:
-        # no nesting structure
+        # no nesting structure nor ordinal logit
         rumb.mu = None
         rumb.nests = None
         rumb.nest_alt = None
@@ -2448,7 +2501,10 @@ def rum_train(
             res = minimize(
                 optimise_thresholds_func,
                 np.array(thresh_diff),
-                args=(rumb.labels[rumb.subsample_idx], rumb.raw_preds[rumb.subsample_idx]),
+                args=(
+                    rumb.labels[rumb.subsample_idx],
+                    rumb.raw_preds[rumb.subsample_idx][:, None],
+                ),
                 bounds=bounds,
                 method="SLSQP",
             )
