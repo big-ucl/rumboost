@@ -32,8 +32,9 @@ from rumboost.nested_cross_nested import (
 from rumboost.ordinal import (
     diff_to_threshold,
     threshold_to_diff,
-    optimise_thresholds_func,
-    proportional_odds_preds,
+    threshold_preds,
+    optimise_thresholds_coral,
+    optimise_thresholds_proportional_odds,
 )
 
 try:
@@ -651,7 +652,7 @@ class RUMBoost:
 
     def f_obj_proportional_odds(self, _, __):
         """
-        Objective function of the binary classification boosters, for a proportional odds rumboost.
+        Objective function for a proportional odds rumboost.
 
         Returns
         -------
@@ -688,6 +689,31 @@ class RUMBoost:
                 * (1 - expit(raw_preds - thresholds[labels])),
             ),
         )
+        return grad, hess
+    
+    def f_obj_coral(self, _, __):
+        """
+        Objective function for a coral rumboost.
+
+        Returns
+        -------
+        grad : numpy array
+            The gradient of the weighted binary cross-entropy loss function with coral probabilities.
+        hess : numpy array
+            The hessian of the weighted binary cross-entropy loss function with coral probabilities (second derivative approximation rather than the hessian).
+        """
+        labels = self.labels[self.subsample_idx]
+        thresholds = self.thresholds
+        raw_preds = self.raw_preds[self.subsample_idx][:, None]
+        sigmoids = expit(raw_preds - thresholds)
+        classes = np.arange(thresholds.shape[0])
+
+        grad = np.sum(sigmoids - (labels[:, None] > classes[None, :]), axis=1)
+
+        hess = np.sum(
+            sigmoids * (1 - sigmoids), axis=1
+        )
+
         return grad, hess
 
     def predict(
@@ -862,8 +888,8 @@ class RUMBoost:
             return preds
 
         if self.thresholds is not None:
-            if self.ord_model == "proportional_odds":
-                preds = proportional_odds_preds(raw_preds, self.thresholds)
+            if self.ord_model in ["proportional_odds"]:
+                preds = threshold_preds(raw_preds, self.thresholds)
 
             return preds
 
@@ -1013,8 +1039,8 @@ class RUMBoost:
             return preds
 
         if self.thresholds is not None:
-            if self.ord_model == "proportional_odds":
-                preds = proportional_odds_preds(raw_preds, self.thresholds)
+            if self.ord_model in ["proportional_odds", "coral"]:
+                preds = threshold_preds(raw_preds, self.thresholds)
 
             return preds
 
@@ -2497,9 +2523,14 @@ def rum_train(
 
             thresh_diff = threshold_to_diff(rumb.thresholds)
 
+            if rumb.ord_model == "coral":
+                opt_func = optimise_thresholds_coral
+            elif rumb.ord_model == "proportional_odds":
+                opt_func = optimise_thresholds_proportional_odds
+
             # update thresholds
             res = minimize(
-                optimise_thresholds_func,
+                opt_func,
                 np.array(thresh_diff),
                 args=(
                     rumb.labels[rumb.subsample_idx],

@@ -1,8 +1,8 @@
 import numpy as np
 from scipy.special import expit
-from rumboost.metrics import cross_entropy
+from rumboost.metrics import cross_entropy, weighted_binary_cross_entropy
 
-def proportional_odds_preds(raw_preds, thresholds):
+def threshold_preds(raw_preds, thresholds):
     """
     Calculate the probabilities of each ordinal class given the raw predictions and thresholds.
     
@@ -61,9 +61,9 @@ def diff_to_threshold(threshold_diff):
     return np.cumsum(threshold_diff)
 
 
-def optimise_thresholds_func(thresh_diff, labels, raw_preds):
+def optimise_thresholds_proportional_odds(thresh_diff, labels, raw_preds):
     """
-    Optimise thresholds for ordinal regression.
+    Optimise thresholds for ordinal regression, according to the proportional odds model.
 
     Parameters
     ----------
@@ -81,10 +81,35 @@ def optimise_thresholds_func(thresh_diff, labels, raw_preds):
     """
 
     threshold = diff_to_threshold(thresh_diff)
-    probs = proportional_odds_preds(raw_preds, threshold)
+    probs = threshold_preds(raw_preds, threshold)
 
     loss = cross_entropy(probs, labels)
 
     return loss
 
+def optimise_thresholds_coral(thresh_diff, labels, raw_preds):
+    """
+    Optimise thresholds for ordinal regression, with a coral model.
+
+    Parameters
+    ----------
+    thresh_diff : numpy.ndarray
+        List of threshold differnces (first element is the first threshold)
+    labels : numpy.ndarray
+        List of labels
+    raw_preds : numpy.ndarray
+        List of predictions
+
+    Returns
+    -------
+    loss : int
+        The loss according to the optimisation of thresholds.
+    """
+
+    threshold = diff_to_threshold(thresh_diff)
+    sigmoids = expit(raw_preds - threshold)
+
+    loss = weighted_binary_cross_entropy(sigmoids, labels) 
+
+    return loss
 
