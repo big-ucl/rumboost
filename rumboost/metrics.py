@@ -61,8 +61,8 @@ def weighted_binary_cross_entropy(preds, labels):
     Cross entropy : float
         The negative cross-entropy, as float.
     """
-    classes = np.arange(np.unique(labels))
-    binary_labels = labels[:, None] == classes[None, :]
+    classes = np.arange(np.unique(labels).shape[0] - 1)
+    binary_labels = labels[:, None] > classes[None, :]
     return -np.mean(
         np.sum(
             binary_labels * np.log(preds) + (1 - binary_labels) * np.log(1 - preds),

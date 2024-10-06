@@ -33,6 +33,7 @@ from rumboost.ordinal import (
     diff_to_threshold,
     threshold_to_diff,
     threshold_preds,
+    corn_preds,
     optimise_thresholds_coral,
     optimise_thresholds_proportional_odds,
 )
@@ -690,7 +691,7 @@ class RUMBoost:
             ),
         )
         return grad, hess
-    
+
     def f_obj_coral(self, _, __):
         """
         Objective function for a coral rumboost.
@@ -710,9 +711,31 @@ class RUMBoost:
 
         grad = np.sum(sigmoids - (labels[:, None] > classes[None, :]), axis=1)
 
-        hess = np.sum(
-            sigmoids * (1 - sigmoids), axis=1
-        )
+        hess = np.sum(sigmoids * (1 - sigmoids), axis=1)
+
+        return grad, hess
+
+    def f_obj_corn(self, _, __):
+        """
+        Objective function for an ordinal corn rumboost.
+
+        Returns
+        -------
+        grad : numpy array
+            The gradient of the conditional binary cross-entropy loss function with corn probabilities.
+        hess : numpy array
+            The hessian of the conditional binary cross-entropy loss function with corn probabilities (second derivative approximation rather than the hessian).
+        """
+        j = self._current_j  # jth booster
+        labels = self.labels[self.subsample_idx]
+        raw_preds = self.raw_preds.reshape((self.num_obs[0], -1), order="F")[
+                self.subsample_idx, :
+            ][:, j]
+        sigmoids = expit(raw_preds)
+
+        grad = np.where(labels < j, 0, sigmoids - (labels > j))
+
+        hess = np.where(labels < j, 1, sigmoids * (1 - sigmoids))
 
         return grad, hess
 
@@ -887,9 +910,15 @@ class RUMBoost:
 
             return preds
 
+        # ordinal preds
         if self.thresholds is not None:
-            if self.ord_model in ["proportional_odds"]:
+            if self.ord_model in ["proportional_odds", "coral"]:
                 preds = threshold_preds(raw_preds, self.thresholds)
+
+            return preds
+
+        if self.ord_model == "corn":
+            preds = corn_preds(raw_preds)
 
             return preds
 
@@ -1041,6 +1070,11 @@ class RUMBoost:
         if self.thresholds is not None:
             if self.ord_model in ["proportional_odds", "coral"]:
                 preds = threshold_preds(raw_preds, self.thresholds)
+
+            return preds
+
+        if self.ord_model == "corn":
+            preds = corn_preds(raw_preds)
 
             return preds
 
@@ -1754,6 +1788,8 @@ def rum_train(
                             - 'unimodal_poisson': the unimodal poisson model.
                             - 'unimodal_binomial': the unimodal binomial model.
                             - 'coral': a rank consistent binary decomposition model.
+                            - 'corn': a more advanced version of the coral model,
+                                      allowing for alternative specific utility functions.
                     - 'optim_interval': int, optional (default = 20)
                         Interval at which the thresholds are optimised. This is only
                         used for the proportional odds and the coral models. If 0,
@@ -2138,49 +2174,68 @@ def rum_train(
         if not isinstance(rumb.alphas, np.ndarray):
             raise ValueError("Alphas must be a numpy array")
     elif "ordinal_logit" in model_specification:
-        if set([u for rum in rumb.rum_structure for u in rum["utility"]]) != {
-            0
-        }:  # check if all utility functions are the same
-            raise ValueError(
-                "Ordinal logit requires the same utility function for all parameter ensembles"
-            )
-        if rumb.num_classes == 2:
-            raise ValueError("Ordinal logit requires a minimum of 3 classes")
-        if "model" not in model_specification["ordinal_logit"]:
-            raise ValueError("Ordinal logit must contain model key")
         ordinal_model = model_specification["ordinal_logit"]["model"]
         optim_interval = model_specification["ordinal_logit"].get("optim_interval", 20)
+
+        # some checks
         if ordinal_model not in [
             "proportional_odds",
             "unimodal_poisson",
             "unimodal_binomial",
             "coral",
+            "corn",
         ]:
             raise ValueError(
-                "Ordinal logit model must be proportional_odds, unimodal_poisson, unimodal_binomial or coral"
+                "Ordinal logit model must be proportional_odds, unimodal_poisson, unimodal_binomial, coral or corn."
             )
+        if (
+            set([u for rum in rumb.rum_structure for u in rum["utility"]]) != {0}
+            and ordinal_model != "corn"
+        ):  # check if all utility functions are the same
+            raise ValueError(
+                "Ordinal logit requires the same utility function for all parameter ensembles or use the CORN method"
+            )
+        if ordinal_model == "corn" and rumb.num_classes - 1 != len(
+            set([u for rum in rumb.rum_structure for u in rum["utility"]])
+        ):
+            raise ValueError(
+                "Ordinal logit with the CORN method requires a utility function for each class"
+            )
+        if rumb.num_classes == 2:
+            raise ValueError("Ordinal logit requires a minimum of 3 classes")
+        if "model" not in model_specification["ordinal_logit"]:
+            raise ValueError("Ordinal logit must contain model key")
+
         if ordinal_model == "proportional_odds":
             f_obj = rumb.f_obj_proportional_odds
             optimise_thresholds = optim_interval > 0
             rumb.thresholds = np.arange(rumb.num_classes - 1)
             bounds = [(None, None)]
             bounds.extend([(0, None)] * (rumb.num_classes - 2))
+            rumb.num_classes = 1
         elif ordinal_model == "unimodal_poisson":
             f_obj = rumb.f_obj_unimodal_poisson
             optimise_thresholds = False
             rumb.thresholds = None
+            rumb.num_classes = 1
         elif ordinal_model == "unimodal_binomial":
             f_obj = rumb.f_obj_unimodal_binomial
             optimise_thresholds = False
             rumb.thresholds = None
+            rumb.num_classes = 1
         elif ordinal_model == "coral":
             f_obj = rumb.f_obj_coral
             optimise_thresholds = optim_interval > 0
             rumb.thresholds = np.arange(rumb.num_classes - 1)
             bounds = [(None, None)]
             bounds.extend([(0, None)] * (rumb.num_classes - 2))
+            rumb.num_classes = 1
+        elif ordinal_model == "corn":
+            f_obj = rumb.f_obj_corn
+            optimise_thresholds = False
+            rumb.thresholds = None
+            rumb.num_classes = rumb.num_classes - 1
         rumb.ord_model = ordinal_model
-        rumb.num_classes = 1
 
         # no nesting structure
         optimise_mu = False

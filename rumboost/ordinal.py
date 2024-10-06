@@ -26,6 +26,29 @@ def threshold_preds(raw_preds, thresholds):
 
     return preds
 
+def corn_preds(raw_preds):
+    """
+    Calculate the probabilities of each ordinal class given the raw predictions.
+    
+    Parameters
+    ----------
+    raw_preds : numpy.ndarray
+        The raw predictions of the regression classifier.
+    
+    Returns
+    -------
+    numpy.ndarray
+        List of probabilities of each ordinal class
+    """
+    preds = np.zeros((raw_preds.shape[0], raw_preds.shape[1] + 1))
+    sigmoid = expit(raw_preds)
+    cumul_preds = np.cumprod(sigmoid, axis=1)
+    preds[:, 0] = 1 - cumul_preds[:, 0]
+    preds[:, 1:-1] = - np.diff(cumul_preds, axis=1)
+    preds[:, -1] = cumul_preds[:, -1]
+
+    return preds
+
 def threshold_to_diff(thresholds):
     """
     Convert thresholds to differences between thresholds
