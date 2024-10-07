@@ -1711,7 +1711,7 @@ def rum_train(
                         Activates early stopping. The model will train until the validation score stops improving.
                     - 'verbosity': int, optional (default = 1)
                         Verbosity of the model.
-                    - 'verbosity_interval': int, optional (default = 10)
+                    - 'verbose_interval': int, optional (default = 10)
                         Interval of the verbosity display. only used if verbosity > 1.
                     - 'max_booster_to_update': int, optional (default = num_classes)
                         Maximum number of boosters to update at each round.
@@ -1728,9 +1728,7 @@ def rum_train(
                         Dictionary containing the boosting parameters for the parameter ensemble.
                         If num_classes > 2, please specify params['objective'] = 'multiclass'.
                         These parameters are the same than Lightgbm parameters. More information here:
-                        https://lightgbm.readthedocs.io/en/latest/Parameters.html. If the verbose is greater than 1,
-                        RUMBoost accepts the additional parameter 'verbose_interval', an integer
-                        representing the interval in between each loss diplay.
+                        https://lightgbm.readthedocs.io/en/latest/Parameters.html. 
                     - 'shared': bool
                         If True, the parameter ensemble is shared across all alternatives.
 
