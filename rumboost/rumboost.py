@@ -5,7 +5,7 @@ import copy
 import json
 import numpy as np
 
-from scipy.special import softmax
+from scipy.special import softmax, expit
 from scipy.optimize import minimize
 from operator import attrgetter
 from pathlib import Path
@@ -28,6 +28,14 @@ from rumboost.nested_cross_nested import (
     nest_probs,
     cross_nested_probs,
     optimise_mu_or_alpha,
+)
+from rumboost.ordinal import (
+    diff_to_threshold,
+    threshold_to_diff,
+    threshold_preds,
+    corn_preds,
+    optimise_thresholds_coral,
+    optimise_thresholds_proportional_odds,
 )
 
 try:
@@ -124,6 +132,12 @@ class RUMBoost:
                 Array of alpha values.
             - nest_alt : dict
                 Dictionary of alternative nests.
+
+            Ordinal attributes:
+            - ord_model : str
+                Type of ordinal model.
+            - thresholds : list of float
+                Thresholds for ordinal model.
 
             Torch tensors attributes:
             - device : str
@@ -637,6 +651,94 @@ class RUMBoost:
 
         return grad, hess
 
+    def f_obj_proportional_odds(self, _, __):
+        """
+        Objective function for a proportional odds rumboost.
+
+        Returns
+        -------
+        grad : numpy array
+            The gradient with the cross-entropy loss function and proportional odds probabilities.
+        hess : numpy array
+            The hessian with the cross-entropy loss function and proportional odds probabilities (second derivative approximation rather than the hessian).
+        """
+        labels = self.labels[self.subsample_idx]
+        preds = self._preds
+        thresholds = self.thresholds
+        thresholds = np.append(thresholds, 0)
+        raw_preds = self.raw_preds[self.subsample_idx]
+        grad = np.where(
+            labels == 0,
+            expit(raw_preds - thresholds[0]),
+            np.where(
+                labels == len(thresholds),
+                preds[:, -1] - 1,
+                expit(raw_preds - thresholds[labels - 1])
+                + expit(raw_preds - thresholds[labels])
+                - 1,
+            ),
+        )
+        hess = np.where(
+            labels == 0,
+            preds[:, 0] * expit(raw_preds - thresholds[0]),
+            np.where(
+                labels == len(thresholds),
+                preds[:, -1] * (1 - preds[:, -1]),
+                expit(raw_preds - thresholds[labels - 1])
+                * (1 - expit(raw_preds - thresholds[labels - 1]))
+                + expit(raw_preds - thresholds[labels])
+                * (1 - expit(raw_preds - thresholds[labels])),
+            ),
+        )
+        return grad, hess
+
+    def f_obj_coral(self, _, __):
+        """
+        Objective function for a coral rumboost.
+
+        Returns
+        -------
+        grad : numpy array
+            The gradient of the weighted binary cross-entropy loss function with coral probabilities.
+        hess : numpy array
+            The hessian of the weighted binary cross-entropy loss function with coral probabilities (second derivative approximation rather than the hessian).
+        """
+        labels = self.labels[self.subsample_idx]
+        thresholds = self.thresholds
+        raw_preds = self.raw_preds[self.subsample_idx][:, None]
+        sigmoids = expit(raw_preds - thresholds)
+        classes = np.arange(thresholds.shape[0])
+
+        grad = np.sum(sigmoids - (labels[:, None] > classes[None, :]), axis=1)
+
+        hess = np.sum(sigmoids * (1 - sigmoids), axis=1)
+
+        return grad, hess
+
+    def f_obj_corn(self, _, __):
+        """
+        Objective function for an ordinal corn rumboost.
+
+        Returns
+        -------
+        grad : numpy array
+            The gradient of the conditional binary cross-entropy loss function with corn probabilities.
+        hess : numpy array
+            The hessian of the conditional binary cross-entropy loss function with corn probabilities (second derivative approximation rather than the hessian).
+        """
+        j = self._current_j  # jth booster
+        labels = self.labels[self.subsample_idx]
+        raw_preds = self.raw_preds.reshape((self.num_obs[0], -1), order="F")[
+                self.subsample_idx, :
+            ][:, j]
+        sigmoids = expit(raw_preds)
+
+        grad = np.where(labels < j, 0, sigmoids - (labels > j))
+
+        hess = np.where(labels < j, 1, sigmoids * (1 - sigmoids))
+
+        return grad, hess
+
     def predict(
         self,
         data,
@@ -808,6 +910,18 @@ class RUMBoost:
 
             return preds
 
+        # ordinal preds
+        if self.thresholds is not None:
+            if self.ord_model in ["proportional_odds", "coral"]:
+                preds = threshold_preds(raw_preds, self.thresholds)
+
+            return preds
+
+        if self.ord_model == "corn":
+            preds = corn_preds(raw_preds)
+
+            return preds
+
         # softmax
         if not utilities:
             preds = softmax(raw_preds, axis=1)
@@ -950,6 +1064,17 @@ class RUMBoost:
             if data_idx == 0:
                 self.preds_i_m = pred_i_m
                 self.preds_m = pred_m
+
+            return preds
+
+        if self.thresholds is not None:
+            if self.ord_model in ["proportional_odds", "coral"]:
+                preds = threshold_preds(raw_preds, self.thresholds)
+
+            return preds
+
+        if self.ord_model == "corn":
+            preds = corn_preds(raw_preds)
 
             return preds
 
@@ -1382,6 +1507,12 @@ class RUMBoost:
                     ),
                     "nests": self.nests,
                     "nest_alt": self.nest_alt,
+                    "ord_model": self.ord_model,
+                    "thresholds": (
+                        self.thresholds.cpu().numpy().tolist()
+                        if self.thresholds is not None
+                        else None
+                    ),
                     "num_classes": self.num_classes,
                     "num_obs": self.num_obs,
                     "labels": self.labels.cpu().numpy().tolist(),
@@ -1411,6 +1542,12 @@ class RUMBoost:
                     "mu": self.mu.tolist() if self.mu is not None else None,
                     "nests": self.nests,
                     "nest_alt": self.nest_alt,
+                    "ord_model": self.ord_model,
+                    "thresholds": (
+                        self.thresholds.tolist()
+                        if self.thresholds is not None
+                        else None
+                    ),
                     "num_classes": self.num_classes,
                     "num_obs": self.num_obs,
                     "labels": self.labels.tolist(),
@@ -1640,6 +1777,23 @@ def rum_train(
                     - 'optim_interval': int, optional (default = 20)
                         Interval at which the mu and/or alpha values are optimised.
 
+            - 'ordinal_logit': dict
+                Ordinal logit model specification. The length of rum_structure
+                must be one. It is currently not possible to have
+                different utility functions per classes.
+                The dictionary must contain:
+                    - 'model': str, default = 'proportional_odds'
+                        The type of ordinal model. It can be:
+                            - 'proportional_odds': the proportional odds model.
+                            - 'unimodal_poisson': the unimodal poisson model.
+                            - 'unimodal_binomial': the unimodal binomial model.
+                            - 'coral': a rank consistent binary decomposition model.
+                            - 'corn': a more advanced version of the coral model,
+                                      allowing for alternative specific utility functions.
+                    - 'optim_interval': int, optional (default = 20)
+                        Interval at which the thresholds are optimised. This is only
+                        used for the proportional odds and the coral models. If 0,
+                        the thresholds are fixed.
 
     num_boost_round : int, optional (default = 100)
         Number of boosting iterations.
@@ -1851,10 +2005,22 @@ def rum_train(
         raise ValueError("rum_structure must be a list")
 
     if (
-        "nested_logit" in model_specification
-        and "cross_nested_logit" in model_specification
+        (
+            "nested_logit" in model_specification
+            and "cross_nested_logit" in model_specification
+        )
+        or (
+            "nested_logit" in model_specification
+            and "ordinal_logit" in model_specification
+        )
+        or (
+            "cross_nested_logit" in model_specification
+            and "ordinal_logit" in model_specification
+        )
     ):
-        raise ValueError("Cannot specify both nested_logit and cross_nested_logit")
+        raise ValueError(
+            "Only one model specification can be used at a time. Choose between nested_logit, cross_nested_logit or ordinal_logit"
+        )
 
     rumb.max_booster_to_update = params.get(
         "max_booster_to_update", len(rumb.rum_structure)
@@ -1911,6 +2077,11 @@ def rum_train(
             for n, alts in rumb.nests.items():
                 nest_alt[alts] = n
             rumb.nest_alt = nest_alt.astype(int)
+
+        # not ordinal logit
+        rumb.ord_model = None
+        optimise_thresholds = False
+        rumb.thresholds = None
 
         # type checks
         if not isinstance(rumb.mu, np.ndarray):
@@ -1992,21 +2163,100 @@ def rum_train(
             alpha_shape = None
             optimise_alphas = False
 
+        # not ordinal logit
+        rumb.ord_model = None
+        optimise_thresholds = False
+        rumb.thresholds = None
+
         # type checks
         if not isinstance(rumb.mu, np.ndarray):
             raise ValueError("Mu must be a numpy array")
         if not isinstance(rumb.alphas, np.ndarray):
             raise ValueError("Alphas must be a numpy array")
+    elif "ordinal_logit" in model_specification:
+        ordinal_model = model_specification["ordinal_logit"]["model"]
+        optim_interval = model_specification["ordinal_logit"].get("optim_interval", 20)
 
-    else:
+        # some checks
+        if ordinal_model not in [
+            "proportional_odds",
+            "unimodal_poisson",
+            "unimodal_binomial",
+            "coral",
+            "corn",
+        ]:
+            raise ValueError(
+                "Ordinal logit model must be proportional_odds, unimodal_poisson, unimodal_binomial, coral or corn."
+            )
+        if (
+            set([u for rum in rumb.rum_structure for u in rum["utility"]]) != {0}
+            and ordinal_model != "corn"
+        ):  # check if all utility functions are the same
+            raise ValueError(
+                "Ordinal logit requires the same utility function for all parameter ensembles or use the CORN method"
+            )
+        if ordinal_model == "corn" and rumb.num_classes - 1 != len(
+            set([u for rum in rumb.rum_structure for u in rum["utility"]])
+        ):
+            raise ValueError(
+                "Ordinal logit with the CORN method requires a utility function for each class"
+            )
+        if rumb.num_classes == 2:
+            raise ValueError("Ordinal logit requires a minimum of 3 classes")
+        if "model" not in model_specification["ordinal_logit"]:
+            raise ValueError("Ordinal logit must contain model key")
+
+        if ordinal_model == "proportional_odds":
+            f_obj = rumb.f_obj_proportional_odds
+            optimise_thresholds = optim_interval > 0
+            rumb.thresholds = np.arange(rumb.num_classes - 1)
+            bounds = [(None, None)]
+            bounds.extend([(0, None)] * (rumb.num_classes - 2))
+            rumb.num_classes = 1
+        elif ordinal_model == "unimodal_poisson":
+            f_obj = rumb.f_obj_unimodal_poisson
+            optimise_thresholds = False
+            rumb.thresholds = None
+            rumb.num_classes = 1
+        elif ordinal_model == "unimodal_binomial":
+            f_obj = rumb.f_obj_unimodal_binomial
+            optimise_thresholds = False
+            rumb.thresholds = None
+            rumb.num_classes = 1
+        elif ordinal_model == "coral":
+            f_obj = rumb.f_obj_coral
+            optimise_thresholds = optim_interval > 0
+            rumb.thresholds = np.arange(rumb.num_classes - 1)
+            bounds = [(None, None)]
+            bounds.extend([(0, None)] * (rumb.num_classes - 2))
+            rumb.num_classes = 1
+        elif ordinal_model == "corn":
+            f_obj = rumb.f_obj_corn
+            optimise_thresholds = False
+            rumb.thresholds = None
+            rumb.num_classes = rumb.num_classes - 1
+        rumb.ord_model = ordinal_model
+
         # no nesting structure
+        optimise_mu = False
+        optimise_alphas = False
         rumb.mu = None
         rumb.nests = None
         rumb.nest_alt = None
         rumb.alphas = None
+
+    else:
+        # no nesting structure nor ordinal logit
+        rumb.mu = None
+        rumb.nests = None
+        rumb.nest_alt = None
+        rumb.alphas = None
+        rumb.ord_model = None
+        rumb.thresholds = None
         f_obj = rumb.f_obj
         optimise_mu = False
         optimise_alphas = False
+        optimise_thresholds = False
 
     if optimise_mu or optimise_alphas:
         opt_mu_or_alpha_idx = len(rumb.rum_structure)
@@ -2323,6 +2573,29 @@ def rum_train(
             )
 
             rumb._current_gains.append(rumb.best_score_train - res.fun)
+
+        if optimise_thresholds and ((i + 1) % optim_interval == 0):
+
+            thresh_diff = threshold_to_diff(rumb.thresholds)
+
+            if rumb.ord_model == "coral":
+                opt_func = optimise_thresholds_coral
+            elif rumb.ord_model == "proportional_odds":
+                opt_func = optimise_thresholds_proportional_odds
+
+            # update thresholds
+            res = minimize(
+                opt_func,
+                np.array(thresh_diff),
+                args=(
+                    rumb.labels[rumb.subsample_idx],
+                    rumb.raw_preds[rumb.subsample_idx][:, None],
+                ),
+                bounds=bounds,
+                method="SLSQP",
+            )
+
+            rumb.thresholds = diff_to_threshold(res.x)
 
         # find best booster and update raw predictions
         best_boosters = rumb._find_best_booster()
