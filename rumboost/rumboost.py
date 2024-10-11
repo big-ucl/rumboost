@@ -896,34 +896,35 @@ class RUMBoost:
                 )
         raw_preds = raw_preds.reshape((data.num_data(), -1), order="F")
 
-        # compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
-        if self.nests:
-            preds, _, _ = nest_probs(
-                raw_preds, mu=self.mu, nests=self.nests, nest_alt=self.nest_alt
-            )
 
-            return preds
-
-        # compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
-        if self.alphas is not None:
-            preds, _, _ = cross_nested_probs(raw_preds, mu=self.mu, alphas=self.alphas)
-
-            return preds
-
-        # ordinal preds
-        if self.thresholds is not None:
-            if self.ord_model in ["proportional_odds", "coral"]:
-                preds = threshold_preds(raw_preds, self.thresholds)
-
-            return preds
-
-        if self.ord_model == "corn":
-            preds = corn_preds(raw_preds)
-
-            return preds
-
-        # softmax
         if not utilities:
+            # compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
+            if self.nests:
+                preds, _, _ = nest_probs(
+                    raw_preds, mu=self.mu, nests=self.nests, nest_alt=self.nest_alt
+                )
+
+                return preds
+
+            # compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
+            if self.alphas is not None:
+                preds, _, _ = cross_nested_probs(raw_preds, mu=self.mu, alphas=self.alphas)
+
+                return preds
+
+            # ordinal preds
+            if self.thresholds is not None:
+                if self.ord_model in ["proportional_odds", "coral"]:
+                    preds = threshold_preds(raw_preds, self.thresholds)
+
+                return preds
+
+            if self.ord_model == "corn":
+                preds = corn_preds(raw_preds)
+
+                return preds
+
+            # softmax
             preds = softmax(raw_preds, axis=1)
             return preds
 
@@ -1045,41 +1046,42 @@ class RUMBoost:
                     )
             raw_preds = raw_preds.reshape((self.num_obs[data_idx], -1), order="F")
 
-        # compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
-        if self.nests:
-            preds, pred_i_m, pred_m = nest_probs(
-                raw_preds, mu=self.mu, nests=self.nests, nest_alt=self.nest_alt
-            )
-            if data_idx == 0:
-                self.preds_i_m = pred_i_m
-                self.preds_m = pred_m
-
-            return preds
-
-        # compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
-        if self.alphas is not None:
-            preds, pred_i_m, pred_m = cross_nested_probs(
-                raw_preds, mu=self.mu, alphas=self.alphas
-            )
-            if data_idx == 0:
-                self.preds_i_m = pred_i_m
-                self.preds_m = pred_m
-
-            return preds
-
-        if self.thresholds is not None:
-            if self.ord_model in ["proportional_odds", "coral"]:
-                preds = threshold_preds(raw_preds, self.thresholds)
-
-            return preds
-
-        if self.ord_model == "corn":
-            preds = corn_preds(raw_preds)
-
-            return preds
-
-        # softmax
         if not utilities:
+            # compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
+            if self.nests:
+                preds, pred_i_m, pred_m = nest_probs(
+                    raw_preds, mu=self.mu, nests=self.nests, nest_alt=self.nest_alt
+                )
+                if data_idx == 0:
+                    self.preds_i_m = pred_i_m
+                    self.preds_m = pred_m
+
+                return preds
+
+            # compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
+            if self.alphas is not None:
+                preds, pred_i_m, pred_m = cross_nested_probs(
+                    raw_preds, mu=self.mu, alphas=self.alphas
+                )
+                if data_idx == 0:
+                    self.preds_i_m = pred_i_m
+                    self.preds_m = pred_m
+
+                return preds
+
+            if self.thresholds is not None:
+                if self.ord_model in ["proportional_odds", "coral"]:
+                    preds = threshold_preds(raw_preds, self.thresholds)
+
+                return preds
+
+            if self.ord_model == "corn":
+                preds = corn_preds(raw_preds)
+
+                return preds
+
+            # softmax
+
             preds = softmax(raw_preds, axis=1)
             return preds
 

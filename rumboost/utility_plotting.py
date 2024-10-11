@@ -229,7 +229,7 @@ def plot_parameters(
 
     if with_asc:
         ASCs = get_asc(weights_arranged)
-
+        
     tex_fonts = {
         # Use LaTeX to write all text
         # "text.usetex": True,
@@ -629,10 +629,14 @@ def plot_parameters(
 
                 plt.tight_layout()
 
-                if save_file:
+                if save_file and feature_names:
                     plt.savefig(
                         f"{save_file}_{utility_names[u]}_{feature_names[u][i]}.png",
                         facecolor="white",
+                    )
+                elif save_file:
+                    plt.savefig(
+                        f"{save_file}_{utility_names[u]}_{f}.png", facecolor="white"
                     )
 
                 plt.show()
