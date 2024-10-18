@@ -98,10 +98,14 @@ def monotone_spline(
     is_equal = lambda a: np.any(a[:-1] == a[1:])
     if is_equal(x_knots):
         first_point = x_knots[0]
+        last_point = x_knots[-1]
         x_knots = [
-            x_ii + 1e-10 if x_i == x_ii else x_ii
+            x_ii + 1e-9 if x_i == x_ii else x_ii
             for x_i, x_ii in zip(x_knots[:-1], x_knots[1:])
         ]
+        if last_point != x_knots[-1]:
+            x_knots[-1] = last_point
+            x_knots[-2] = last_point - 1e-10
         x_knots.insert(0, first_point)
 
     # create spline object
@@ -436,7 +440,7 @@ def optimise_splines(
     )
     loss = cross_entropy(smooth_preds_final, label_test)
     # BIC
-    if deg_freedom is not None:
+    if deg_freedom:
         N = len(label_test)
         loss = 2 * N * loss + np.log(N) * deg_freedom
     return loss
@@ -450,11 +454,10 @@ def optimal_knots_position(
     spline_utilities,
     num_spline_range,
     max_iter=100,
-    optimize=True,
-    deg_freedom=None,
+    optimise=True,
+    bic=True,
     n_iter=1,
-    x_first=None,
-    x_last=None,
+    first_last_knot_fixed=True,
     mu=None,
     nests=None,
     alphas=None,
@@ -486,14 +489,12 @@ def optimal_knots_position(
         The maximum number of iterations from the solver
     optimize : bool, optional (default=True)
         If True, optimize the knots position with scipy.minimize
-    deg_freedom : int, optional (default=None)
-        The degree of freedom. If not specified, it is the number of knots to optimize.
+    bic : bool, optional (default=True)
+        If True, compute the BIC instead of the cross-entropy.
     n_iter : int, optional (default=None)
         The number of iteration, to leverage the randomness induced by the local minimizer.
-    x_first : list, optional (default=None)
-        A list of all first knots in the order of the attributes from spline_utilities and num_splines_range.
-    x_last : list, optional (default=None)
-        A list of all last knots in the order of the attributes from spline_utilities and num_splines_range.
+    first_last_knot_fixed : bool, optional (default=True)
+        If True, the first and last knots are fixed to the first and last data points.
     mu : numpy.ndarray, optional (default=None)
         Only used, and required, if nests is True. It is the array of mu values for each nest.
         The first value correspond to the first nest and so on.
@@ -506,7 +507,7 @@ def optimal_knots_position(
     fe_model : RUMBoost, optional (default=None)
         The socio-economic characteristics part of the functional effect model.
     linear_extrapolation : bool, optional (default=False)
-        If True, the splines are linearly extrapolated before and after th first and last knots.
+        If True, the splines are linearly extrapolated before and after the first and last knots.
 
     Returns
     -------
@@ -517,8 +518,8 @@ def optimal_knots_position(
     ce = 1e10
     for n in range(n_iter):
         x_0 = []
-        x_first = []
-        x_last = []
+        x_first = [] if first_last_knot_fixed else None
+        x_last = [] if first_last_knot_fixed else None
         all_cons = []
         all_bounds = []
         starter = 0
@@ -531,7 +532,7 @@ def optimal_knots_position(
                 first_point = np.min(dataset_train[f])
                 last_point = np.max(dataset_train[f])
 
-                if x_first:
+                if first_last_knot_fixed:
                     # initial knots position q/Nth quantile
                     x_0.extend(
                         [
@@ -575,8 +576,12 @@ def optimal_knots_position(
                         )
                         for q in range(1, num_spline_range[u][f])
                     ]
+
                     x_first.append(first_point)
                     x_last.append(last_point)
+
+                    # count the number of knots until now
+                    starter += num_spline_range[u][f] - 1
                 else:
                     x_0.extend(
                         [
@@ -612,13 +617,9 @@ def optimal_knots_position(
                 all_cons.extend(cons)
                 all_bounds.extend(bounds)
 
-                # count the number of knots until now
-                starter += num_spline_range[u][f] - 1
+        deg_freedom = starter if bic else None
 
-        if deg_freedom is not None:
-            deg_freedom = starter
-
-        if optimize:
+        if optimise:
             # optimise knot positions
             x_opt = minimize(
                 optimise_splines,
@@ -697,7 +698,7 @@ def optimal_knots_position(
             print(f"{n+1}/{n_iter}:{final_loss}")
 
     # return best x_opt and first and last points + score
-    if optimize:
+    if optimise:
         return x_opt_best, x_first_best, x_last_best, ce
 
     return x_opt_best, x_first, x_last, ce
