@@ -229,7 +229,7 @@ def plot_parameters(
 
     if with_asc:
         ASCs = get_asc(weights_arranged)
-
+        
     tex_fonts = {
         # Use LaTeX to write all text
         # "text.usetex": True,
@@ -629,10 +629,14 @@ def plot_parameters(
 
                 plt.tight_layout()
 
-                if save_file:
+                if save_file and feature_names:
                     plt.savefig(
                         f"{save_file}_{utility_names[u]}_{feature_names[u][i]}.png",
                         facecolor="white",
+                    )
+                elif save_file:
+                    plt.savefig(
+                        f"{save_file}_{utility_names[u]}_{f}.png", facecolor="white"
                     )
 
                 plt.show()
@@ -727,6 +731,7 @@ def plot_spline(
     utility_names,
     mean_splines=False,
     x_knots_dict=None,
+    linear_extrapolation=False,
     save_fig=False,
     lpmc_tt_cost=False,
     sm_tt_cost=False,
@@ -748,6 +753,8 @@ def plot_spline(
     x_knots_dict : dict, optional (default = None)
         A dictionary in the form of {utility: {attribute: x_knots}} where x_knots are the spline knots for the corresponding
         utility and attributes
+    linear_extrapolation : bool, optional (default = False)
+        If True, the splines are linearly extrapolated.
     save_fig : bool, optional (default = False)
         If True, save the plot as a png file.
     lpmc_tt_cost : bool, optional (default = False)
@@ -811,6 +818,7 @@ def plot_spline(
             num_splines=spline_collection["0"]["dur_walking"],
             x_knots=x_knots_temp_w,
             y_knots=y_knots_w,
+            linear_extrapolation=linear_extrapolation,
         )
         y_spline_norm_w = [y - y_plot_w[0] for y in y_spline_w]
         y_knot_norm_w = [y - y_plot_w[0] for y in y_knot_w]
@@ -851,6 +859,7 @@ def plot_spline(
             num_splines=spline_collection["1"]["dur_cycling"],
             x_knots=x_knots_temp_c,
             y_knots=y_knots_c,
+            linear_extrapolation=linear_extrapolation,
         )
         y_spline_norm_c = [y - y_plot_c[0] for y in y_spline_c]
         y_knot_norm_c = [y - y_plot_c[0] for y in y_knot_c]
@@ -889,6 +898,7 @@ def plot_spline(
             num_splines=spline_collection["2"]["dur_pt_rail"],
             x_knots=x_knots_temp_p,
             y_knots=y_knots_p,
+            linear_extrapolation=linear_extrapolation,
         )
         y_spline_norm_p = [y - y_plot_p[0] for y in y_spline_p]
         y_knot_norm_p = [y - y_plot_p[0] for y in y_knot_p]
@@ -927,6 +937,7 @@ def plot_spline(
             num_splines=spline_collection["3"]["dur_driving"],
             x_knots=x_knots_temp_d,
             y_knots=y_knots_d,
+            linear_extrapolation=linear_extrapolation,
         )
         y_spline_norm_d = [y - y_plot_d[0] for y in y_spline_d]
         y_knot_norm_d = [y - y_plot_d[0] for y in y_knot_d]
@@ -977,6 +988,7 @@ def plot_spline(
             num_splines=spline_collection["2"]["cost_transit"],
             x_knots=x_knots_temp_p,
             y_knots=y_knots_p,
+            linear_extrapolation=linear_extrapolation,
         )
         y_spline_norm_p = [y - y_plot_p[0] for y in y_spline_p]
         y_knot_norm_p = [y - y_plot_p[0] for y in y_knot_p]
@@ -1017,6 +1029,7 @@ def plot_spline(
             num_splines=spline_collection["3"]["cost_driving_fuel"],
             x_knots=x_knots_temp_d,
             y_knots=y_knots_d,
+            linear_extrapolation=linear_extrapolation,
         )
         y_spline_norm_d = [y - y_plot_d[0] for y in y_spline_d]
         y_knot_norm_d = [y - y_plot_d[0] for y in y_knot_d]
@@ -1065,6 +1078,7 @@ def plot_spline(
             num_splines=spline_collection["0"]["TRAIN_TT"],
             x_knots=x_knots_temp_p,
             y_knots=y_knots_p,
+            linear_extrapolation=linear_extrapolation,
         )
         y_spline_norm_p = [y - y_plot_p[0] for y in y_spline_p]
         y_knot_norm_p = [y - y_plot_p[0] for y in y_knot_p]
@@ -1102,6 +1116,7 @@ def plot_spline(
             num_splines=spline_collection["1"]["SM_TT"],
             x_knots=x_knots_temp_s,
             y_knots=y_knots_s,
+            linear_extrapolation=linear_extrapolation,
         )
         y_spline_norm_s = [y - y_plot_s[0] for y in y_spline_s]
         y_knot_norm_s = [y - y_plot_s[0] for y in y_knot_s]
@@ -1143,6 +1158,7 @@ def plot_spline(
             num_splines=spline_collection["2"]["CAR_TT"],
             x_knots=x_knots_temp_d,
             y_knots=y_knots_d,
+            linear_extrapolation=linear_extrapolation,
         )
         y_spline_norm_d = [y - y_plot_d[0] for y in y_spline_d]
         y_knot_norm_d = [y - y_plot_d[0] for y in y_knot_d]
@@ -1197,6 +1213,7 @@ def plot_spline(
             num_splines=spline_collection["0"]["TRAIN_COST"],
             x_knots=x_knots_temp_p,
             y_knots=y_knots_p,
+            linear_extrapolation=linear_extrapolation,
         )
         y_spline_norm_p = [y - y_plot_p[0] for y in y_spline_p]
         y_knot_norm_p = [y - y_plot_p[0] for y in y_knot_p]
@@ -1233,6 +1250,7 @@ def plot_spline(
             num_splines=spline_collection["1"]["SM_COST"],
             x_knots=x_knots_temp_s,
             y_knots=y_knots_s,
+            linear_extrapolation=linear_extrapolation,
         )
         y_spline_norm_s = [y - y_plot_s[0] for y in y_spline_s]
         y_knot_norm_s = [y - y_plot_s[0] for y in y_knot_s]
@@ -1269,6 +1287,7 @@ def plot_spline(
             num_splines=spline_collection["2"]["CAR_CO"],
             x_knots=x_knots_temp_d,
             y_knots=y_knots_d,
+            linear_extrapolation=linear_extrapolation,
         )
         y_spline_norm_d = [y - y_plot_d[0] for y in y_spline_d]
         y_knot_norm_d = [y - y_plot_d[0] for y in y_knot_d]
@@ -1331,10 +1350,11 @@ def plot_spline(
                         num_splines=spline_collection[u][f],
                         x_knots=x_knots_temp,
                         y_knots=y_knots,
+                        linear_extrapolation=linear_extrapolation,
                     )
                 else:
                     x_spline, y_spline, _, x_knot, y_knot = monotone_spline(
-                        x_plot, y_plot, num_splines=spline_collection[u][f]
+                        x_plot, y_plot, num_splines=spline_collection[u][f], linear_extrapolation=linear_extrapolation
                     )
             y_spline_norm = [y - y_plot[0] for y in y_spline]
             y_knot_norm = [y - y_plot[0] for y in y_knot]
@@ -1369,8 +1389,8 @@ def plot_spline(
             else:
                 plt.xlabel("{}".format(f))
 
-            plt.xlim([-0.2, 3.3])
-            plt.ylim([-9, 0.3])
+            #plt.xlim([-0.2, 3.3])
+            #plt.ylim([-9, 0.3])
             if save_fig:
                 # plt.savefig(save_file + "{} utility, {} feature.png".format(u, f))
                 plt.savefig(save_file, facecolor="white")
