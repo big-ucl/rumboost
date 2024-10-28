@@ -141,14 +141,6 @@ def optimise_mu_or_alpha(
         Whether to optimize alpha values.
     alpha_shape : tuple
         The shape of the alpha values.
-    data_idx : numpy.ndarray
-        The indices of the dataset to optimize.
-    lambda_l1 : float, optional (default=0)
-        The L1 regularization parameter.
-    lambda_l2 : float, optional (default=0)
-        The L2 regularization parameter.
-    previous_ce : float, optional (default=0)
-        The cross-entropy loss of the previous iteration.
 
     Returns
     -------
