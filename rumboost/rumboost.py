@@ -5,7 +5,7 @@ import copy
 import json
 import numpy as np
 
-from scipy.special import softmax
+from scipy.special import softmax, expit
 from scipy.optimize import minimize
 from operator import attrgetter
 from pathlib import Path
@@ -28,6 +28,14 @@ from rumboost.nested_cross_nested import (
     nest_probs,
     cross_nested_probs,
     optimise_mu_or_alpha,
+)
+from rumboost.ordinal import (
+    diff_to_threshold,
+    threshold_to_diff,
+    threshold_preds,
+    corn_preds,
+    optimise_thresholds_coral,
+    optimise_thresholds_proportional_odds,
 )
 
 try:
@@ -118,22 +126,18 @@ class RUMBoost:
             Nested and cross-nested attributes:
             - nests : dict
                 Dictionary of nests.
-            - mu : list
-                List of mu values.
+            - mu : ndarray
+                array of mu values.
             - alphas : ndarray
                 Array of alpha values.
-
-            Shared ensembles attributes:
-            - shared_ensembles : list of list of int
-                List of shared ensembles.
-            - shared_start_idx : int
-                Starting index of shared ensembles.
             - nest_alt : dict
                 Dictionary of alternative nests.
 
-            Functional effects attributes:
-            - functional_effects : bool
-                Whether to use functional effects.
+            Ordinal attributes:
+            - ord_model : str
+                Type of ordinal model.
+            - thresholds : list of float
+                Thresholds for ordinal model.
 
             Torch tensors attributes:
             - device : str
@@ -144,6 +148,8 @@ class RUMBoost:
             Early stopping attributes:
             - best_score : float
                 Best score.
+            - best_score_train : float
+                Best score on training set.
             - best_iteration : int
                 Best iteration.
         """
@@ -154,9 +160,9 @@ class RUMBoost:
             with open(model_file, "r") as file:
                 self._from_dict(json.load(file))
 
-        if self.alphas:
+        if self.alphas is not None:  # numpy.ndarray so need to specify not None
             self.alphas = np.array(self.alphas)
-        if self.mu:
+        if self.mu is not None:  # numpy.ndarray so need to specify not None
             self.mu = np.array(self.mu)
 
     def f_obj(self, _, __):
@@ -208,9 +214,10 @@ class RUMBoost:
                 grad = grad_rescaled
                 hess = hess_rescaled
 
-            if not self.rum_structure[j]["shared"] and len(
-                self.rum_structure[j]["utility"]
-            ) > 1:
+            if (
+                not self.rum_structure[j]["shared"]
+                and len(self.rum_structure[j]["utility"]) > 1
+            ):
                 grad = grad.sum(axis=1)
                 hess = hess.sum(axis=1)
             elif len(self.rum_structure[j]["variables"]) < len(
@@ -259,9 +266,10 @@ class RUMBoost:
             grad = grad_rescaled
             hess = hess_rescaled
 
-        if not self.rum_structure[j]["shared"] and len(
-            self.rum_structure[j]["utility"]
-        ) > 1:
+        if (
+            not self.rum_structure[j]["shared"]
+            and len(self.rum_structure[j]["utility"]) > 1
+        ):
             grad = grad.sum(axis=1)
             hess = hess.sum(axis=1)
         elif len(self.rum_structure[j]["variables"]) < len(
@@ -643,6 +651,94 @@ class RUMBoost:
 
         return grad, hess
 
+    def f_obj_proportional_odds(self, _, __):
+        """
+        Objective function for a proportional odds rumboost.
+
+        Returns
+        -------
+        grad : numpy array
+            The gradient with the cross-entropy loss function and proportional odds probabilities.
+        hess : numpy array
+            The hessian with the cross-entropy loss function and proportional odds probabilities (second derivative approximation rather than the hessian).
+        """
+        labels = self.labels[self.subsample_idx]
+        preds = self._preds
+        thresholds = self.thresholds
+        thresholds = np.append(thresholds, 0)
+        raw_preds = self.raw_preds[self.subsample_idx]
+        grad = np.where(
+            labels == 0,
+            expit(raw_preds - thresholds[0]),
+            np.where(
+                labels == len(thresholds),
+                preds[:, -1] - 1,
+                expit(raw_preds - thresholds[labels - 1])
+                + expit(raw_preds - thresholds[labels])
+                - 1,
+            ),
+        )
+        hess = np.where(
+            labels == 0,
+            preds[:, 0] * expit(raw_preds - thresholds[0]),
+            np.where(
+                labels == len(thresholds),
+                preds[:, -1] * (1 - preds[:, -1]),
+                expit(raw_preds - thresholds[labels - 1])
+                * (1 - expit(raw_preds - thresholds[labels - 1]))
+                + expit(raw_preds - thresholds[labels])
+                * (1 - expit(raw_preds - thresholds[labels])),
+            ),
+        )
+        return grad, hess
+
+    def f_obj_coral(self, _, __):
+        """
+        Objective function for a coral rumboost.
+
+        Returns
+        -------
+        grad : numpy array
+            The gradient of the weighted binary cross-entropy loss function with coral probabilities.
+        hess : numpy array
+            The hessian of the weighted binary cross-entropy loss function with coral probabilities (second derivative approximation rather than the hessian).
+        """
+        labels = self.labels[self.subsample_idx]
+        thresholds = self.thresholds
+        raw_preds = self.raw_preds[self.subsample_idx][:, None]
+        sigmoids = expit(raw_preds - thresholds)
+        classes = np.arange(thresholds.shape[0])
+
+        grad = np.sum(sigmoids - (labels[:, None] > classes[None, :]), axis=1)
+
+        hess = np.sum(sigmoids * (1 - sigmoids), axis=1)
+
+        return grad, hess
+
+    def f_obj_corn(self, _, __):
+        """
+        Objective function for an ordinal corn rumboost.
+
+        Returns
+        -------
+        grad : numpy array
+            The gradient of the conditional binary cross-entropy loss function with corn probabilities.
+        hess : numpy array
+            The hessian of the conditional binary cross-entropy loss function with corn probabilities (second derivative approximation rather than the hessian).
+        """
+        j = self._current_j  # jth booster
+        labels = self.labels[self.subsample_idx]
+        raw_preds = self.raw_preds.reshape((self.num_obs[0], -1), order="F")[
+                self.subsample_idx, :
+            ][:, j]
+        sigmoids = expit(raw_preds)
+
+        grad = np.where(labels < j, 0, sigmoids - (labels > j))
+
+        hess = np.where(labels < j, 1, sigmoids * (1 - sigmoids))
+
+        return grad, hess
+
     def predict(
         self,
         data,
@@ -680,16 +776,6 @@ class RUMBoost:
             Used only if data is pandas DataFrame.
         utilities : bool, optional (default=True)
             If True, return raw utilities for each class, without generating probabilities.
-        nests : dict, optional (default=None)
-            If not none, compute predictions with the nested probability function. The dictionary keys are alternatives number and their values are
-            their nest number. By example {0:0, 1:1, 2:0} means that alt 0 and 2 are in nest 0 and alt 1 is in nest 1.
-        mu : list, optional (default=None)
-            Only used, and required, if nests is True. It is the list of mu values for each nest.
-            The first value correspond to the first nest and so on.
-        alphas : ndarray, optional (default=None)
-            An array of J (alternatives) by M (nests).
-            alpha_jn represents the degree of membership of alternative j to nest n
-            By example, alpha_12 = 0.5 means that alternative one belongs 50% to nest 2.
 
         Returns
         -------
@@ -707,14 +793,15 @@ class RUMBoost:
 
             self.device = torch.device(self.device)
             if isinstance(self.mu, np.ndarray):
-                self.mu = torch.from_numpy(self.mu).type(torch.float32).to(
-                    device=self.device
+                self.mu = (
+                    torch.from_numpy(self.mu).type(torch.float32).to(device=self.device)
                 )
             if isinstance(self.alphas, np.ndarray):
-                self.alphas = torch.from_numpy(self.alphas).type(torch.float32).to(
-                    device=self.device
+                self.alphas = (
+                    torch.from_numpy(self.alphas)
+                    .type(torch.float32)
+                    .to(device=self.device)
                 )
-
 
             booster_preds = [
                 torch.from_numpy(
@@ -742,11 +829,17 @@ class RUMBoost:
             # reshaping raw predictions into num_obs, num_classes array
             for j, struct in enumerate(self.rum_structure):
                 if not struct["shared"]:
-                    raw_preds[struct["utility"][0] * data.num_data():(struct["utility"][-1] + 1) * data.num_data()] += booster_preds[j].repeat(
-                        len(struct["utility"])
-                    )
+                    raw_preds[
+                        struct["utility"][0]
+                        * data.num_data() : (struct["utility"][-1] + 1)
+                        * data.num_data()
+                    ] += booster_preds[j].repeat(len(struct["utility"]))
                 else:
-                    raw_preds[struct["utility"][0] * data.num_data():(struct["utility"][-1] + 1) * data.num_data()] += booster_preds[j].repeat(
+                    raw_preds[
+                        struct["utility"][0]
+                        * data.num_data() : (struct["utility"][-1] + 1)
+                        * data.num_data()
+                    ] += booster_preds[j].repeat(
                         int(len(struct["utility"]) / len(struct["variables"]))
                     )
 
@@ -803,24 +896,35 @@ class RUMBoost:
                 )
         raw_preds = raw_preds.reshape((data.num_data(), -1), order="F")
 
-        # compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
-        if self.nests:
-            preds, _, _ = nest_probs(
-                raw_preds, mu=self.mu, nests=self.nests, nest_alt=self.nest_alt
-            )
 
-            return preds
-
-        # compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
-        if self.alphas is not None:
-            preds, _, _ = cross_nested_probs(
-                raw_preds, mu=self.mu, alphas=self.alphas
-            )
-
-            return preds
-
-        # softmax
         if not utilities:
+            # compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
+            if self.nests:
+                preds, _, _ = nest_probs(
+                    raw_preds, mu=self.mu, nests=self.nests, nest_alt=self.nest_alt
+                )
+
+                return preds
+
+            # compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
+            if self.alphas is not None:
+                preds, _, _ = cross_nested_probs(raw_preds, mu=self.mu, alphas=self.alphas)
+
+                return preds
+
+            # ordinal preds
+            if self.thresholds is not None:
+                if self.ord_model in ["proportional_odds", "coral"]:
+                    preds = threshold_preds(raw_preds, self.thresholds)
+
+                return preds
+
+            if self.ord_model == "corn":
+                preds = corn_preds(raw_preds)
+
+                return preds
+
+            # softmax
             preds = softmax(raw_preds, axis=1)
             return preds
 
@@ -912,11 +1016,11 @@ class RUMBoost:
                     self.alphas,
                     utilities,
                 )
-            
+
             if self.mu is not None and data_idx == 0:
                 self.preds_i_m = pred_i_m
                 self.preds_m = pred_m
-                
+
             return preds
 
         # reshaping raw predictions into num_obs, num_classes array
@@ -942,30 +1046,42 @@ class RUMBoost:
                     )
             raw_preds = raw_preds.reshape((self.num_obs[data_idx], -1), order="F")
 
-        # compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
-        if self.nests:
-            preds, pred_i_m, pred_m = nest_probs(
-                raw_preds, mu=self.mu, nests=self.nests, nest_alt=self.nest_alt
-            )
-            if data_idx == 0:
-                self.preds_i_m = pred_i_m
-                self.preds_m = pred_m
-
-            return preds
-
-        # compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
-        if self.alphas is not None:
-            preds, pred_i_m, pred_m = cross_nested_probs(
-                raw_preds, mu=self.mu, alphas=self.alphas
-            )
-            if data_idx == 0:
-                self.preds_i_m = pred_i_m
-                self.preds_m = pred_m
-
-            return preds
-
-        # softmax
         if not utilities:
+            # compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
+            if self.nests:
+                preds, pred_i_m, pred_m = nest_probs(
+                    raw_preds, mu=self.mu, nests=self.nests, nest_alt=self.nest_alt
+                )
+                if data_idx == 0:
+                    self.preds_i_m = pred_i_m
+                    self.preds_m = pred_m
+
+                return preds
+
+            # compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
+            if self.alphas is not None:
+                preds, pred_i_m, pred_m = cross_nested_probs(
+                    raw_preds, mu=self.mu, alphas=self.alphas
+                )
+                if data_idx == 0:
+                    self.preds_i_m = pred_i_m
+                    self.preds_m = pred_m
+
+                return preds
+
+            if self.thresholds is not None:
+                if self.ord_model in ["proportional_odds", "coral"]:
+                    preds = threshold_preds(raw_preds, self.thresholds)
+
+                return preds
+
+            if self.ord_model == "corn":
+                preds = corn_preds(raw_preds)
+
+                return preds
+
+            # softmax
+
             preds = softmax(raw_preds, axis=1)
             return preds
 
@@ -1055,7 +1171,9 @@ class RUMBoost:
                         label=new_label,
                         free_raw_data=free_raw_data,
                     )  # create and build dataset
-                    categorical_feature = struct['boosting_params'].get("categorical_feature", "auto")
+                    categorical_feature = struct["boosting_params"].get(
+                        "categorical_feature", "auto"
+                    )
                     predictor_j = predictor[j] if predictor else None
                     train_set_j._update_params(
                         struct["boosting_params"]
@@ -1120,46 +1238,6 @@ class RUMBoost:
         self.valid_sets = np.array(reduced_valid_sets_J).T.tolist()
         if return_data:
             return train_set_J, reduced_valid_sets_J
-
-    def _preprocess_params(
-        self, params: dict, return_params: bool = False
-    ):
-        """Set up J set of parameters.
-
-        Parameters
-        ----------
-        params : dict
-            Dictionary containing parameters. The syntax must follow the one from LightGBM.
-        return_params : bool, optional (default = False)
-            If True, returns the J sets of parameters (and potential validation sets)
-
-        Returns
-        -------
-        params_J : list[dict]
-            A list of dictionary containing J (or 2*J if functional effect model) sets of parameters.
-        """
-
-        # create the J parameters dictionaries
-        params_J = [
-            {
-                **copy.deepcopy(params),
-                "verbosity": -1,
-                "objective": "binary",
-                "num_classes": 1,
-                "monotone_constraints": (
-                    struct.get("monotone_constraints", []) if struct else []
-                ),
-                "interaction_constraints": (
-                    struct.get("interaction_constraints", []) if struct else []
-                ),
-            }
-            for struct in self.rum_structure
-        ]
-
-        # store the set of parameters in RUMBoost
-        self.params = params_J
-        if return_params:
-            return params_J
 
     def _preprocess_valids(
         self, train_set: Dataset, params: dict, valid_sets=None, valid_names=None
@@ -1405,11 +1483,11 @@ class RUMBoost:
                 )
             )
         if self.device is not None:
-            if self.labels_j:
+            if self.labels_j is not None:
                 labels_j_numpy = [l.cpu().numpy().tolist() for l in self.labels_j]
             else:
                 labels_j_numpy = []
-            if self.valid_labels:
+            if self.valid_labels is not None:
                 valid_labels_numpy = [
                     v.cpu().numpy().tolist() for v in self.valid_labels
                 ]
@@ -1431,6 +1509,12 @@ class RUMBoost:
                     ),
                     "nests": self.nests,
                     "nest_alt": self.nest_alt,
+                    "ord_model": self.ord_model,
+                    "thresholds": (
+                        self.thresholds.cpu().numpy().tolist()
+                        if self.thresholds is not None
+                        else None
+                    ),
                     "num_classes": self.num_classes,
                     "num_obs": self.num_obs,
                     "labels": self.labels.cpu().numpy().tolist(),
@@ -1442,11 +1526,11 @@ class RUMBoost:
                 },
             }
         else:
-            if self.labels_j:
+            if self.labels_j is not None:
                 labels_j_list = [l.tolist() for l in self.labels_j]
             else:
                 labels_j_list = []
-            if self.valid_labels:
+            if self.valid_labels is not None:
                 valid_labs = [v.tolist() for v in self.valid_labels]
             else:
                 valid_labs = []
@@ -1456,10 +1540,16 @@ class RUMBoost:
                     "best_iteration": self.best_iteration,
                     "best_score": float(self.best_score),
                     "best_score_train": float(self.best_score_train),
-                    "alphas": self.alphas.tolist(),
-                    "mu": self.mu.tolist(),
+                    "alphas": self.alphas.tolist() if self.alphas is not None else None,
+                    "mu": self.mu.tolist() if self.mu is not None else None,
                     "nests": self.nests,
                     "nest_alt": self.nest_alt,
+                    "ord_model": self.ord_model,
+                    "thresholds": (
+                        self.thresholds.tolist()
+                        if self.thresholds is not None
+                        else None
+                    ),
                     "num_classes": self.num_classes,
                     "num_obs": self.num_obs,
                     "labels": self.labels.tolist(),
@@ -1623,7 +1713,7 @@ def rum_train(
                         Activates early stopping. The model will train until the validation score stops improving.
                     - 'verbosity': int, optional (default = 1)
                         Verbosity of the model.
-                    - 'verbosity_interval': int, optional (default = 10)
+                    - 'verbose_interval': int, optional (default = 10)
                         Interval of the verbosity display. only used if verbosity > 1.
                     - 'max_booster_to_update': int, optional (default = num_classes)
                         Maximum number of boosters to update at each round.
@@ -1634,16 +1724,13 @@ def rum_train(
                 List of dictionaries specifying the variable used to create the parameter ensemble,
                 and their monotonicity or interaction. The list must contain one dictionary for each parameter.
                 Each dictionary has four required keys:
-
                     - 'utility': list of alternatives in which the parameter ensemble is used
                     - 'variables': list of columns from the train_set included in that parameter_ensemble
                     - 'boosting_params': dict
                         Dictionary containing the boosting parameters for the parameter ensemble.
                         If num_classes > 2, please specify params['objective'] = 'multiclass'.
                         These parameters are the same than Lightgbm parameters. More information here:
-                        https://lightgbm.readthedocs.io/en/latest/Parameters.html. If the verbose is greater than 1,
-                        RUMBoost accepts the additional parameter 'verbose_interval', an integer
-                        representing the interval in between each loss diplay.
+                        https://lightgbm.readthedocs.io/en/latest/Parameters.html. 
                     - 'shared': bool
                         If True, the parameter ensemble is shared across all alternatives.
 
@@ -1662,10 +1749,12 @@ def rum_train(
                         Keys are nests, and values are the the list of alternatives in the nest.
                         For example {0: [0, 1], 1: [2, 3]} means that alternative 0 and 1
                         are in nest 0, and alternative 2 and 3 are in nest 1.
-                    - 'optimise_mu': bool or ndarray[bool], optional (default = True)
+                    - 'optimise_mu': bool or list[bool], optional (default = True)
                         If True, the mu values are optimised through scipy.minimize.
-                        If an array of booleans, the length must be equal to the number of nests.
+                        If a list of booleans, the length must be equal to the number of nests.
                         By example, [True, False] means that mu_0 is optimised and mu_1 is fixed.
+                    - 'optim_interval': int, optional (default = 20)
+                        Interval at which the mu values are optimised.
 
             - 'cross_nested_logit': dict
                 Cross-nested logit model specification. The dictionary must contain:
@@ -1685,7 +1774,26 @@ def rum_train(
                         for high dimensionality datasets as it can be computationally expensive.
                         If an array of boolean, the array must have the same size than alphas. By example
                         if optimise_alphas_ij = True, alphas_ij will be optimised.
+                    - 'optim_interval': int, optional (default = 20)
+                        Interval at which the mu and/or alpha values are optimised.
 
+            - 'ordinal_logit': dict
+                Ordinal logit model specification. The length of rum_structure
+                must be one. It is currently not possible to have
+                different utility functions per classes.
+                The dictionary must contain:
+                    - 'model': str, default = 'proportional_odds'
+                        The type of ordinal model. It can be:
+                            - 'proportional_odds': the proportional odds model.
+                            - 'unimodal_poisson': the unimodal poisson model.
+                            - 'unimodal_binomial': the unimodal binomial model.
+                            - 'coral': a rank consistent binary decomposition model.
+                            - 'corn': a more advanced version of the coral model,
+                                      allowing for alternative specific utility functions.
+                    - 'optim_interval': int, optional (default = 20)
+                        Interval at which the thresholds are optimised. This is only
+                        used for the proportional odds and the coral models. If 0,
+                        the thresholds are fixed.
 
     num_boost_round : int, optional (default = 100)
         Number of boosting iterations.
@@ -1841,7 +1949,9 @@ def rum_train(
                 )
 
     if predictor is not None:
-        init_iteration = np.max([predictor[j].current_iteration() for j in range(len(predictor))])
+        init_iteration = np.max(
+            [predictor[j].current_iteration() for j in range(len(predictor))]
+        )
     else:
         init_iteration = 0
 
@@ -1895,10 +2005,22 @@ def rum_train(
         raise ValueError("rum_structure must be a list")
 
     if (
-        "nested_logit" in model_specification
-        and "cross_nested_logit" in model_specification
+        (
+            "nested_logit" in model_specification
+            and "cross_nested_logit" in model_specification
+        )
+        or (
+            "nested_logit" in model_specification
+            and "ordinal_logit" in model_specification
+        )
+        or (
+            "cross_nested_logit" in model_specification
+            and "ordinal_logit" in model_specification
+        )
     ):
-        raise ValueError("Cannot specify both nested_logit and cross_nested_logit")
+        raise ValueError(
+            "Only one model specification can be used at a time. Choose between nested_logit, cross_nested_logit or ordinal_logit"
+        )
 
     rumb.max_booster_to_update = params.get(
         "max_booster_to_update", len(rumb.rum_structure)
@@ -1919,21 +2041,29 @@ def rum_train(
 
         # store the nests and mu values
         rumb.nests = model_specification["nested_logit"]["nests"]
-        rumb.mu = model_specification["nested_logit"]["mu"]
+        rumb.mu = copy.copy(model_specification["nested_logit"]["mu"])
         rumb.alphas = None
         f_obj = rumb.f_obj_nest
 
         # mu optimisation initialisaiton
-        optimise_mu = model_specification["nested_logit"].get("optimise_mu", True)
-        if isinstance(optimise_mu, np.ndarray):
+        optimise_mu = copy.copy(
+            model_specification["nested_logit"].get("optimise_mu", True)
+        )
+        if isinstance(optimise_mu, list):
             if len(optimise_mu) != len(rumb.mu):
                 raise ValueError(
                     "The length of optimise_mu must be equal to the number of nests"
                 )
             bounds = [(1, 2.5) if opt else (1, 1) for opt in optimise_mu]
             optimise_mu = True
+            optim_interval = model_specification["nested_logit"].get(
+                "optim_interval", 20
+            )
         elif optimise_mu:
             bounds = [(1, 2.5)] * len(rumb.mu)
+            optim_interval = model_specification["nested_logit"].get(
+                "optim_interval", 20
+            )
         else:
             bounds = None
             optimise_mu = False
@@ -1948,6 +2078,11 @@ def rum_train(
                 nest_alt[alts] = n
             rumb.nest_alt = nest_alt.astype(int)
 
+        # not ordinal logit
+        rumb.ord_model = None
+        optimise_thresholds = False
+        rumb.thresholds = None
+
         # type checks
         if not isinstance(rumb.mu, np.ndarray):
             raise ValueError("Mu must be a numpy array")
@@ -1961,15 +2096,17 @@ def rum_train(
             raise ValueError("Cross nested logit must contain alphas key and mu key")
 
         # store the mu and alphas values
-        rumb.mu = model_specification["cross_nested_logit"]["mu"]
-        rumb.alphas = model_specification["cross_nested_logit"]["alphas"]
+        rumb.mu = copy.copy(model_specification["cross_nested_logit"]["mu"])
+        rumb.alphas = copy.copy(model_specification["cross_nested_logit"]["alphas"])
         rumb.nests = None
         rumb.nest_alt = None
         f_obj = rumb.f_obj_cross_nested
 
-        optimise_mu = model_specification["cross_nested_logit"].get("optimise_mu", True)
-        optimise_alphas = model_specification["cross_nested_logit"].get(
-            "optimise_alphas", False
+        optimise_mu = copy.copy(
+            model_specification["cross_nested_logit"].get("optimise_mu", True)
+        )
+        optimise_alphas = copy.copy(
+            model_specification["cross_nested_logit"].get("optimise_alphas", False)
         )
 
         if isinstance(optimise_mu, list):
@@ -1979,8 +2116,14 @@ def rum_train(
                 )
             bounds = [(1, 2.5) if opt else (1, 1) for opt in optimise_mu]
             optimise_mu = True
+            optim_interval = model_specification["cross_nested_logit"].get(
+                "optim_interval", 20
+            )
         elif optimise_mu:
             bounds = [(1, 2.5)] * len(rumb.mu)
+            optim_interval = model_specification["cross_nested_logit"].get(
+                "optim_interval", 20
+            )
         else:
             bounds = None
             optimise_mu = False
@@ -2005,30 +2148,115 @@ def rum_train(
             )
             optimise_alphas = True
             alpha_shape = rumb.alphas.shape
+            optim_interval = model_specification["cross_nested_logit"].get(
+                "optim_interval", 20
+            )
         elif optimise_alphas:
             if not bounds:
                 bounds = []
             bounds.extend([(0, 1)] * rumb.alphas.flatten().size)
             alpha_shape = rumb.alphas.shape
+            optim_interval = model_specification["cross_nested_logit"].get(
+                "optim_interval", 20
+            )
         else:
             alpha_shape = None
             optimise_alphas = False
+
+        # not ordinal logit
+        rumb.ord_model = None
+        optimise_thresholds = False
+        rumb.thresholds = None
 
         # type checks
         if not isinstance(rumb.mu, np.ndarray):
             raise ValueError("Mu must be a numpy array")
         if not isinstance(rumb.alphas, np.ndarray):
             raise ValueError("Alphas must be a numpy array")
+    elif "ordinal_logit" in model_specification:
+        ordinal_model = model_specification["ordinal_logit"]["model"]
+        optim_interval = model_specification["ordinal_logit"].get("optim_interval", 20)
 
-    else:
+        # some checks
+        if ordinal_model not in [
+            "proportional_odds",
+            "unimodal_poisson",
+            "unimodal_binomial",
+            "coral",
+            "corn",
+        ]:
+            raise ValueError(
+                "Ordinal logit model must be proportional_odds, unimodal_poisson, unimodal_binomial, coral or corn."
+            )
+        if (
+            set([u for rum in rumb.rum_structure for u in rum["utility"]]) != {0}
+            and ordinal_model != "corn"
+        ):  # check if all utility functions are the same
+            raise ValueError(
+                "Ordinal logit requires the same utility function for all parameter ensembles or use the CORN method"
+            )
+        if ordinal_model == "corn" and rumb.num_classes - 1 != len(
+            set([u for rum in rumb.rum_structure for u in rum["utility"]])
+        ):
+            raise ValueError(
+                "Ordinal logit with the CORN method requires a utility function for each class"
+            )
+        if rumb.num_classes == 2:
+            raise ValueError("Ordinal logit requires a minimum of 3 classes")
+        if "model" not in model_specification["ordinal_logit"]:
+            raise ValueError("Ordinal logit must contain model key")
+
+        if ordinal_model == "proportional_odds":
+            f_obj = rumb.f_obj_proportional_odds
+            optimise_thresholds = optim_interval > 0
+            rumb.thresholds = np.arange(rumb.num_classes - 1)
+            bounds = [(None, None)]
+            bounds.extend([(0, None)] * (rumb.num_classes - 2))
+            rumb.num_classes = 1
+        elif ordinal_model == "unimodal_poisson":
+            f_obj = rumb.f_obj_unimodal_poisson
+            optimise_thresholds = False
+            rumb.thresholds = None
+            rumb.num_classes = 1
+        elif ordinal_model == "unimodal_binomial":
+            f_obj = rumb.f_obj_unimodal_binomial
+            optimise_thresholds = False
+            rumb.thresholds = None
+            rumb.num_classes = 1
+        elif ordinal_model == "coral":
+            f_obj = rumb.f_obj_coral
+            optimise_thresholds = optim_interval > 0
+            rumb.thresholds = np.arange(rumb.num_classes - 1)
+            bounds = [(None, None)]
+            bounds.extend([(0, None)] * (rumb.num_classes - 2))
+            rumb.num_classes = 1
+        elif ordinal_model == "corn":
+            f_obj = rumb.f_obj_corn
+            optimise_thresholds = False
+            rumb.thresholds = None
+            rumb.num_classes = rumb.num_classes - 1
+        rumb.ord_model = ordinal_model
+
         # no nesting structure
+        optimise_mu = False
+        optimise_alphas = False
         rumb.mu = None
         rumb.nests = None
         rumb.nest_alt = None
         rumb.alphas = None
+
+    else:
+        # no nesting structure nor ordinal logit
+        rumb.mu = None
+        rumb.nests = None
+        rumb.nest_alt = None
+        rumb.alphas = None
+        rumb.ord_model = None
+        rumb.thresholds = None
         f_obj = rumb.f_obj
         optimise_mu = False
         optimise_alphas = False
+        optimise_thresholds = False
 
     if optimise_mu or optimise_alphas:
         opt_mu_or_alpha_idx = len(rumb.rum_structure)
@@ -2051,7 +2279,12 @@ def rum_train(
         ]  # assign the J previously preprocessed datasets
         rumb.labels = train_set["labels"]
         if rumb.mu is None:
-            rumb.labels_j = train_set.get("labels_j", None)
+            if not train_set.get("labels_j", None):
+                rumb.labels_j = (
+                    rumb.labels[:, None] == np.array(range(rumb.num_classes))[None, :]
+                ).astype(np.int8)
+            else:
+                rumb.labels_j = train_set["labels_j"]
         else:
             rumb.labels_j = None
         rumb.num_obs = [train_set["num_data"]]
@@ -2123,7 +2356,7 @@ def rum_train(
                 torch.from_numpy(rumb.alphas).type(torch.float32).to(rumb.device)
             )
 
-    if "subsampling" in params and not rumb.batch_size:
+    if "subsampling" in params and rumb.batch_size > 0:
         subsample = params["subsampling"]
         if subsample == 1.0:
             subsample_freq = 0
@@ -2146,7 +2379,7 @@ def rum_train(
                     int(subsample * rumb.num_obs[0]),
                     replace=False,
                 )
-    elif rumb.batch_size:
+    elif rumb.batch_size > 0:
         subsample = 1.0
         subsample_freq = 0
         permutations = torch.randperm(
@@ -2178,12 +2411,13 @@ def rum_train(
             )
     else:
         subsample_valid = 1.0
-        if torch_tensors:
-            rumb.subsample_idx_valid = torch.arange(
-                rumb.num_obs[1], device=rumb.device, dtype=torch.int32
-            )
-        else:
-            rumb.subsample_idx_valid = np.arange(rumb.num_obs[1])
+        if len(rumb.num_obs) > 1:  # if there are validation sets
+            if torch_tensors:
+                rumb.subsample_idx_valid = torch.arange(
+                    rumb.num_obs[1], device=rumb.device, dtype=torch.int32
+                )
+            else:
+                rumb.subsample_idx_valid = np.arange(rumb.num_obs[1])
 
     # initial predictions
     if torch_tensors:
@@ -2310,7 +2544,7 @@ def rum_train(
                 booster.best_iteration = earlyStopException.best_iteration + 1
                 evaluation_result_list = earlyStopException.best_score
 
-        if optimise_mu or optimise_alphas:
+        if (optimise_mu or optimise_alphas) and ((i + 1) % optim_interval == 0):
             params_to_optimise = []
 
             if optimise_mu:
@@ -2335,10 +2569,33 @@ def rum_train(
                     alpha_shape,
                 ),
                 bounds=bounds,
-                method="Powell",
+                method="SLSQP",
             )
 
             rumb._current_gains.append(rumb.best_score_train - res.fun)
+
+        if optimise_thresholds and ((i + 1) % optim_interval == 0):
+
+            thresh_diff = threshold_to_diff(rumb.thresholds)
+
+            if rumb.ord_model == "coral":
+                opt_func = optimise_thresholds_coral
+            elif rumb.ord_model == "proportional_odds":
+                opt_func = optimise_thresholds_proportional_odds
+
+            # update thresholds
+            res = minimize(
+                opt_func,
+                np.array(thresh_diff),
+                args=(
+                    rumb.labels[rumb.subsample_idx],
+                    rumb.raw_preds[rumb.subsample_idx][:, None],
+                ),
+                bounds=bounds,
+                method="SLSQP",
+            )
+
+            rumb.thresholds = diff_to_threshold(res.x)
 
         # find best booster and update raw predictions
         best_boosters = rumb._find_best_booster()
@@ -2403,7 +2660,7 @@ def rum_train(
             cross_entropy_train = cross_entropy(
                 rumb._preds, rumb.labels[rumb.subsample_idx]
             )
-        if rumb.valid_labels is not None:
+        if len(rumb.num_obs) > 1:  # only if there are validation sets
             cross_entropy_test = []
             for k, val_labels in enumerate(rumb.valid_labels):
                 preds_valid = rumb._inner_predict(k + 1)

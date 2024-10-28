@@ -33,6 +33,7 @@ models/
 
 #random scripts
 mtmc_switzerland.py
+rumboost_nn.py
 
 #biogeme files
 *.iter
