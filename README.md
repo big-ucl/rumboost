@@ -29,11 +29,13 @@ The full documentation can be found [here](https://rumboost.readthedocs.io/en/la
 
 1. [simple_rumboost](https://github.com/NicoSlvd/rumboost/blob/main/examples/1_simple_rumboost.ipynb): how to train and plot parameters of a simple RUMBoost model
 2. [feature_interaction](https://github.com/NicoSlvd/rumboost/blob/main/examples/2_feature_interaction.ipynb): how to include feature interactions for training and plotting
-3. [nested](https://github.com/NicoSlvd/rumboost/blob/main/examples/3_nested.ipynb): how to train a nested logit RUMBoost model
+3. [shared_ensembles](https://github.com/NicoSlvd/rumboost/blob/main/examples/3_shared_ensembles.ipynb): how to train a RUMBoost model with one or more ensembles shared across alternatives
 4. [functional_effect](https://github.com/NicoSlvd/rumboost/blob/main/examples/4_functional_effect.ipynb): how to train and plot a functional effect RUMBoost model
-5. [cross-nested](https://github.com/NicoSlvd/rumboost/blob/main/examples/5_cross-nested.ipynb): how to train a cross-nested logit RUMBoost model
-6. [bootstrap](https://github.com/NicoSlvd/rumboost/blob/main/examples/6_bootstrap.ipynb): how to test the model robustness
+5. [nested](https://github.com/NicoSlvd/rumboost/blob/main/examples/5_nested.ipynb): how to train a nested logit RUMBoost model
+6. [cross-nested](https://github.com/NicoSlvd/rumboost/blob/main/examples/6_cross-nested.ipynb): how to train a cross-nested logit RUMBoost model
 7. [smoothing_and_vot](https://github.com/NicoSlvd/rumboost/blob/main/examples/7_smoothing_and_vot.ipynb): how to smooth a RUMBoost output and plot the smoothed version, as well as computing and plotting VoT
+8. [bootstrap](https://github.com/NicoSlvd/rumboost/blob/main/examples/8_bootstrap.ipynb): how to test the model robustness
+9. [GPU_and_batch_training](https://github.com/big-ucl/rumboost/blob/main/examples/9_GPU_and_batch_training.ipynb): how to train the model with batches and how to compute the gradients on the GPU
 
 ## Bug reports and feature requests
 If you encounter any issues or have ideas for new features, please open an [issue](https://github.com/NicoSlvd/rumboost/issues). You can also contact us at nicolas.salvade.22@ucl.ac.uk
