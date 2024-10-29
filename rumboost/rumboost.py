@@ -164,6 +164,8 @@ class RUMBoost:
             self.alphas = np.array(self.alphas)
         if self.mu is not None:  # numpy.ndarray so need to specify not None
             self.mu = np.array(self.mu)
+        if self.thresholds is not None: # numpy.ndarray so need to specify not None
+            self.thresholds = np.array(self.thresholds)
 
     def f_obj(self, _, __):
         """
