@@ -43,6 +43,9 @@ If you encounter any issues or have ideas for new features, please open an [issu
 ## License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE.txt) file for details.
 
-## Reference paper (preprint)
+## Citation
 
-Salvadé, N., & Hillel, T. (2024). Rumboost: Gradient Boosted Random Utility Models. *arXiv preprint [arXiv:2401.11954](https://arxiv.org/abs/2401.11954)*
+If you found this repository useful, you can acknowledge the authors by citing:
+
+* Salvadé, N., & Hillel, T. (2025). Rumboost: Gradient Boosted Random Utility Models. *Transportation
+Research Part C: Emerging Technologies* 170, 104897. DOI: [10.1016/j.trc.2024.104897](https://doi.org/10.1016/j.trc.2024.104897)
