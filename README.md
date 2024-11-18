@@ -14,7 +14,7 @@ Currently RUMBoost can estimate the following RUMs:
 - Cross-Nested Logit
 - An equivalent of the Mixed Effect model
 
-For more details, you can refer to the [preprint](https://arxiv.org/abs/2401.11954) of our paper.
+For more details, you can refer to our [paper](https://doi.org/10.1016/j.trc.2024.104897).
 
 ## Installation
 
