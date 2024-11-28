@@ -34,6 +34,8 @@ models/
 #random scripts
 mtmc_switzerland.py
 rumboost_nn.py
+train_rumb_nn.py
+hyperparameter_tuning_results.csv
 
 #biogeme files
 *.iter

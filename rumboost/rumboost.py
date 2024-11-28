@@ -122,6 +122,10 @@ class RUMBoost:
                 Labels for each booster.
             - valid_labels : list of numpy array
                 Validation labels.
+            - boost_from_parameter_space : bool
+                Whether to boost from the parameter space.
+                If so the output of the boosters will be betas,
+                instead of piece-wise utility constants.
 
             Nested and cross-nested attributes:
             - nests : dict
@@ -164,9 +168,26 @@ class RUMBoost:
             self.alphas = np.array(self.alphas)
         if self.mu is not None:  # numpy.ndarray so need to specify not None
             self.mu = np.array(self.mu)
-        if self.thresholds is not None: # numpy.ndarray so need to specify not None
+        if self.thresholds is not None:  # numpy.ndarray so need to specify not None
             self.thresholds = np.array(self.thresholds)
 
+    def multiply_grad_hess_by_data(func):
+        """
+        Decorator to multiply the gradient and hessian by the number of observations for the jth booster.
+        This is used to scale the gradient and hessian when
+        boosting from the parameter space, according to the chain rule.
+        """
+
+        def wrapper(self, preds, data):
+            grad, hess = func(self, preds, data)
+            if self.boost_from_parameter_space:
+                grad *= self.train_set[self._current_j].data.reshape(-1)
+                hess *= self.train_set[self._current_j].data.reshape(-1) ** 2
+            return grad, hess
+
+        return wrapper
+
+    @multiply_grad_hess_by_data
     def f_obj(self, _, __):
         """
         Objective function of the binary classification boosters, but based on softmax predictions.
@@ -294,6 +315,7 @@ class RUMBoost:
 
         return grad.reshape(-1, order="F"), hess.reshape(-1, order="F")
 
+    @multiply_grad_hess_by_data
     def f_obj_nest(self, _, __):
         """
         Objective function of the binary classification boosters, for a nested rumboost.
@@ -457,6 +479,7 @@ class RUMBoost:
 
         return grad, hess
 
+    @multiply_grad_hess_by_data
     def f_obj_cross_nested(self, _, __):
         """
         Objective function of the binary classification boosters, for a cross-nested rumboost.
@@ -653,6 +676,7 @@ class RUMBoost:
 
         return grad, hess
 
+    @multiply_grad_hess_by_data
     def f_obj_proportional_odds(self, _, __):
         """
         Objective function for a proportional odds rumboost.
@@ -694,6 +718,7 @@ class RUMBoost:
         )
         return grad, hess
 
+    @multiply_grad_hess_by_data
     def f_obj_coral(self, _, __):
         """
         Objective function for a coral rumboost.
@@ -717,6 +742,7 @@ class RUMBoost:
 
         return grad, hess
 
+    @multiply_grad_hess_by_data
     def f_obj_corn(self, _, __):
         """
         Objective function for an ordinal corn rumboost.
@@ -731,8 +757,8 @@ class RUMBoost:
         j = self._current_j  # jth booster
         labels = self.labels[self.subsample_idx]
         raw_preds = self.raw_preds.reshape((self.num_obs[0], -1), order="F")[
-                self.subsample_idx, :
-            ][:, j]
+            self.subsample_idx, :
+        ][:, j]
         sigmoids = expit(raw_preds)
 
         grad = np.where(labels < j, 0, sigmoids - (labels > j))
@@ -805,23 +831,43 @@ class RUMBoost:
                     .to(device=self.device)
                 )
 
-            booster_preds = [
-                torch.from_numpy(
-                    booster.predict(
-                        new_data[k].get_data(),
-                        start_iteration,
-                        num_iteration,
-                        raw_score,
-                        pred_leaf,
-                        pred_contrib,
-                        data_has_header,
-                        validate_features,
+            if self.boost_from_parameter_space:
+                booster_preds = [
+                    torch.from_numpy(
+                        booster.predict(
+                            new_data[k].get_data(),
+                            start_iteration,
+                            num_iteration,
+                            raw_score,
+                            pred_leaf,
+                            pred_contrib,
+                            data_has_header,
+                            validate_features,
+                        )
+                        * new_data[k].get_data().reshape(-1)
                     )
-                )
-                .type(torch.float32)
-                .to(device=self.device)
-                for k, booster in enumerate(self.boosters)
-            ]
+                    .type(torch.float32)
+                    .to(device=self.device)
+                    for k, booster in enumerate(self.boosters)
+                ]
+            else:
+                booster_preds = [
+                    torch.from_numpy(
+                        booster.predict(
+                            new_data[k].get_data(),
+                            start_iteration,
+                            num_iteration,
+                            raw_score,
+                            pred_leaf,
+                            pred_contrib,
+                            data_has_header,
+                            validate_features,
+                        )
+                    )
+                    .type(torch.float32)
+                    .to(device=self.device)
+                    for k, booster in enumerate(self.boosters)
+                ]
             raw_preds = torch.zeros(
                 data.num_data() * self.num_classes,
                 device=self.device,
@@ -866,19 +912,35 @@ class RUMBoost:
                 )
             return preds
 
-        booster_preds = [
-            booster.predict(
-                new_data[k].get_data(),
-                start_iteration,
-                num_iteration,
-                raw_score,
-                pred_leaf,
-                pred_contrib,
-                data_has_header,
-                validate_features,
-            )
-            for k, booster in enumerate(self.boosters)
-        ]
+        if self.boost_from_parameter_space:
+            booster_preds = [
+                booster.predict(
+                    new_data[k].get_data(),
+                    start_iteration,
+                    num_iteration,
+                    raw_score,
+                    pred_leaf,
+                    pred_contrib,
+                    data_has_header,
+                    validate_features,
+                )
+                * new_data[k].get_data().reshape(-1)
+                for k, booster in enumerate(self.boosters)
+            ]
+        else:
+            booster_preds = [
+                booster.predict(
+                    new_data[k].get_data(),
+                    start_iteration,
+                    num_iteration,
+                    raw_score,
+                    pred_leaf,
+                    pred_contrib,
+                    data_has_header,
+                    validate_features,
+                )
+                for k, booster in enumerate(self.boosters)
+            ]
 
         raw_preds = np.zeros((data.num_data() * self.num_classes))
         # reshaping raw predictions into num_obs, num_classes array
@@ -898,7 +960,6 @@ class RUMBoost:
                 )
         raw_preds = raw_preds.reshape((data.num_data(), -1), order="F")
 
-
         if not utilities:
             # compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
             if self.nests:
@@ -910,7 +971,9 @@ class RUMBoost:
 
             # compute cross-nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
             if self.alphas is not None:
-                preds, _, _ = cross_nested_probs(raw_preds, mu=self.mu, alphas=self.alphas)
+                preds, _, _ = cross_nested_probs(
+                    raw_preds, mu=self.mu, alphas=self.alphas
+                )
 
                 return preds
 
@@ -968,7 +1031,20 @@ class RUMBoost:
                     dtype=torch.float32,
                 )
                 for j, _ in enumerate(self.rum_structure):
-                    if not self.rum_structure[j]["shared"]:
+                    if self.boost_from_parameter_space:
+                        raw_preds[
+                            self.booster_valid_idx[j][0] : self.booster_valid_idx[j][1]
+                        ] += (
+                            (
+                                torch.from_numpy(
+                                    self.boosters[j]._Booster__inner_predict(data_idx)
+                                    * self.valid_sets[data_idx - 1][j].data.reshape(-1)
+                                )
+                            )
+                            .type(dtype=torch.float32)
+                            .to(device=self.device)
+                        )
+                    elif not self.rum_structure[j]["shared"]:
                         raw_preds[
                             self.booster_valid_idx[j][0] : self.booster_valid_idx[j][1]
                         ] += (
@@ -1033,7 +1109,16 @@ class RUMBoost:
         else:
             raw_preds = np.zeros(self.num_obs[data_idx] * self.num_classes)
             for j, _ in enumerate(self.rum_structure):
-                if not self.rum_structure[j]["shared"]:
+                if self.boost_from_parameter_space:
+                    raw_preds[self.booster_valid_idx[j]] += self.boosters[
+                        j
+                    ]._Booster__inner_predict(data_idx) * self.valid_sets[data_idx - 1][
+                        j
+                    ].data.reshape(
+                        -1
+                    )
+
+                elif not self.rum_structure[j]["shared"]:
                     raw_preds[self.booster_valid_idx[j]] += np.tile(
                         self.boosters[j]._Booster__inner_predict(data_idx),
                         len(self.rum_structure[j]["utility"]),
@@ -1400,6 +1485,8 @@ class RUMBoost:
             List of the best booster(s) to update.
         """
         for j in best_boosters:
+            if self.boost_from_parameter_space:
+                self._current_preds[j] *= self.train_set[j].data.reshape(-1)
             if self.device is not None:
                 self.raw_preds[
                     self.booster_train_idx[j][0] : self.booster_train_idx[j][1]
@@ -1525,6 +1612,7 @@ class RUMBoost:
                     "device": "cuda" if self.device.type == "cuda" else "cpu",
                     "torch_compile": self.torch_compile,
                     "rum_structure": self.rum_structure,
+                    "boost_from_parameter_space": self.boost_from_parameter_space,
                 },
             }
         else:
@@ -1560,6 +1648,7 @@ class RUMBoost:
                     "device": None,
                     "torch_compile": self.torch_compile,
                     "rum_structure": self.rum_structure,
+                    "boost_from_parameter_space": self.boost_from_parameter_space,
                 },
             }
 
@@ -1721,6 +1810,11 @@ def rum_train(
                         Maximum number of boosters to update at each round.
                     - 'save_model_interval': int, optional (default = 0)
                         The interval at which the model will be saved during training.
+                    - 'boost_in_parameter_space': bool, optional (default = False)
+                        If True, the boosting will be done in the parameter space, as opposed to the utility space.
+                        It means that the GBDT algorithm will ouput betas instead of piece-wise constant utility
+                        values. The resulting utility functions will be piece-wise linear. Monotonicity
+                        is not guaranteed in this case and only one variable per parameter ensemble is allowed.
 
             -'rum_structure' : list[dict[str, Any]]
                 List of dictionaries specifying the variable used to create the parameter ensemble,
@@ -1732,7 +1826,7 @@ def rum_train(
                         Dictionary containing the boosting parameters for the parameter ensemble.
                         If num_classes > 2, please specify params['objective'] = 'multiclass'.
                         These parameters are the same than Lightgbm parameters. More information here:
-                        https://lightgbm.readthedocs.io/en/latest/Parameters.html. 
+                        https://lightgbm.readthedocs.io/en/latest/Parameters.html.
                     - 'shared': bool
                         If True, the parameter ensemble is shared across all alternatives.
 
@@ -1988,6 +2082,7 @@ def rum_train(
             rumb.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
             rumb.device = torch.cpu.current_device()
+        print(f"Using torch tensors on {rumb.device}")
     else:
         rumb.device = None
         rumb.torch_compile = False
@@ -2266,6 +2361,14 @@ def rum_train(
     else:
         opt_mu_or_alpha_idx = None
 
+    if params.get("boost_from_parameter_space", False):
+        rumb.boost_from_parameter_space = True
+        Warning(
+            "The boosting will be done in the parameter space. Only one variable per parameter ensemble is allowed and monotonicity cannot be specified."
+        )
+    else:
+        rumb.boost_from_parameter_space = False
+
     # check dataset and preprocess it
     if isinstance(train_set, dict):
         if "num_data" not in train_set:
@@ -2324,8 +2427,12 @@ def rum_train(
         reduced_valid_sets, name_valid_sets, is_valid_contain_train, train_data_name = (
             rumb._preprocess_valids(train_set, params, valid_sets)
         )  # prepare validation sets
+        free_raw_data = not rumb.boost_from_parameter_space
         rumb._preprocess_data(
-            train_set, reduced_valid_sets, predictor=predictor
+            train_set,
+            reduced_valid_sets,
+            predictor=predictor,
+            free_raw_data=free_raw_data,
         )  # prepare J datasets with relevant features
         if rumb.mu is not None:
             rumb.labels_j = None
@@ -2334,8 +2441,9 @@ def rum_train(
     rumb._construct_boosters(train_data_name, is_valid_contain_train, name_valid_sets)
 
     # free datasets from memory
-    rumb.train_set = None
-    rumb.valid_sets = None
+    if not rumb.boost_from_parameter_space:
+        rumb.train_set = None
+        rumb.valid_sets = None
     train_set = None
     valid_sets = None
 
