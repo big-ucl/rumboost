@@ -190,6 +190,7 @@ def plot_parameters(
     sm_tt_cost=False,
     num_iteration=None,
     ylim=None,
+    boost_from_parameter_space=False,
     save_file="",
 ):
     """
@@ -222,6 +223,9 @@ def plot_parameters(
         The number of iterations to plot. If None, plot all iterations.
     ylim : list[tuple], optional (default = None)
         List of tuples containing the y limits for each plot.
+    boost_from_parameter_space : bool, optional (default = False)
+        Set to true if the boosting has been done in the parameter space, that is,
+        the GBDT outputs betas, and not piece-wise constant utilities.
     save_file : str, optional (default='')
         The name to save the figure with. The figure will be saved only if save_file is not an empty string.
     """
@@ -229,7 +233,7 @@ def plot_parameters(
 
     if with_asc:
         ASCs = get_asc(weights_arranged)
-        
+
     tex_fonts = {
         # Use LaTeX to write all text
         # "text.usetex": True,
@@ -561,11 +565,19 @@ def plot_parameters(
                 # create nonlinear plot
                 if f in list(X.columns):
                     x, non_lin_func = non_lin_function(
-                        weights_arranged[u][f], 0, 1.05 * max(X[f]), 10000
+                        weights_arranged[u][f],
+                        0,
+                        1.05 * max(X[f]),
+                        10000,
+                        boost_from_parameter_space,
                     )
                 elif xlabel_max:
                     x, non_lin_func = non_lin_function(
-                        weights_arranged[u][f], 0, 1.05 * xlabel_max[u], 10000
+                        weights_arranged[u][f],
+                        0,
+                        1.05 * xlabel_max[u],
+                        10000,
+                        boost_from_parameter_space,
                     )
                 else:
                     x, non_lin_func = non_lin_function(
@@ -573,6 +585,7 @@ def plot_parameters(
                         0,
                         1.05 * weights_arranged[u][f]["Splitting points"][-1],
                         10000,
+                        boost_from_parameter_space,
                     )
 
                 if asc_normalised:
@@ -1354,7 +1367,10 @@ def plot_spline(
                     )
                 else:
                     x_spline, y_spline, _, x_knot, y_knot = monotone_spline(
-                        x_plot, y_plot, num_splines=spline_collection[u][f], linear_extrapolation=linear_extrapolation
+                        x_plot,
+                        y_plot,
+                        num_splines=spline_collection[u][f],
+                        linear_extrapolation=linear_extrapolation,
                     )
             y_spline_norm = [y - y_plot[0] for y in y_spline]
             y_knot_norm = [y - y_plot[0] for y in y_knot]
@@ -1389,8 +1405,8 @@ def plot_spline(
             else:
                 plt.xlabel("{}".format(f))
 
-            #plt.xlim([-0.2, 3.3])
-            #plt.ylim([-9, 0.3])
+            # plt.xlim([-0.2, 3.3])
+            # plt.ylim([-9, 0.3])
             if save_fig:
                 # plt.savefig(save_file + "{} utility, {} feature.png".format(u, f))
                 plt.savefig(save_file, facecolor="white")
@@ -2205,7 +2221,9 @@ def weights_to_plot_v2(model, market_segm=False, num_iteration=None):
     return weights_for_plot
 
 
-def non_lin_function(weights_ordered, x_min, x_max, num_points):
+def non_lin_function(
+    weights_ordered, x_min, x_max, num_points, boosted_from_parameter_space=False
+):
     """
     Create the nonlinear function for parameters, from weights ordered by ascending splitting points.
 
@@ -2220,6 +2238,9 @@ def non_lin_function(weights_ordered, x_min, x_max, num_points):
         Maximum x value for which the nonlinear function is computed.
     num_points : int
         Number of points used to draw the nonlinear function line.
+    boosted_from_parameter_space : bool, optional (default = False)
+        Set to True if the weights are from the parameter space.
+        It means that the weights are betas, and not piece-wise continuous utilities.
 
     Returns
     -------
@@ -2233,20 +2254,44 @@ def non_lin_function(weights_ordered, x_min, x_max, num_points):
     nonlin_function = []
     i = 0
     max_i = len(weights_ordered["Splitting points"])  # all splitting points
+    if boosted_from_parameter_space:
+        start_point = x_min * float(
+            weights_ordered["Histogram values"][0]
+        )  # for continuity in the piece-wise linear function, first value
+        x_pad = x_min # padding for accounting from previous intervals
 
     # handling no split points
     if max_i == 0:
-        return x_values, float(weights_ordered["Histogram values"][i]) * x_values
+        return x_values, float(weights_ordered["Histogram values"][i])
 
     for x in x_values:
-        # compute the value of the function at x according to the weights value in between splitting points
-        if x < float(weights_ordered["Splitting points"][i]):
-            nonlin_function += [float(weights_ordered["Histogram values"][i])]
+        if boosted_from_parameter_space:
+            if i == max_i: # last interval
+                nonlin_function += [
+                    start_point + float(weights_ordered["Histogram values"][i]) * (x - x_pad)
+                ]  # a + bx
+            elif x < float(weights_ordered["Splitting points"][i]): # up to last interval
+                nonlin_function += [
+                    start_point + float(weights_ordered["Histogram values"][i]) * (x - x_pad)
+                ]  # a + bx
+            else:
+                x_pad = float(weights_ordered["Splitting points"][i])
+                start_point = nonlin_function[-1]  # update new intercept
+                nonlin_function += [
+                    start_point + float(weights_ordered["Histogram values"][i + 1]) * (x - x_pad)
+                ]  # a + bx
+                # go to next splitting points
+                if i <= max_i - 1:
+                    i += 1
         else:
-            nonlin_function += [float(weights_ordered["Histogram values"][i + 1])]
-            # go to next splitting points
-            if i < max_i - 1:
-                i += 1
+            # compute the value of the function at x according to the weights value in between splitting points
+            if x < float(weights_ordered["Splitting points"][i]):
+                nonlin_function += [float(weights_ordered["Histogram values"][i])]
+            else:
+                nonlin_function += [float(weights_ordered["Histogram values"][i + 1])]
+                # go to next splitting points
+                if i < max_i - 1:
+                    i += 1
 
     return x_values, nonlin_function
 
