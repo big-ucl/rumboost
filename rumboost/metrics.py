@@ -42,6 +42,44 @@ def cross_entropy(preds, labels):
     data_idx = np.arange(num_data)
     return -np.mean(np.log(preds[data_idx, labels]))
 
+def binary_cross_entropy(preds, labels):
+    """
+    Compute binary cross entropy for given predictions and data.
+
+    Parameters
+    ----------
+    preds: numpy array
+        Predictions for all data points and each classes from a sigmoid function. preds[i, j] correspond
+        to the prediction of data point i to belong to class j.
+    labels: numpy array
+        The labels of the original dataset, as int.
+
+    Returns
+    -------
+    Cross entropy : float
+        The negative cross-entropy, as float.
+    """
+    return -np.mean(labels * np.log(preds) + (1 - labels) * np.log(1 - preds))
+
+def mse(preds, target):
+    """
+    Compute mean squared error for given predictions and data.
+
+    Parameters
+    ----------
+    preds: numpy array
+        Predictions for all data points and each classes from a regression model. preds[i, j] correspond
+        to the prediction of data point i for class j.
+    target: numpy array
+        The target values of the original dataset.
+
+    Returns
+    -------
+    Mean squared error : float
+        The mean squared error, as float.
+    """
+    return np.mean((preds - target) ** 2)
+
 
 def weighted_binary_cross_entropy(preds, labels):
     """

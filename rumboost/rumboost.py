@@ -23,7 +23,7 @@ from lightgbm.basic import (
 )
 from lightgbm.compat import SKLEARN_INSTALLED, _LGBMGroupKFold, _LGBMStratifiedKFold
 
-from rumboost.metrics import cross_entropy
+from rumboost.metrics import cross_entropy, binary_cross_entropy, mse
 from rumboost.nested_cross_nested import (
     nest_probs,
     cross_nested_probs,
@@ -41,18 +41,30 @@ from rumboost.ordinal import (
 try:
     import torch
     from rumboost.torch_functions import (
-        _predict_torch,
-        _predict_torch_compiled,
         _inner_predict_torch,
         _inner_predict_torch_compiled,
         _f_obj_torch,
         _f_obj_torch_compiled,
+        _f_obj_binary_torch,
+        _f_obj_binary_torch_compiled,
+        _f_obj_mse_torch,
+        _f_obj_mse_torch_compiled,
         _f_obj_nested_torch,
         _f_obj_nested_torch_compiled,
         _f_obj_cross_nested_torch,
         _f_obj_cross_nested_torch_compiled,
+        _f_obj_proportional_odds_torch,
+        _f_obj_proportional_odds_torch_compiled,
+        _f_obj_coral_torch,
+        _f_obj_coral_torch_compiled,
+        _f_obj_corn_torch,
+        _f_obj_corn_torch_compiled,
         cross_entropy_torch,
         cross_entropy_torch_compiled,
+        binary_cross_entropy_torch,
+        binary_cross_entropy_torch_compiled,
+        mse_torch,
+        mse_torch_compiled,
     )
 
     torch_installed = True
@@ -312,6 +324,141 @@ class RUMBoost:
                 ),
                 -1,
             ).sum(axis=0)
+
+        return grad.reshape(-1, order="F"), hess.reshape(-1, order="F")
+
+    @multiply_grad_hess_by_data
+    def f_obj_binary(self, _, __):
+        """
+        Objective function of the binary classification boosters, for binary classification.
+
+        Returns
+        -------
+        grad : numpy array
+            The gradient with the cross-entropy loss function. It is the predictions minus the binary labels.
+        hess : numpy array
+            The hessian with the cross-entropy loss function (second derivative approximation rather than the hessian).
+        """
+        j = self._current_j  # jth booster
+        if self.device is not None:
+            if self.torch_compile:
+                grad, hess = _f_obj_binary_torch_compiled(
+                    self._preds,
+                    self.labels[self.subsample_idx],
+                )
+            else:
+                grad, hess = _f_obj_binary_torch(
+                    self._preds,
+                    self.labels[self.subsample_idx],
+                )
+
+            grad = grad.cpu().type(torch.float32).numpy()
+            hess = hess.cpu().type(torch.float32).numpy()
+
+            if self.subsample_idx.shape[0] < self.num_obs[0]:
+                grad_rescaled = np.zeros(
+                    (self.num_obs[0], len(self.rum_structure[j]["utility"]))
+                )
+                hess_rescaled = np.zeros(
+                    (self.num_obs[0], len(self.rum_structure[j]["utility"]))
+                )
+                grad_rescaled[self.subsample_idx.cpu().numpy(), :] = grad.reshape(
+                    -1, len(self.rum_structure[j]["utility"]), order="F"
+                )
+                hess_rescaled[self.subsample_idx.cpu().numpy(), :] = hess.reshape(
+                    -1, len(self.rum_structure[j]["utility"]), order="F"
+                )
+
+                grad = grad_rescaled
+                hess = hess_rescaled
+
+            return grad.reshape(-1, order="F"), hess.reshape(-1, order="F")
+
+        preds = self._preds
+        labels = self.labels[self.subsample_idx]
+        grad = preds - labels
+        hess = preds * (1 - preds)
+
+        if self.subsample_idx.size < self.num_obs[0]:
+
+            grad_rescaled = np.zeros(
+                (self.num_obs[0], len(self.rum_structure[j]["utility"]))
+            )
+            hess_rescaled = np.zeros(
+                (self.num_obs[0], len(self.rum_structure[j]["utility"]))
+            )
+            grad_rescaled[self.subsample_idx, :] = grad
+            hess_rescaled[self.subsample_idx, :] = hess
+
+            grad = grad_rescaled
+            hess = hess_rescaled
+
+        return grad.reshape(-1, order="F"), hess.reshape(-1, order="F")
+
+    @multiply_grad_hess_by_data
+    def f_obj_mse(self, _, __):
+        """
+        Objective function of the boosters, for regression with mean squared error.
+
+        Returns
+        -------
+        grad : numpy array
+            The gradient with the mean squared error loss function. It is the predictions minus the binary labels.
+        hess : numpy array
+            The hessian with the mean squared error loss function (second derivative approximation rather than the hessian).
+        """
+        j = self._current_j
+        if self.device is not None:
+            if self.torch_compile:
+                grad, hess = _f_obj_mse_torch_compiled(
+                    self._preds,
+                    self.labels[self.subsample_idx],
+                )
+            else:
+                grad, hess = _f_obj_mse_torch(
+                    self._preds,
+                    self.labels[self.subsample_idx],
+                )
+
+            grad = grad.cpu().type(torch.float32).numpy()
+            hess = hess.cpu().type(torch.float32).numpy()
+
+            if self.subsample_idx.shape[0] < self.num_obs[0]:
+                grad_rescaled = np.zeros(
+                    (self.num_obs[0], len(self.rum_structure[j]["utility"]))
+                )
+                hess_rescaled = np.zeros(
+                    (self.num_obs[0], len(self.rum_structure[j]["utility"]))
+                )
+                grad_rescaled[self.subsample_idx.cpu().numpy(), :] = grad.reshape(
+                    -1, len(self.rum_structure[j]["utility"]), order="F"
+                )
+                hess_rescaled[self.subsample_idx.cpu().numpy(), :] = hess.reshape(
+                    -1, len(self.rum_structure[j]["utility"]), order="F"
+                )
+
+                grad = grad_rescaled
+                hess = hess_rescaled
+
+            return grad.reshape(-1, order="F"), hess.reshape(-1, order="F")
+
+        preds = self._preds
+        targets = self.labels[self.subsample_idx]
+        grad = preds - targets
+        hess = np.ones_like(preds)
+
+        if self.subsample_idx.size < self.num_obs[0]:
+            grad_rescaled = np.zeros(
+                (self.num_obs[0], len(self.rum_structure[j]["utility"]))
+            )
+            hess_rescaled = np.zeros(
+                (self.num_obs[0], len(self.rum_structure[j]["utility"]))
+            )
+            grad_rescaled[self.subsample_idx, :] = grad
+            hess_rescaled[self.subsample_idx, :] = hess
+
+            grad = grad_rescaled
+            hess = hess_rescaled
 
         return grad.reshape(-1, order="F"), hess.reshape(-1, order="F")
 
@@ -688,6 +835,36 @@ class RUMBoost:
         hess : numpy array
             The hessian with the cross-entropy loss function and proportional odds probabilities (second derivative approximation rather than the hessian).
         """
+        if self.device is not None:
+            if self.torch_compile:
+                grad, hess = _f_obj_proportional_odds_torch_compiled(
+                    self.labels[self.subsample_idx],
+                    self._preds,
+                    self.raw_preds[self.subsample_idx],
+                    self.thresholds,
+                )
+            else:
+                grad, hess = _f_obj_proportional_odds_torch(
+                    self.labels[self.subsample_idx],
+                    self._preds,
+                    self.raw_preds[self.subsample_idx],
+                    self.thresholds,
+                )
+
+            grad = grad.cpu().type(torch.float32).numpy()
+            hess = hess.cpu().type(torch.float32).numpy()
+
+            if self.subsample_idx.shape[0] < self.num_obs[0]:
+                grad_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
+                hess_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
+                grad_rescaled[self.subsample_idx.cpu().numpy(), :] = grad
+                hess_rescaled[self.subsample_idx.cpu().numpy(), :] = hess
+
+                grad = grad_rescaled
+                hess = hess_rescaled
+
+            return grad.reshape(-1, order="F"), hess.reshape(-1, order="F")
+
         labels = self.labels[self.subsample_idx]
         preds = self._preds
         thresholds = self.thresholds
@@ -716,6 +893,16 @@ class RUMBoost:
                 * (1 - expit(raw_preds - thresholds[labels])),
             ),
         )
+
+        if self.subsample_idx.size < self.num_obs[0]:
+            grad_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
+            hess_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
+            grad_rescaled[self.subsample_idx, :] = grad
+            hess_rescaled[self.subsample_idx, :] = hess
+
+            grad = grad_rescaled
+            hess = hess_rescaled
+
         return grad, hess
 
     @multiply_grad_hess_by_data
@@ -730,6 +917,34 @@ class RUMBoost:
         hess : numpy array
             The hessian of the weighted binary cross-entropy loss function with coral probabilities (second derivative approximation rather than the hessian).
         """
+        if self.device is not None:
+            if self.torch_compile:
+                grad, hess = _f_obj_coral_torch_compiled(
+                    self.labels[self.subsample_idx],
+                    self.raw_preds[self.subsample_idx],
+                    self.thresholds,
+                )
+            else:
+                grad, hess = _f_obj_coral_torch(
+                    self.labels[self.subsample_idx],
+                    self.raw_preds[self.subsample_idx],
+                    self.thresholds,
+                )
+
+            grad = grad.cpu().type(torch.float32).numpy()
+            hess = hess.cpu().type(torch.float32).numpy()
+
+            if self.subsample_idx.shape[0] < self.num_obs[0]:
+                grad_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
+                hess_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
+                grad_rescaled[self.subsample_idx.cpu().numpy(), :] = grad
+                hess_rescaled[self.subsample_idx.cpu().numpy(), :] = hess
+
+                grad = grad_rescaled
+                hess = hess_rescaled
+
+            return grad.reshape(-1, order="F"), hess.reshape(-1, order="F")
+
         labels = self.labels[self.subsample_idx]
         thresholds = self.thresholds
         raw_preds = self.raw_preds[self.subsample_idx][:, None]
@@ -739,6 +954,16 @@ class RUMBoost:
         grad = np.sum(sigmoids - (labels[:, None] > classes[None, :]), axis=1)
 
         hess = np.sum(sigmoids * (1 - sigmoids), axis=1)
+
+        if self.subsample_idx.size < self.num_obs[0]:
+
+            grad_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
+            hess_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
+            grad_rescaled[self.subsample_idx, :] = grad
+            hess_rescaled[self.subsample_idx, :] = hess
+
+            grad = grad_rescaled
+            hess = hess_rescaled
 
         return grad, hess
 
@@ -755,6 +980,58 @@ class RUMBoost:
             The hessian of the conditional binary cross-entropy loss function with corn probabilities (second derivative approximation rather than the hessian).
         """
         j = self._current_j  # jth booster
+        if self.device is not None:
+            if self.torch_compile:
+                grad, hess = _f_obj_corn_torch_compiled(
+                    self.labels[self.subsample_idx],
+                    self.raw_preds.view(-1, self.num_obs[0]).T[self.subsample_idx, :],
+                    j,
+                )
+            else:
+                grad, hess = _f_obj_corn_torch(
+                    self.labels[self.subsample_idx],
+                    self.raw_preds.view(-1, self.num_obs[0]).T[self.subsample_idx, :],
+                    j,
+                )
+
+            grad = grad.cpu().type(torch.float32).numpy()
+            hess = hess.cpu().type(torch.float32).numpy()
+
+            if self.subsample_idx.shape[0] < self.num_obs[0]:
+                grad_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
+                hess_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
+                grad_rescaled[self.subsample_idx.cpu().numpy(), :] = grad
+                hess_rescaled[self.subsample_idx.cpu().numpy(), :] = hess
+
+                grad = grad_rescaled
+                hess = hess_rescaled
+
+            if (
+                not self.rum_structure[j]["shared"]
+                and len(self.rum_structure[j]["utility"]) > 1
+            ):
+                grad = grad.sum(axis=1)
+                hess = hess.sum(axis=1)
+            elif len(self.rum_structure[j]["variables"]) < len(
+                self.rum_structure[j]["utility"]
+            ):
+                grad = grad.T.reshape(
+                    int(
+                        len(self.rum_structure[j]["utility"])
+                        / len(self.rum_structure[j]["variables"])
+                    ),
+                    -1,
+                ).sum(axis=0)
+                hess = hess.T.reshape(
+                    int(
+                        len(self.rum_structure[j]["utility"])
+                        / len(self.rum_structure[j]["variables"])
+                    ),
+                    -1,
+                ).sum(axis=0)
+
+            return grad.reshape(-1, order="F"), hess.reshape(-1, order="F")
+
         labels = self.labels[self.subsample_idx]
         raw_preds = self.raw_preds.reshape((self.num_obs[0], -1), order="F")[
             self.subsample_idx, :
@@ -764,6 +1041,39 @@ class RUMBoost:
         grad = np.where(labels < j, 0, sigmoids - (labels > j))
 
         hess = np.where(labels < j, 1, sigmoids * (1 - sigmoids))
+
+        if self.subsample_idx.shape[0] < self.num_obs[0]:
+            grad_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
+            hess_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
+            grad_rescaled[self.subsample_idx.cpu().numpy(), :] = grad
+            hess_rescaled[self.subsample_idx.cpu().numpy(), :] = hess
+
+            grad = grad_rescaled
+            hess = hess_rescaled
+
+        if (
+            not self.rum_structure[j]["shared"]
+            and len(self.rum_structure[j]["utility"]) > 1
+        ):
+            grad = grad.sum(axis=1)
+            hess = hess.sum(axis=1)
+        elif len(self.rum_structure[j]["variables"]) < len(
+            self.rum_structure[j]["utility"]
+        ):
+            grad = grad.T.reshape(
+                int(
+                    len(self.rum_structure[j]["utility"])
+                    / len(self.rum_structure[j]["variables"])
+                ),
+                -1,
+            ).sum(axis=0)
+            hess = hess.T.reshape(
+                int(
+                    len(self.rum_structure[j]["utility"])
+                    / len(self.rum_structure[j]["variables"])
+                ),
+                -1,
+            ).sum(axis=0)
 
         return grad, hess
 
@@ -900,6 +1210,9 @@ class RUMBoost:
                     self.mu,
                     self.alphas,
                     utilities,
+                    self.num_classes,
+                    self.ord_model,
+                    self.thresholds,
                 )
             else:
                 preds, _, _ = _inner_predict_torch(
@@ -909,6 +1222,9 @@ class RUMBoost:
                     self.mu,
                     self.alphas,
                     utilities,
+                    self.num_classes,
+                    self.ord_model,
+                    self.thresholds,
                 )
             return preds
 
@@ -960,6 +1276,9 @@ class RUMBoost:
                 )
         raw_preds = raw_preds.reshape((data.num_data(), -1), order="F")
 
+        if self.num_classes == 1:  # regression
+            return raw_preds
+
         if not utilities:
             # compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
             if self.nests:
@@ -986,6 +1305,11 @@ class RUMBoost:
 
             if self.ord_model == "corn":
                 preds = corn_preds(raw_preds)
+
+                return preds
+
+            if self.num_classes == 2:  # binary classification
+                preds = expit(raw_preds)
 
                 return preds
 
@@ -1084,6 +1408,9 @@ class RUMBoost:
                     self.mu,
                     self.alphas,
                     utilities,
+                    self.num_classes,
+                    self.ord_model,
+                    self.thresholds,
                 )
             else:
                 preds, pred_i_m, pred_m = _inner_predict_torch(
@@ -1093,6 +1420,9 @@ class RUMBoost:
                     self.mu,
                     self.alphas,
                     utilities,
+                    self.num_classes,
+                    self.ord_model,
+                    self.thresholds,
                 )
 
             if self.mu is not None and data_idx == 0:
@@ -1133,6 +1463,9 @@ class RUMBoost:
                     )
             raw_preds = raw_preds.reshape((self.num_obs[data_idx], -1), order="F")
 
+        if self.num_classes == 1:  # regression
+            return raw_preds
+
         if not utilities:
             # compute nested probabilities. pred_i_m is predictions of choosing i knowing m, pred_m is prediction of choosing nest m and preds is pred_i_m * pred_m
             if self.nests:
@@ -1165,6 +1498,11 @@ class RUMBoost:
             if self.ord_model == "corn":
                 preds = corn_preds(raw_preds)
 
+                return preds
+
+            # binary classification
+            if self.num_classes == 2:
+                preds = expit(raw_preds)
                 return preds
 
             # softmax
@@ -1791,7 +2129,10 @@ def rum_train(
                     - 'num_iterations': int
                         Number of boosting iterations.
                     - 'num_classes': int
-                        Number of classes.
+                        Number of classes. If equal to 2 and no additional keys are provided,
+                        the model will perfomr binary classification. If greater than 2, the model
+                        will perform multiclass classification. If equal to 1, the model will perform
+                        regression with MSE (other loss functions will be implemented in the future).
                     - 'subsampling': float, optional (default = 1.0)
                         Subsample ratio of gradient when boosting
                     - 'subsampling_freq': int, optional (default = 0)
@@ -1815,6 +2156,8 @@ def rum_train(
                         It means that the GBDT algorithm will ouput betas instead of piece-wise constant utility
                         values. The resulting utility functions will be piece-wise linear. Monotonicity
                         is not guaranteed in this case and only one variable per parameter ensemble is allowed.
+                    - 'eval_function': func (default = cross_entropy if multi-class, binary_log_loss if binary, mse if regression)
+                        The evaluation function to be used.
 
             -'rum_structure' : list[dict[str, Any]]
                 List of dictionaries specifying the variable used to create the parameter ensemble,
@@ -1874,9 +2217,7 @@ def rum_train(
                         Interval at which the mu and/or alpha values are optimised.
 
             - 'ordinal_logit': dict
-                Ordinal logit model specification. The length of rum_structure
-                must be one. It is currently not possible to have
-                different utility functions per classes.
+                Ordinal logit model specification.
                 The dictionary must contain:
                     - 'model': str, default = 'proportional_odds'
                         The type of ordinal model. It can be:
@@ -2350,7 +2691,14 @@ def rum_train(
         rumb.alphas = None
         rumb.ord_model = None
         rumb.thresholds = None
-        f_obj = rumb.f_obj
+        if rumb.num_classes == 2:
+            f_obj = rumb.f_obj_binary
+        elif rumb.num_classes > 2:
+            f_obj = rumb.f_obj
+        elif rumb.num_classes == 1:
+            f_obj = rumb.f_obj_mse
+        else:
+            raise ValueError("Number of classes must be greater than 0")
         optimise_mu = False
         optimise_alphas = False
         optimise_thresholds = False
@@ -2528,6 +2876,32 @@ def rum_train(
                 )
             else:
                 rumb.subsample_idx_valid = np.arange(rumb.num_obs[1])
+
+    # setting up eval function
+    if "eval_func" in params:
+        rumb.eval_func = params["eval_func"]
+    elif torch_tensors:
+        if rumb.torch_compile:
+            if rumb.num_classes == 2:
+                eval_func = binary_cross_entropy_torch_compiled
+            elif rumb.num_classes == 1:
+                eval_func = mse_torch_compiled
+            else:
+                eval_func = cross_entropy_torch_compiled
+        else:
+            if rumb.num_classes == 2:
+                eval_func = binary_cross_entropy_torch
+            elif rumb.num_classes == 1:
+                eval_func = mse_torch
+            else:
+                eval_func = cross_entropy_torch
+    else:
+        if rumb.num_classes == 2:
+            eval_func = binary_cross_entropy
+        elif rumb.num_classes == 1:
+            eval_func = mse
+        else:
+            eval_func = cross_entropy
 
     # initial predictions
     if torch_tensors:
@@ -2757,60 +3131,31 @@ def rum_train(
         rumb._preds = rumb._inner_predict()
 
         # compute cross validation on training or validation test
-        if torch_tensors:
-            if rumb.torch_compile:
-                cross_entropy_train = cross_entropy_torch_compiled(
-                    rumb._preds, rumb.labels[rumb.subsample_idx]
-                )
-            else:
-                cross_entropy_train = cross_entropy_torch(
-                    rumb._preds, rumb.labels[rumb.subsample_idx]
-                )
-        else:
-            cross_entropy_train = cross_entropy(
-                rumb._preds, rumb.labels[rumb.subsample_idx]
-            )
+        eval_train = eval_func(rumb._preds, rumb.labels[rumb.subsample_idx])
+
         if len(rumb.num_obs) > 1:  # only if there are validation sets
-            cross_entropy_test = []
+            eval_test = []
             for k, val_labels in enumerate(rumb.valid_labels):
                 preds_valid = rumb._inner_predict(k + 1)
-                if torch_tensors:
-                    if rumb.torch_compile:
-                        cross_entropy_test.append(
-                            cross_entropy_torch_compiled(
-                                preds_valid, val_labels[rumb.subsample_idx_valid]
-                            )
-                        )
-                    else:
-                        cross_entropy_test.append(
-                            cross_entropy_torch(
-                                preds_valid, val_labels[rumb.subsample_idx_valid]
-                            )
-                        )
-                else:
-                    cross_entropy_test.append(
-                        cross_entropy(preds_valid, val_labels[rumb.subsample_idx_valid])
-                    )
+                eval_test.append(eval_func(preds_valid, val_labels))
 
             # update best score and best iteration
-            if cross_entropy_test[0] < rumb.best_score:
-                rumb.best_score = cross_entropy_test[0]
+            if eval_test[0] < rumb.best_score:
+                rumb.best_score = eval_test[0]
                 rumb.best_iteration = i + 1
 
-        rumb.best_score_train = cross_entropy_train
+        rumb.best_score_train = eval_train
 
         # verbosity
         if (verbosity >= 1) and (i % verbose_interval == 0):
             print(
                 f"[{i+1}]"
                 + "-" * (6 - int(np.log10(i + 1)))
-                + f"NCE value on train set : {cross_entropy_train:.4f}"
+                + f"NCE value on train set : {eval_train:.4f}"
             )
             if rumb.valid_labels is not None:
                 for k, _ in enumerate(rumb.valid_labels):
-                    print(
-                        f"---------NCE value on test set {k+1}: {cross_entropy_test[k]:.4f}"
-                    )
+                    print(f"---------NCE value on test set {k+1}: {eval_test[k]:.4f}")
 
         # early stopping
         if (params["early_stopping_round"] != 0) and (
