@@ -374,7 +374,7 @@ class RUMBoost:
 
             return grad.reshape(-1, order="F"), hess.reshape(-1, order="F")
 
-        preds = self._preds
+        preds = self._preds.reshape(-1)
         labels = self.labels[self.subsample_idx]
         grad = preds - labels
         hess = preds * (1 - preds)
@@ -1178,11 +1178,18 @@ class RUMBoost:
                     .to(device=self.device)
                     for k, booster in enumerate(self.boosters)
                 ]
-            raw_preds = torch.zeros(
-                data.num_data() * self.num_classes,
-                device=self.device,
-                dtype=torch.float32,
-            )
+            if self.num_classes == 2:
+                raw_preds = torch.zeros(
+                    data.num_data(),
+                    device=self.device,
+                    dtype=torch.float32,
+                )
+            else:
+                raw_preds = torch.zeros(
+                    data.num_data() * self.num_classes,
+                    device=self.device,
+                    dtype=torch.float32,
+                )
 
             # reshaping raw predictions into num_obs, num_classes array
             for j, struct in enumerate(self.rum_structure):
@@ -1258,7 +1265,10 @@ class RUMBoost:
                 for k, booster in enumerate(self.boosters)
             ]
 
-        raw_preds = np.zeros((data.num_data() * self.num_classes))
+        if self.num_classes == 2:
+            raw_preds = np.zeros(data.num_data())
+        else:
+            raw_preds = np.zeros((data.num_data() * self.num_classes))
         # reshaping raw predictions into num_obs, num_classes array
         for j, struct in enumerate(self.rum_structure):
             idx_ranges = range(
@@ -1349,11 +1359,14 @@ class RUMBoost:
                     self.subsample_idx, :
                 ]
             else:
-                raw_preds = torch.zeros(
-                    self.num_obs[data_idx] * self.num_classes,
-                    device=self.device,
-                    dtype=torch.float32,
-                )
+                if self.num_classes == 2: # binary classification requires only one column
+                    raw_preds = torch.zeros(self.num_obs[data_idx], device=self.device)
+                else:
+                    raw_preds = torch.zeros(
+                        self.num_obs[data_idx] * self.num_classes,
+                        device=self.device,
+                        dtype=torch.float32,
+                    )
                 for j, _ in enumerate(self.rum_structure):
                     if self.boost_from_parameter_space:
                         raw_preds[
@@ -1437,7 +1450,10 @@ class RUMBoost:
                 self.subsample_idx, :
             ]
         else:
-            raw_preds = np.zeros(self.num_obs[data_idx] * self.num_classes)
+            if self.num_classes == 2: # binary classification requires only one column
+                raw_preds = np.zeros(self.num_obs[data_idx])
+            else:
+                raw_preds = np.zeros(self.num_obs[data_idx] * self.num_classes)
             for j, _ in enumerate(self.rum_structure):
                 if self.boost_from_parameter_space:
                     raw_preds[self.booster_valid_idx[j]] += self.boosters[
@@ -2905,11 +2921,19 @@ def rum_train(
 
     # initial predictions
     if torch_tensors:
-        rumb.raw_preds = torch.zeros(
-            rumb.num_classes * rumb.num_obs[0], device=rumb.device, dtype=torch.float32
-        )
+        if rumb.num_classes == 2:
+            rumb.raw_preds = torch.zeros(
+                rumb.num_obs[0], device=rumb.device, dtype=torch.float32
+            )
+        else:
+            rumb.raw_preds = torch.zeros(
+                rumb.num_classes * rumb.num_obs[0], device=rumb.device, dtype=torch.float32
+            )
     else:
-        rumb.raw_preds = np.zeros(rumb.num_classes * rumb.num_obs[0])
+        if rumb.num_classes == 2:
+            rumb.raw_preds = np.zeros(rumb.num_obs[0])
+        else:
+            rumb.raw_preds = np.zeros(rumb.num_classes * rumb.num_obs[0])
     if init_models:
         for j, booster in enumerate(rumb.boosters):
             if not rumb.rum_structure[j]["shared"]:
