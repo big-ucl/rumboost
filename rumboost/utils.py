@@ -1,4 +1,31 @@
 import numpy as np
+from rumboost.metrics import cross_entropy
+from scipy.special import softmax
+
+def optimise_asc(asc, raw_preds, labels):
+    """
+    Optimise the ASC parameters of the model.
+
+    Parameters
+    ----------
+    asc : np.array
+        The array of ASC parameters.
+    raw_preds : np.array
+        The raw predictions of the model.
+    labels : np.array
+        The labels of the dataset.
+
+    Returns
+    -------
+    asc : np.array
+        The optimised ASC parameters.
+    """
+    raw_preds_asc = raw_preds + asc
+    new_preds = softmax(raw_preds_asc, axis=1)
+    new_ce = cross_entropy(new_preds, labels)
+
+    return new_ce
+    
 
 def process_parent(parent, pairs):
     """

@@ -59,6 +59,7 @@ def binary_cross_entropy(preds, labels):
     Cross entropy : float
         The negative cross-entropy, as float.
     """
+    preds = preds.reshape(-1)
     return -np.mean(labels * np.log(preds) + (1 - labels) * np.log(1 - preds))
 
 def mse(preds, target):
@@ -78,13 +79,14 @@ def mse(preds, target):
     Mean squared error : float
         The mean squared error, as float.
     """
-    return np.mean((preds - target) ** 2)
+    return np.mean((preds.reshape(-1) - target) ** 2)
 
 
 def weighted_binary_cross_entropy(preds, labels):
     """
     Compute weighted binary cross entropy for given predictions and data.
-    The weights are all ones.
+    The weights are all ones. This function is used in the ordinal 
+    regression model with coral estimation.
 
     Parameters
     ----------

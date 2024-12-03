@@ -38,6 +38,8 @@ from rumboost.ordinal import (
     optimise_thresholds_proportional_odds,
 )
 
+from rumboost.utils import optimise_asc
+
 try:
     import torch
     from rumboost.torch_functions import (
@@ -134,10 +136,12 @@ class RUMBoost:
                 Labels for each booster.
             - valid_labels : list of numpy array
                 Validation labels.
-            - boost_from_parameter_space : bool
+            - boost_from_parameter_space : list[bool]
                 Whether to boost from the parameter space.
                 If so the output of the boosters will be betas,
-                instead of piece-wise utility constants.
+                instead of piece-wise utility constants. If specified,
+                the length of the list must be the same
+                as the number of boosters.
 
             Nested and cross-nested attributes:
             - nests : dict
@@ -192,7 +196,17 @@ class RUMBoost:
 
         def wrapper(self, preds, data):
             grad, hess = func(self, preds, data)
-            if self.boost_from_parameter_space:
+            if self.boost_from_parameter_space[self._current_j]:
+                # add alternative specific constants to raw predictions
+                j = self._current_j
+                # scaling factor to add the same proportions of the asc to each ensemble
+                # (learning rate times 1 over the number of utility parameters)
+                #scaling_factor = self.rum_structure[j]["boosting_params"][
+                #    "learning_rate"
+                #] * (1 / self.utility_length[self.rum_structure[j]["utility"][0]])
+                #self.asc[j] += scaling_factor * grad.sum() / hess.sum()
+
+                # multiplying gradients and hessians by observations
                 grad *= self.train_set[self._current_j].data.reshape(-1)
                 hess *= self.train_set[self._current_j].data.reshape(-1) ** 2
             return grad, hess
@@ -444,8 +458,8 @@ class RUMBoost:
 
         preds = self._preds
         targets = self.labels[self.subsample_idx]
-        grad = preds - targets
-        hess = np.ones_like(preds)
+        grad = 2 * (preds - targets)
+        hess = 2 * np.ones_like(preds)
 
         if self.subsample_idx.size < self.num_obs[0]:
             grad_rescaled = np.zeros(
@@ -1038,9 +1052,9 @@ class RUMBoost:
         ][:, j]
         sigmoids = expit(raw_preds)
 
-        grad = np.where(labels < j, 0, sigmoids - (labels > j))
+        grad = np.where(j < labels, 0, sigmoids - (j > labels))
 
-        hess = np.where(labels < j, 1, sigmoids * (1 - sigmoids))
+        hess = np.where(j < labels, 1, sigmoids * (1 - sigmoids))
 
         if self.subsample_idx.shape[0] < self.num_obs[0]:
             grad_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
@@ -1112,7 +1126,7 @@ class RUMBoost:
         validate_features : bool, optional (default=False)
             If True, ensure that the features used to predict match the ones used to train.
             Used only if data is pandas DataFrame.
-        utilities : bool, optional (default=True)
+        utilities : bool, optional (default=False)
             If True, return raw utilities for each class, without generating probabilities.
 
         Returns
@@ -1141,8 +1155,8 @@ class RUMBoost:
                     .to(device=self.device)
                 )
 
-            if self.boost_from_parameter_space:
-                booster_preds = [
+            booster_preds = [
+                (
                     torch.from_numpy(
                         booster.predict(
                             new_data[k].get_data(),
@@ -1155,14 +1169,12 @@ class RUMBoost:
                             validate_features,
                         )
                         * new_data[k].get_data().reshape(-1)
+                        + self.asc[k]
                     )
                     .type(torch.float32)
                     .to(device=self.device)
-                    for k, booster in enumerate(self.boosters)
-                ]
-            else:
-                booster_preds = [
-                    torch.from_numpy(
+                    if self.boost_from_parameter_space[k]
+                    else torch.from_numpy(
                         booster.predict(
                             new_data[k].get_data(),
                             start_iteration,
@@ -1176,8 +1188,9 @@ class RUMBoost:
                     )
                     .type(torch.float32)
                     .to(device=self.device)
-                    for k, booster in enumerate(self.boosters)
-                ]
+                )
+                for k, booster in enumerate(self.boosters)
+            ]
             if self.num_classes == 2:
                 raw_preds = torch.zeros(
                     data.num_data(),
@@ -1235,35 +1248,32 @@ class RUMBoost:
                 )
             return preds
 
-        if self.boost_from_parameter_space:
-            booster_preds = [
-                booster.predict(
-                    new_data[k].get_data(),
-                    start_iteration,
-                    num_iteration,
-                    raw_score,
-                    pred_leaf,
-                    pred_contrib,
-                    data_has_header,
-                    validate_features,
-                )
-                * new_data[k].get_data().reshape(-1)
-                for k, booster in enumerate(self.boosters)
-            ]
-        else:
-            booster_preds = [
-                booster.predict(
-                    new_data[k].get_data(),
-                    start_iteration,
-                    num_iteration,
-                    raw_score,
-                    pred_leaf,
-                    pred_contrib,
-                    data_has_header,
-                    validate_features,
-                )
-                for k, booster in enumerate(self.boosters)
-            ]
+        booster_preds = [
+            booster.predict(
+                new_data[k].get_data(),
+                start_iteration,
+                num_iteration,
+                raw_score,
+                pred_leaf,
+                pred_contrib,
+                data_has_header,
+                validate_features,
+            )
+            * new_data[k].get_data().reshape(-1)
+            + self.asc[k]
+            if self.boost_from_parameter_space[k]
+            else booster.predict(
+                new_data[k].get_data(),
+                start_iteration,
+                num_iteration,
+                raw_score,
+                pred_leaf,
+                pred_contrib,
+                data_has_header,
+                validate_features,
+            )
+            for k, booster in enumerate(self.boosters)
+        ]
 
         if self.num_classes == 2:
             raw_preds = np.zeros(data.num_data())
@@ -1286,7 +1296,7 @@ class RUMBoost:
                 )
         raw_preds = raw_preds.reshape((data.num_data(), -1), order="F")
 
-        if self.num_classes == 1:  # regression
+        if self.num_classes == 1 and not self.ord_model:  # regression
             return raw_preds
 
         if not utilities:
@@ -1359,7 +1369,9 @@ class RUMBoost:
                     self.subsample_idx, :
                 ]
             else:
-                if self.num_classes == 2: # binary classification requires only one column
+                if (
+                    self.num_classes == 2
+                ):  # binary classification requires only one column
                     raw_preds = torch.zeros(self.num_obs[data_idx], device=self.device)
                 else:
                     raw_preds = torch.zeros(
@@ -1368,7 +1380,7 @@ class RUMBoost:
                         dtype=torch.float32,
                     )
                 for j, _ in enumerate(self.rum_structure):
-                    if self.boost_from_parameter_space:
+                    if self.boost_from_parameter_space[j]:
                         raw_preds[
                             self.booster_valid_idx[j][0] : self.booster_valid_idx[j][1]
                         ] += (
@@ -1376,6 +1388,7 @@ class RUMBoost:
                                 torch.from_numpy(
                                     self.boosters[j]._Booster__inner_predict(data_idx)
                                     * self.valid_sets[data_idx - 1][j].data.reshape(-1)
+                                    + self.asc[j]
                                 )
                             )
                             .type(dtype=torch.float32)
@@ -1450,18 +1463,16 @@ class RUMBoost:
                 self.subsample_idx, :
             ]
         else:
-            if self.num_classes == 2: # binary classification requires only one column
+            if self.num_classes == 2:  # binary classification requires only one column
                 raw_preds = np.zeros(self.num_obs[data_idx])
             else:
                 raw_preds = np.zeros(self.num_obs[data_idx] * self.num_classes)
             for j, _ in enumerate(self.rum_structure):
-                if self.boost_from_parameter_space:
-                    raw_preds[self.booster_valid_idx[j]] += self.boosters[
-                        j
-                    ]._Booster__inner_predict(data_idx) * self.valid_sets[data_idx - 1][
-                        j
-                    ].data.reshape(
-                        -1
+                if self.boost_from_parameter_space[j]:
+                    raw_preds[self.booster_valid_idx[j]] += (
+                        self.boosters[j]._Booster__inner_predict(data_idx)
+                        * self.valid_sets[data_idx - 1][j].data.reshape(-1)
+                        + self.asc[j]
                     )
 
                 elif not self.rum_structure[j]["shared"]:
@@ -1479,7 +1490,7 @@ class RUMBoost:
                     )
             raw_preds = raw_preds.reshape((self.num_obs[data_idx], -1), order="F")
 
-        if self.num_classes == 1:  # regression
+        if self.num_classes == 1 and not self.ord_model:  # regression
             return raw_preds
 
         if not utilities:
@@ -1839,7 +1850,7 @@ class RUMBoost:
             List of the best booster(s) to update.
         """
         for j in best_boosters:
-            if self.boost_from_parameter_space:
+            if self.boost_from_parameter_space[j]:
                 self._current_preds[j] *= self.train_set[j].data.reshape(-1)
             if self.device is not None:
                 self.raw_preds[
@@ -1967,6 +1978,7 @@ class RUMBoost:
                     "torch_compile": self.torch_compile,
                     "rum_structure": self.rum_structure,
                     "boost_from_parameter_space": self.boost_from_parameter_space,
+                    "asc": self.asc,
                 },
             }
         else:
@@ -2003,6 +2015,7 @@ class RUMBoost:
                     "torch_compile": self.torch_compile,
                     "rum_structure": self.rum_structure,
                     "boost_from_parameter_space": self.boost_from_parameter_space,
+                    "asc": self.asc,
                 },
             }
 
@@ -2165,13 +2178,13 @@ def rum_train(
                         Interval of the verbosity display. only used if verbosity > 1.
                     - 'max_booster_to_update': int, optional (default = num_classes)
                         Maximum number of boosters to update at each round.
-                    - 'save_model_interval': int, optional (default = 0)
-                        The interval at which the model will be saved during training.
-                    - 'boost_in_parameter_space': bool, optional (default = False)
+                    - 'boost_from_parameter_space': list, optional (default = [])
                         If True, the boosting will be done in the parameter space, as opposed to the utility space.
                         It means that the GBDT algorithm will ouput betas instead of piece-wise constant utility
                         values. The resulting utility functions will be piece-wise linear. Monotonicity
                         is not guaranteed in this case and only one variable per parameter ensemble is allowed.
+                    - 'save_model_interval': int, optional (default = 0)
+                        The interval at which the model will be saved during training.
                     - 'eval_function': func (default = cross_entropy if multi-class, binary_log_loss if binary, mse if regression)
                         The evaluation function to be used.
 
@@ -2711,7 +2724,7 @@ def rum_train(
             f_obj = rumb.f_obj_binary
         elif rumb.num_classes > 2:
             f_obj = rumb.f_obj
-        elif rumb.num_classes == 1:
+        elif rumb.num_classes == 1 and not rumb.ord_model:
             f_obj = rumb.f_obj_mse
         else:
             raise ValueError("Number of classes must be greater than 0")
@@ -2725,13 +2738,24 @@ def rum_train(
     else:
         opt_mu_or_alpha_idx = None
 
-    if params.get("boost_from_parameter_space", False):
-        rumb.boost_from_parameter_space = True
-        Warning(
-            "The boosting will be done in the parameter space. Only one variable per parameter ensemble is allowed and monotonicity cannot be specified."
+    if params.get("boost_from_parameter_space", []):
+        if len(params["boost_from_parameter_space"]) != len(rumb.rum_structure):
+            raise ValueError(
+                "If specified, the length of boost_from_parameter_space must be equal to the number of parameter ensembles."
+            )
+        rumb.boost_from_parameter_space = params["boost_from_parameter_space"]
+        rumb.asc = np.zeros(len(rumb.rum_structure))
+        optimise_ascs = True
+        optim_interval = 1
+        ascs = np.zeros(rumb.num_classes)
+        rumb.utility_length = collections.Counter(
+            [u for rum in rumb.rum_structure for u in rum["utility"]]
         )
     else:
-        rumb.boost_from_parameter_space = False
+        rumb.boost_from_parameter_space = [False] * len(rumb.rum_structure)
+        optimise_ascs = False
+        rumb.asc = np.zeros(len(rumb.rum_structure))
+
 
     # check dataset and preprocess it
     if isinstance(train_set, dict):
@@ -2791,7 +2815,7 @@ def rum_train(
         reduced_valid_sets, name_valid_sets, is_valid_contain_train, train_data_name = (
             rumb._preprocess_valids(train_set, params, valid_sets)
         )  # prepare validation sets
-        free_raw_data = not rumb.boost_from_parameter_space
+        free_raw_data = not any(rumb.boost_from_parameter_space)
         rumb._preprocess_data(
             train_set,
             reduced_valid_sets,
@@ -2805,7 +2829,7 @@ def rum_train(
     rumb._construct_boosters(train_data_name, is_valid_contain_train, name_valid_sets)
 
     # free datasets from memory
-    if not rumb.boost_from_parameter_space:
+    if not any(rumb.boost_from_parameter_space):
         rumb.train_set = None
         rumb.valid_sets = None
     train_set = None
@@ -2900,21 +2924,21 @@ def rum_train(
         if rumb.torch_compile:
             if rumb.num_classes == 2:
                 eval_func = binary_cross_entropy_torch_compiled
-            elif rumb.num_classes == 1:
+            elif rumb.num_classes == 1 and not rumb.ord_model:
                 eval_func = mse_torch_compiled
             else:
                 eval_func = cross_entropy_torch_compiled
         else:
             if rumb.num_classes == 2:
                 eval_func = binary_cross_entropy_torch
-            elif rumb.num_classes == 1:
+            elif rumb.num_classes == 1 and not rumb.ord_model:
                 eval_func = mse_torch
             else:
                 eval_func = cross_entropy_torch
     else:
         if rumb.num_classes == 2:
             eval_func = binary_cross_entropy
-        elif rumb.num_classes == 1:
+        elif rumb.num_classes == 1 and not rumb.ord_model:
             eval_func = mse
         else:
             eval_func = cross_entropy
@@ -2927,7 +2951,9 @@ def rum_train(
             )
         else:
             rumb.raw_preds = torch.zeros(
-                rumb.num_classes * rumb.num_obs[0], device=rumb.device, dtype=torch.float32
+                rumb.num_classes * rumb.num_obs[0],
+                device=rumb.device,
+                dtype=torch.float32,
             )
     else:
         if rumb.num_classes == 2:
@@ -3091,19 +3117,43 @@ def rum_train(
             elif rumb.ord_model == "proportional_odds":
                 opt_func = optimise_thresholds_proportional_odds
 
+            if rumb.device is not None:
+                raw_preds = rumb.raw_preds[rumb.subsample_idx][:, None].cpu().numpy()
+                labels = rumb.labels[rumb.subsample_idx].cpu().numpy()
+            else:
+                raw_preds = rumb.raw_preds[rumb.subsample_idx][:, None]
+                labels = rumb.labels[rumb.subsample_idx]
+
             # update thresholds
             res = minimize(
                 opt_func,
                 np.array(thresh_diff),
                 args=(
-                    rumb.labels[rumb.subsample_idx],
-                    rumb.raw_preds[rumb.subsample_idx][:, None],
+                    labels,
+                    raw_preds,
                 ),
                 bounds=bounds,
                 method="SLSQP",
             )
 
             rumb.thresholds = diff_to_threshold(res.x)
+
+#        if optimise_ascs and ((i + 1) % optim_interval == 0):
+            #if rumb.device is not None:
+                #raw_preds = rumb._inner_predict(utilities=True).cpu().numpy()
+                #labels = rumb.labels[rumb.subsample_idx].cpu().numpy()
+            #else:
+                #raw_preds = rumb._inner_predict(utilities=True)
+                #labels = rumb.labels[rumb.subsample_idx]
+            #res = minimize(
+                #optimise_asc,
+                #ascs,
+                #args=(raw_preds, labels),
+                #method="SLSQP",
+            #)
+
+            #for j, struct in enumerate(rumb.rum_structure):
+                #rumb.asc[j] = res.x[struct["utility"][0]] / rumb.utility_length[struct["utility"][0]]
 
         # find best booster and update raw predictions
         best_boosters = rumb._find_best_booster()
