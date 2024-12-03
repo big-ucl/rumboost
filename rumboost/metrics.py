@@ -109,3 +109,23 @@ def weighted_binary_cross_entropy(preds, labels):
             axis=1,
         )
     )
+
+def safe_softplus(x, beta = 1, threshold = 20):
+    """
+    Compute the softplus function in a safe way to avoid numerical issues.
+
+    Parameters
+    ----------
+    x: numpy array
+        The input of the softplus function.
+    beta: float
+        The beta parameter for the softplus function.
+    threshold: float
+        The threshold for the input of the exponential function.
+
+    Returns
+    -------
+    Softplus : numpy array
+        The softplus function applied to x.
+    """
+    return np.where(x > threshold, x * beta, 1 / beta * np.log1p(np.exp(x * beta)))
