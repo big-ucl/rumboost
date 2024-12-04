@@ -202,7 +202,7 @@ class RUMBoost:
                 # scaling factor to add the same proportions of the asc to each ensemble
                 # (learning rate times 1 over the number of utility parameters)
                 # scaling_factor = self.rum_structure[j]["boosting_params"][
-                #    "learning_rate"
+                #     "learning_rate"
                 # ] * (1 / self.utility_length[self.rum_structure[j]["utility"][0]])
                 # self.asc[j] += scaling_factor * grad.sum() / hess.sum()
 
@@ -240,13 +240,17 @@ class RUMBoost:
                 "monotone_constraints"
             ]:
                 if monotone_constraint != 0:
-                    if self.device and not force_cpu:
-                        monotone_constraint = torch.tensor(monotone_constraint).to(
-                            self.device
+                    if (self.device is not None) and (not force_cpu):
+                        monotone_constraint = (
+                            torch.tensor(monotone_constraint).to(self.device).float()
                         )
-                        x = torch.nn.functional.softplus(x, beta=monotone_constraint)
+                        x = monotone_constraint * torch.nn.functional.softplus(
+                            x * monotone_constraint, beta=self.softplus_strength
+                        )
                     else:
-                        x = safe_softplus(x, beta=monotone_constraint)
+                        x = monotone_constraint * safe_softplus(
+                            x * monotone_constraint, beta=self.softplus_strength
+                        )
         return x
 
     def _monotonise_beta_grad(self, x, j):
@@ -267,25 +271,27 @@ class RUMBoost:
         beta : numpy array
             Monotonised beta values.
         """
-        grad_x = x
+        grad_x = x.astype(float)
         if self.rum_structure[j]["boosting_params"].get("monotone_constraints", []):
             for monotone_constraint in self.rum_structure[j]["boosting_params"][
                 "monotone_constraints"
             ]:
                 if monotone_constraint != 0:
-                    if self.device:
+                    if self.device is not None:
                         raw_preds = self.raw_preds[
                             self.booster_train_idx[j][0] : self.booster_train_idx[j][1]
                         ]
-                        monotone_constraint = torch.tensor(monotone_constraint).to(
-                            self.device
+                        monotone_constraint = (
+                            torch.tensor(monotone_constraint).to(self.device).float()
                         )
-                        grad_x *= torch.nn.functional.sigmoid(
-                            raw_preds * monotone_constraint
+                        grad_x *= (
+                            torch.nn.functional.sigmoid(self.softplus_strength * raw_preds * monotone_constraint)
+                            .cpu()
+                            .numpy()
                         )
                     else:
                         raw_preds = self.raw_preds[self.booster_train_idx[j]]
-                        grad_x *= expit(raw_preds * monotone_constraint)
+                        grad_x *= expit(self.softplus_strength * raw_preds * monotone_constraint)
         return grad_x
 
     def _monotonise_beta_hess(self, x, j):
@@ -306,26 +312,34 @@ class RUMBoost:
         beta : numpy array
             Monotonised beta values.
         """
-        hess_xx = x**2
+        hess_xx = x.astype(float) ** 2
         if self.rum_structure[j]["boosting_params"].get("monotone_constraints", []):
             for monotone_constraint in self.rum_structure[j]["boosting_params"][
                 "monotone_constraints"
             ]:
                 if monotone_constraint != 0:
-                    if self.device:
+                    if self.device is not None:
                         raw_preds = self.raw_preds[
                             self.booster_train_idx[j][0] : self.booster_train_idx[j][1]
                         ]
-                        monotone_constraint = torch.tensor(monotone_constraint).to(
-                            self.device
+                        monotone_constraint = (
+                            torch.tensor(monotone_constraint).to(self.device).float()
                         )
-                        hess_xx *= torch.nn.functional.sigmoid(
-                            raw_preds * monotone_constraint
-                        ) * (
-                            1
-                            - torch.nn.functional.sigmoid(
-                                raw_preds * monotone_constraint
+                        hess_xx *= (
+                            (
+                                torch.nn.functional.sigmoid(
+                                    self.softplus_strength * raw_preds * monotone_constraint
+                                )
+                                * (
+                                    1
+                                    - torch.nn.functional.sigmoid(
+                                        self.softplus_strength * raw_preds * monotone_constraint
+                                    )
+                                )
+                                * self.softplus_strength
                             )
+                            .cpu()
+                            .numpy()
                         )
                     else:
                         raw_preds = self.raw_preds[self.booster_train_idx[j]]
@@ -1916,8 +1930,13 @@ class RUMBoost:
         for j, struct in enumerate(self.rum_structure):
             # construct booster and perform basic preparations
             try:
+                params = copy.deepcopy(struct["boosting_params"])
+                if self.boost_from_parameter_space[j]:
+                    params["monotone_constraints"] = [
+                        0
+                    ]  # in case of boosting from parameter, monotonicity is
                 booster = Booster(
-                    params=struct["boosting_params"],
+                    params=params,
                     train_set=self.train_set[j],
                 )
                 if self.device is not None:
@@ -1989,20 +2008,20 @@ class RUMBoost:
         """
         for j in best_boosters:
             if self.boost_from_parameter_space[j]:
-                self._current_preds[j] *= self.train_set[j].data.reshape(-1)
+                self._current_preds[j] = self._monotonise_with_softplus(
+                    self._current_preds[j], j, force_cpu=True
+                ) * self.train_set[j].data.reshape(-1)
+                + self.asc[j]
             if self.device is not None:
                 self.raw_preds[
                     self.booster_train_idx[j][0] : self.booster_train_idx[j][1]
-                ] += self._monotonise_with_softplus(
+                ] += (
                     torch.from_numpy(self._current_preds[j])
                     .type(torch.float32)
-                    .to(self.device),
-                    j,
+                    .to(self.device)
                 )
             else:
-                self.raw_preds[
-                    self.booster_train_idx[j]
-                ] += self._monotonise_with_softplus(self._current_preds[j], j)
+                self.raw_preds[self.booster_train_idx[j]] += self._current_preds[j]
 
     def _update_mu_or_alphas(self, res, optimise_mu, optimise_alphas, alpha_shape):
         """Update mu or alphas for the cross-nested model.
@@ -2324,6 +2343,9 @@ def rum_train(
                         It means that the GBDT algorithm will ouput betas instead of piece-wise constant utility
                         values. The resulting utility functions will be piece-wise linear. Monotonicity
                         is not guaranteed in this case and only one variable per parameter ensemble is allowed.
+                    - 'softplus_strength': float, optional (default = 1.0)
+                        Strength of the softplus function used to monotonise the boosters in parameter space.
+                        Only used if boost_from_parameter_space is True.
                     - 'save_model_interval': int, optional (default = 0)
                         The interval at which the model will be saved during training.
                     - 'eval_function': func (default = cross_entropy if multi-class, binary_log_loss if binary, mse if regression)
@@ -2885,6 +2907,7 @@ def rum_train(
                 "If specified, the length of boost_from_parameter_space must be equal to the number of parameter ensembles."
             )
         rumb.boost_from_parameter_space = params["boost_from_parameter_space"]
+        rumb.softplus_strength = params.get("softplus_strength", 1.0)
         rumb.asc = np.zeros(len(rumb.rum_structure))
         optimise_ascs = True
         optim_interval = 1
@@ -2892,6 +2915,11 @@ def rum_train(
         rumb.utility_length = collections.Counter(
             [u for rum in rumb.rum_structure for u in rum["utility"]]
         )
+        for j, struct in enumerate(rumb.rum_structure):
+            if params["boost_from_parameter_space"][j]:
+                if "lambda_l2" not in struct["boosting_params"]:
+                    struct["boosting_params"]["lambda_l2"] = 1e-3
+
     else:
         rumb.boost_from_parameter_space = [False] * len(rumb.rum_structure)
         optimise_ascs = False
@@ -3278,22 +3306,22 @@ def rum_train(
 
             rumb.thresholds = diff_to_threshold(res.x)
 
-        #        if optimise_ascs and ((i + 1) % optim_interval == 0):
-        # if rumb.device is not None:
-        # raw_preds = rumb._inner_predict(utilities=True).cpu().numpy()
-        # labels = rumb.labels[rumb.subsample_idx].cpu().numpy()
-        # else:
-        # raw_preds = rumb._inner_predict(utilities=True)
-        # labels = rumb.labels[rumb.subsample_idx]
-        # res = minimize(
-        # optimise_asc,
-        # ascs,
-        # args=(raw_preds, labels),
-        # method="SLSQP",
-        # )
+        #if optimise_ascs and ((i + 1) % optim_interval == 0):
+        #    if rumb.device is not None:
+        #        raw_preds = rumb._inner_predict(utilities=True).cpu().numpy()
+        #        labels = rumb.labels[rumb.subsample_idx].cpu().numpy()
+        #    else:
+        #        raw_preds = rumb._inner_predict(utilities=True)
+        #        labels = rumb.labels[rumb.subsample_idx]
+        #    res = minimize(
+        #        optimise_asc,
+        #        ascs,
+        #        args=(raw_preds, labels),
+        #        method="SLSQP",
+        #    )
 
-        # for j, struct in enumerate(rumb.rum_structure):
-        # rumb.asc[j] = res.x[struct["utility"][0]] / rumb.utility_length[struct["utility"][0]]
+        #    for j, struct in enumerate(rumb.rum_structure):
+        #        rumb.asc[j] = res.x[struct["utility"][0]] / rumb.utility_length[struct["utility"][0]]
 
         # find best booster and update raw predictions
         best_boosters = rumb._find_best_booster()

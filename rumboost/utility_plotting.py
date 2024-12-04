@@ -226,7 +226,7 @@ def plot_parameters(
         List of tuples containing the y limits for each plot.
     boost_from_parameter_space : dict[dict[bool]], optional (default = None)
         Dictionary of dictionary mapping booster to their type of boosting (parameter or utility space).
-        First key should be a string of the booster index, first value / second key 
+        First key should be a string of the booster index, first value / second key
         should be the utility name and second value is True if boosted from parameter space, False otherwise.
     group_feature : dict, optional (default = None)
         This variable can be used if a feature have several ensembles, and we want to group all ensembles in one plot.
@@ -597,7 +597,12 @@ def plot_parameters(
                     val_0 = non_lin_func[0]
                     non_lin_func = [n - val_0 for n in non_lin_func]
                 elif boost_from_parameter_space[u][f]:
-                    val_0 = model.asc[int(u)] * model.utility_length[model.rum_structure[int(u)]['utility'][0]]
+                    val_0 = (
+                        model.asc[int(u)]
+                        * model.utility_length[
+                            model.rum_structure[int(u)]["utility"][0]
+                        ]
+                    )
                     non_lin_func = [n + val_0 for n in non_lin_func]
 
                 if with_asc and not boost_from_parameter_space[u][f]:
@@ -698,11 +703,15 @@ def plot_parameters(
                     val_0 = non_lin_func[0]
                     non_lin_func = [n - val_0 for n in non_lin_func]
                 elif boost_from_parameter_space[str(i)][f]:
-                    val_0 = model.asc[i] * model.utility_length[model.rum_structure[i]['utility'][0]]
+                    val_0 = (
+                        model.asc[i]
+                        * model.utility_length[model.rum_structure[i]["utility"][0]]
+                    )
                     non_lin_func = [n + val_0 for n in non_lin_func]
 
-
-                non_lin_func_tot = [n_t + n for n_t, n in zip(non_lin_func_tot, non_lin_func)]
+                non_lin_func_tot = [
+                    n_t + n for n_t, n in zip(non_lin_func_tot, non_lin_func)
+                ]
 
             x = x_tot
             non_lin_func = non_lin_func_tot
@@ -758,6 +767,7 @@ def plot_parameters(
                 )
 
             plt.show()
+
 
 def plot_market_segm(
     model,
@@ -2319,7 +2329,11 @@ def weights_to_plot_v2(model, market_segm=False, num_iteration=None):
 
             weights_for_plot[str(i)][f] = {
                 "Splitting points": split_points,
-                "Histogram values": function_value,
+                "Histogram values": list(
+                    model._monotonise_with_softplus(
+                        np.array(function_value), i, force_cpu=True
+                    )
+                ),
             }
 
     return weights_for_plot
@@ -2362,7 +2376,7 @@ def non_lin_function(
         start_point = x_min * float(
             weights_ordered["Histogram values"][0]
         )  # for continuity in the piece-wise linear function, first value
-        x_pad = x_min # padding for accounting from previous intervals
+        x_pad = x_min  # padding for accounting from previous intervals
 
     # handling no split points
     if max_i == 0:
@@ -2370,19 +2384,24 @@ def non_lin_function(
 
     for x in x_values:
         if boosted_from_parameter_space:
-            if i == max_i: # last interval
+            if i == max_i:  # last interval
                 nonlin_function += [
-                    start_point + float(weights_ordered["Histogram values"][i]) * (x - x_pad)
+                    start_point
+                    + float(weights_ordered["Histogram values"][i]) * (x - x_pad)
                 ]  # a + bx
-            elif x < float(weights_ordered["Splitting points"][i]): # up to last interval
+            elif x < float(
+                weights_ordered["Splitting points"][i]
+            ):  # up to last interval
                 nonlin_function += [
-                    start_point + float(weights_ordered["Histogram values"][i]) * (x - x_pad)
+                    start_point
+                    + float(weights_ordered["Histogram values"][i]) * (x - x_pad)
                 ]  # a + bx
             else:
                 x_pad = float(weights_ordered["Splitting points"][i])
                 start_point = nonlin_function[-1]  # update new intercept
                 nonlin_function += [
-                    start_point + float(weights_ordered["Histogram values"][i + 1]) * (x - x_pad)
+                    start_point
+                    + float(weights_ordered["Histogram values"][i + 1]) * (x - x_pad)
                 ]  # a + bx
                 # go to next splitting points
                 if i <= max_i - 1:
