@@ -1947,7 +1947,7 @@ class RUMBoost:
                 if self.boost_from_parameter_space[j]:
                     params["monotone_constraints"] = [
                         0
-                    ]  # in case of boosting from parameter, monotonicity is
+                    ]  # in case of boosting from parameter, monotonicity is removed
                 booster = Booster(
                     params=params,
                     train_set=self.train_set[j],
