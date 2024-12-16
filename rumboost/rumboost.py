@@ -180,6 +180,9 @@ class RUMBoost:
             with open(model_file, "r") as file:
                 self._from_dict(json.load(file))
 
+        if "device" in self.__dict__ and self.device is not None:
+            self.device = torch.device(self.device)
+
         if self.alphas is not None:  # numpy.ndarray so need to specify not None
             self.alphas = np.array(self.alphas)
         if self.mu is not None:  # numpy.ndarray so need to specify not None
@@ -285,13 +288,17 @@ class RUMBoost:
                             torch.tensor(monotone_constraint).to(self.device).float()
                         )
                         grad_x *= (
-                            torch.nn.functional.sigmoid(self.softplus_strength * raw_preds * monotone_constraint)
+                            torch.nn.functional.sigmoid(
+                                self.softplus_strength * raw_preds * monotone_constraint
+                            )
                             .cpu()
                             .numpy()
                         )
                     else:
                         raw_preds = self.raw_preds[self.booster_train_idx[j]]
-                        grad_x *= expit(self.softplus_strength * raw_preds * monotone_constraint)
+                        grad_x *= expit(
+                            self.softplus_strength * raw_preds * monotone_constraint
+                        )
         return grad_x
 
     def _monotonise_beta_hess(self, x, j):
@@ -328,12 +335,16 @@ class RUMBoost:
                         hess_xx *= (
                             (
                                 torch.nn.functional.sigmoid(
-                                    self.softplus_strength * raw_preds * monotone_constraint
+                                    self.softplus_strength
+                                    * raw_preds
+                                    * monotone_constraint
                                 )
                                 * (
                                     1
                                     - torch.nn.functional.sigmoid(
-                                        self.softplus_strength * raw_preds * monotone_constraint
+                                        self.softplus_strength
+                                        * raw_preds
+                                        * monotone_constraint
                                     )
                                 )
                                 * self.softplus_strength
@@ -1385,6 +1396,8 @@ class RUMBoost:
                     self.ord_model,
                     self.thresholds,
                 )
+            self._free_dataset_memory()
+
             return preds
 
         booster_preds = [
@@ -2011,7 +2024,7 @@ class RUMBoost:
                 self._current_preds[j] = self._monotonise_with_softplus(
                     self._current_preds[j], j, force_cpu=True
                 ) * self.train_set[j].data.reshape(-1)
-                + self.asc[j]
+                +self.asc[j]
             if self.device is not None:
                 self.raw_preds[
                     self.booster_train_idx[j][0] : self.booster_train_idx[j][1]
@@ -2075,6 +2088,13 @@ class RUMBoost:
         """Add a booster to RUMBoost."""
         self.boosters.append(booster)
 
+    def _free_dataset_memory(self):
+        """Remove datasets from RUMBoost object."""
+        self.train_set = None
+        self.valid_sets = None
+        self.labels_j = None
+        self.labels = None
+
     def _from_dict(self, models: Dict[str, Any]) -> None:
         """Load RUMBoost from dict."""
         self.boosters = []
@@ -2125,7 +2145,7 @@ class RUMBoost:
                     "nest_alt": self.nest_alt,
                     "ord_model": self.ord_model,
                     "thresholds": (
-                        self.thresholds.cpu().numpy().tolist()
+                        self.thresholds.tolist()
                         if self.thresholds is not None
                         else None
                     ),
@@ -2138,7 +2158,7 @@ class RUMBoost:
                     "torch_compile": self.torch_compile,
                     "rum_structure": self.rum_structure,
                     "boost_from_parameter_space": self.boost_from_parameter_space,
-                    "asc": self.asc,
+                    "asc": self.asc.tolist() if self.asc is not None else None,
                 },
             }
         else:
@@ -2175,7 +2195,7 @@ class RUMBoost:
                     "torch_compile": self.torch_compile,
                     "rum_structure": self.rum_structure,
                     "boost_from_parameter_space": self.boost_from_parameter_space,
-                    "asc": self.asc,
+                    "asc": self.asc.tolist() if self.asc is not None else None,
                 },
             }
 
@@ -2939,7 +2959,7 @@ def rum_train(
             "train_sets"
         ]  # assign the J previously preprocessed datasets
         rumb.labels = train_set["labels"]
-        if rumb.mu is None:
+        if rumb.mu is None and rumb.ord_model is None and rumb.num_classes > 2:
             if not train_set.get("labels_j", None):
                 rumb.labels_j = (
                     rumb.labels[:, None] == np.array(range(rumb.num_classes))[None, :]
@@ -2990,7 +3010,7 @@ def rum_train(
             predictor=predictor,
             free_raw_data=free_raw_data,
         )  # prepare J datasets with relevant features
-        if rumb.mu is not None:
+        if rumb.mu is not None or rumb.ord_model or rumb.num_classes < 3:
             rumb.labels_j = None
 
     # create J boosters with corresponding params and datasets
@@ -3306,7 +3326,7 @@ def rum_train(
 
             rumb.thresholds = diff_to_threshold(res.x)
 
-        #if optimise_ascs and ((i + 1) % optim_interval == 0):
+        # if optimise_ascs and ((i + 1) % optim_interval == 0):
         #    if rumb.device is not None:
         #        raw_preds = rumb._inner_predict(utilities=True).cpu().numpy()
         #        labels = rumb.labels[rumb.subsample_idx].cpu().numpy()
