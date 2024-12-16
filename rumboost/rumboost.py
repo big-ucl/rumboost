@@ -281,21 +281,16 @@ class RUMBoost:
             ]:
                 if monotone_constraint != 0:
                     if self.device is not None:
-                        raw_preds = self.raw_preds[
-                            self.booster_train_idx[j][0] : self.booster_train_idx[j][1]
-                        ]
-                        monotone_constraint = (
-                            torch.tensor(monotone_constraint).to(self.device).float()
+                        raw_preds = torch.tensor(
+                            self.boosters[j]._Booster__inner_predict_buffer[0]
                         )
                         grad_x *= (
                             torch.nn.functional.sigmoid(
                                 self.softplus_strength * raw_preds * monotone_constraint
                             )
-                            .cpu()
-                            .numpy()
                         )
                     else:
-                        raw_preds = self.raw_preds[self.booster_train_idx[j]]
+                        raw_preds = self.boosters[j]._Booster__inner_predict_buffer[0]
                         grad_x *= expit(
                             self.softplus_strength * raw_preds * monotone_constraint
                         )
@@ -326,11 +321,8 @@ class RUMBoost:
             ]:
                 if monotone_constraint != 0:
                     if self.device is not None:
-                        raw_preds = self.raw_preds[
-                            self.booster_train_idx[j][0] : self.booster_train_idx[j][1]
-                        ]
-                        monotone_constraint = (
-                            torch.tensor(monotone_constraint).to(self.device).float()
+                        raw_preds = torch.tensor(
+                            self.boosters[j]._Booster__inner_predict_buffer[0]
                         )
                         hess_xx *= (
                             (
@@ -347,16 +339,14 @@ class RUMBoost:
                                         * monotone_constraint
                                     )
                                 )
-                                * self.softplus_strength
+                                * self.softplus_strength * monotone_constraint
                             )
-                            .cpu()
-                            .numpy()
                         )
                     else:
-                        raw_preds = self.raw_preds[self.booster_train_idx[j]]
-                        hess_xx *= expit(raw_preds * monotone_constraint) * (
-                            1 - expit(raw_preds * monotone_constraint)
-                        )
+                        raw_preds = self.boosters[j]._Booster__inner_predict_buffer[0]
+                        hess_xx *= expit(self.softplus_strength * raw_preds * monotone_constraint) * (
+                            1 - expit(self.softplus_strength * raw_preds * monotone_constraint)
+                        ) * self.softplus_strength * monotone_constraint
         return hess_xx
 
     @multiply_grad_hess_by_data
@@ -2024,7 +2014,7 @@ class RUMBoost:
                 self._current_preds[j] = self._monotonise_with_softplus(
                     self._current_preds[j], j, force_cpu=True
                 ) * self.train_set[j].data.reshape(-1)
-                +self.asc[j]
+                + self.asc[j]
             if self.device is not None:
                 self.raw_preds[
                     self.booster_train_idx[j][0] : self.booster_train_idx[j][1]

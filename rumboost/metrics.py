@@ -128,4 +128,4 @@ def safe_softplus(x, beta = 1, threshold = 20):
     Softplus : numpy array
         The softplus function applied to x.
     """
-    return np.where(beta * x > threshold, x, 1 / beta * np.logaddexp(0, beta * x))
+    return np.where(beta * x > threshold, x, (1 / beta) * np.logaddexp(0, beta * x))
