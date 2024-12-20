@@ -599,7 +599,7 @@ def plot_parameters(
                 elif boost_from_parameter_space[u][f]:
                     val_0 = (
                         model.asc[int(u)]
-                        * model.utility_length[
+                        * model.len_params_space[
                             model.rum_structure[int(u)]["utility"][0]
                         ]
                     )
@@ -705,7 +705,7 @@ def plot_parameters(
                 elif boost_from_parameter_space[str(i)][f]:
                     val_0 = (
                         model.asc[i]
-                        * model.utility_length[model.rum_structure[i]["utility"][0]]
+                        * model.len_params_space[model.rum_structure[i]["utility"][0]]
                     )
                     non_lin_func = [n + val_0 for n in non_lin_func]
 
@@ -2330,7 +2330,7 @@ def weights_to_plot_v2(model, market_segm=False, num_iteration=None):
             weights_for_plot[str(i)][f] = {
                 "Splitting points": split_points,
                 "Histogram values": list(
-                    model._monotonise_with_softplus(
+                    model._monotonise_beta(
                         np.array(function_value), i, force_cpu=True
                     )
                 ),
