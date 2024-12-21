@@ -38,7 +38,7 @@ from rumboost.ordinal import (
     optimise_thresholds_proportional_odds,
 )
 
-from rumboost.utils import optimise_asc
+from rumboost.utils import optimise_asc, _check_rum_structure
 
 try:
     import torch
@@ -205,13 +205,13 @@ class RUMBoost:
                 # multiplying gradients and hessians by observations
                 # we start with hess because it needs the original values
                 # (second derivative of the chain rule)
-                # hess = hess * self._monotonise_grad(
-                #     self.train_set[j].data.reshape(-1), j
-                # ) ** 2 + grad * self._monotonise_hess(
-                #     self.train_set[j].data.reshape(-1), j
-                # )
+                hess = hess * self._monotonise_grad(
+                    self.train_set[j].data.reshape(-1), j
+                ) ** 2 + grad * self._monotonise_hess(
+                    self.train_set[j].data.reshape(-1), j
+                )
                 grad *= self._monotonise_grad(self.train_set[j].data.reshape(-1), j)
-                hess *= self._monotonise_hess(self.train_set[j].data.reshape(-1), j)
+                # hess *= self._monotonise_hess(self.train_set[j].data.reshape(-1), j)
             return grad, hess
 
         return wrapper
@@ -308,7 +308,6 @@ class RUMBoost:
         beta : numpy array
             Monotonised beta values.
         """
-        hess_xx = x.astype(float) ** 2
         if self.rum_structure[j]["boosting_params"].get("monotone_constraints", []):
             for monotone_constraint in self.rum_structure[j]["boosting_params"][
                 "monotone_constraints"
@@ -318,7 +317,7 @@ class RUMBoost:
                         raw_preds = torch.tensor(
                             self.boosters[j]._Booster__inner_predict_buffer[0]
                         )
-                        hess_xx *= (
+                        hess_xx = (
                             torch.nn.functional.sigmoid(
                                 self.softplus_strength * raw_preds * monotone_constraint
                             ).numpy()
@@ -332,10 +331,10 @@ class RUMBoost:
                             ).numpy()
                             * self.softplus_strength
                             * monotone_constraint
-                        )
+                        ) * x.astype(float)
                     else:
                         raw_preds = self.boosters[j]._Booster__inner_predict_buffer[0]
-                        hess_xx *= (
+                        hess_xx = (
                             expit(
                                 self.softplus_strength * raw_preds * monotone_constraint
                             )
@@ -349,7 +348,9 @@ class RUMBoost:
                             )
                             * self.softplus_strength
                             * monotone_constraint
-                        )
+                        ) * x.astype(float)
+                else:
+                    hess_xx = np.zeros_like(x)
         return hess_xx
 
     def _monotonise_with_relu(self, beta, j, force_cpu=False):
@@ -416,16 +417,20 @@ class RUMBoost:
                             self.boosters[j]._Booster__inner_predict_buffer[0]
                         )
                         grad_x *= (
-                            raw_preds * monotone_constraint > 0
-                        ).numpy() * monotone_constraint
+                            torch.where(
+                                monotone_constraint * raw_preds > 0, 1, 0
+                            ).numpy()
+                            * monotone_constraint
+                        )
                     else:
                         raw_preds = self.boosters[j]._Booster__inner_predict_buffer[0]
                         grad_x *= (
-                            raw_preds * monotone_constraint > 0
-                        ) * monotone_constraint
+                            np.where(monotone_constraint * raw_preds > 0, 1, 0)
+                            * monotone_constraint
+                        )
         return grad_x
 
-    def _monotonise_hess_relu(self, x, j):
+    def _monotonise_hess_relu(self, x, _):
         """
         Monotonise the hessian of the beta values
         with the hessian of the ReLU function.
@@ -434,16 +439,13 @@ class RUMBoost:
         ----------
         x : numpy array
             Data points.
-        j : int
-            Booster index.
 
         Returns
         -------
         beta : numpy array
             Monotonised beta values.
         """
-        hess_xx = x.astype(float) ** 2
-        return hess_xx
+        return np.zeros_like(x)
 
     @multiply_grad_hess_by_data
     def f_obj(self, _, __):
@@ -1405,7 +1407,7 @@ class RUMBoost:
                             force_cpu=True,
                         )
                         * new_data[k].get_data().reshape(-1)
-                        + self.asc[k]
+                        # + self.asc[k]
                     )
                     .type(torch.float32)
                     .to(device=self.device)
@@ -1442,22 +1444,13 @@ class RUMBoost:
 
             # reshaping raw predictions into num_obs, num_classes array
             for j, struct in enumerate(self.rum_structure):
-                if not struct["shared"]:
-                    raw_preds[
-                        struct["utility"][0]
-                        * data.num_data() : (struct["utility"][-1] + 1)
-                        * data.num_data()
-                    ] += booster_preds[j].repeat(len(struct["utility"]))
-                else:
-                    raw_preds[
-                        struct["utility"][0]
-                        * data.num_data() : (struct["utility"][-1] + 1)
-                        * data.num_data()
-                    ] += booster_preds[j].repeat(
-                        int(len(struct["utility"]) / len(struct["variables"]))
-                    )
+                raw_preds[
+                    struct["utility"][0]
+                    * data.num_data() : (struct["utility"][-1] + 1)
+                    * data.num_data()
+                ] += booster_preds[j].repeat(len(struct["utility"]))
 
-            raw_preds = raw_preds.view(-1, data.num_data()).T
+            raw_preds = raw_preds.view(-1, data.num_data()).T + self.asc
             if self.torch_compile:
                 preds, _, _ = _inner_predict_torch_compiled(
                     raw_preds,
@@ -1502,7 +1495,7 @@ class RUMBoost:
                     k,
                 )
                 * new_data[k].get_data().reshape(-1)
-                + self.asc[k]
+                # + self.asc[k]
                 if self.boost_from_parameter_space[k]
                 else booster.predict(
                     new_data[k].get_data(),
@@ -1528,16 +1521,8 @@ class RUMBoost:
                 struct["utility"][0] * data.num_data(),
                 (struct["utility"][-1] + 1) * data.num_data(),
             )
-            if not struct["shared"]:
-                raw_preds[idx_ranges] += np.tile(
-                    booster_preds[j], len(struct["utility"])
-                )
-            else:
-                raw_preds[idx_ranges] += np.tile(
-                    booster_preds[j],
-                    int(len(struct["utility"]) / len(struct["variables"])),
-                )
-        raw_preds = raw_preds.reshape((data.num_data(), -1), order="F")
+            raw_preds[idx_ranges] += booster_preds[j]
+        raw_preds = raw_preds.reshape((data.num_data(), -1), order="F") + self.asc
 
         if self.num_classes == 1 and not self.ord_model:  # regression
             return raw_preds
@@ -1610,7 +1595,7 @@ class RUMBoost:
             if data_idx == 0:
                 raw_preds = self.raw_preds.view(-1, self.num_obs[data_idx]).T[
                     self.subsample_idx, :
-                ]
+                ] + self.asc
             else:
                 if (
                     self.num_classes == 2
@@ -1637,20 +1622,7 @@ class RUMBoost:
                                         force_cpu=True,
                                     )
                                     * self.valid_sets[data_idx - 1][j].data.reshape(-1)
-                                    + self.asc[j]
-                                )
-                            )
-                            .type(dtype=torch.float32)
-                            .to(device=self.device)
-                        )
-                    elif not self.rum_structure[j]["shared"]:
-                        raw_preds[
-                            self.booster_valid_idx[j][0] : self.booster_valid_idx[j][1]
-                        ] += (
-                            torch.from_numpy(
-                                np.tile(
-                                    self.boosters[j]._Booster__inner_predict(data_idx),
-                                    len(self.rum_structure[j]["utility"]),
+                                    # + self.asc[j]
                                 )
                             )
                             .type(dtype=torch.float32)
@@ -1661,20 +1633,14 @@ class RUMBoost:
                             self.booster_valid_idx[j][0] : self.booster_valid_idx[j][1]
                         ] += (
                             torch.from_numpy(
-                                np.tile(
-                                    self.boosters[j]._Booster__inner_predict(data_idx),
-                                    int(
-                                        len(self.rum_structure[j]["utility"])
-                                        / len(self.rum_structure[j]["variables"])
-                                    ),
-                                )
+                                self.boosters[j]._Booster__inner_predict(data_idx)
                             )
                             .type(dtype=torch.float32)
                             .to(device=self.device)
                         )
                 raw_preds = raw_preds.view(-1, self.num_obs[data_idx]).T[
                     self.subsample_idx_valid, :
-                ]
+                ] + self.asc
             if self.torch_compile:
                 preds, pred_i_m, pred_m = _inner_predict_torch_compiled(
                     raw_preds,
@@ -1710,7 +1676,7 @@ class RUMBoost:
         if data_idx == 0:
             raw_preds = self.raw_preds.reshape((self.num_obs[data_idx], -1), order="F")[
                 self.subsample_idx, :
-            ]
+            ] + self.asc
         else:
             if self.num_classes == 2:  # binary classification requires only one column
                 raw_preds = np.zeros(self.num_obs[data_idx])
@@ -1723,23 +1689,13 @@ class RUMBoost:
                             self.boosters[j]._Booster__inner_predict(data_idx), j
                         )
                         * self.valid_sets[data_idx - 1][j].data.reshape(-1)
-                        + self.asc[j]
-                    )
-
-                elif not self.rum_structure[j]["shared"]:
-                    raw_preds[self.booster_valid_idx[j]] += np.tile(
-                        self.boosters[j]._Booster__inner_predict(data_idx),
-                        len(self.rum_structure[j]["utility"]),
+                        # + self.asc[j]
                     )
                 else:
-                    raw_preds[self.booster_valid_idx[j]] += np.tile(
-                        self.boosters[j]._Booster__inner_predict(data_idx),
-                        int(
-                            len(self.rum_structure[j]["utility"])
-                            / len(self.rum_structure[j]["variables"])
-                        ),
-                    )
-            raw_preds = raw_preds.reshape((self.num_obs[data_idx], -1), order="F")
+                    raw_preds[self.booster_valid_idx[j]] += self.boosters[
+                        j
+                    ]._Booster__inner_predict(data_idx)
+            raw_preds = raw_preds.reshape((self.num_obs[data_idx], -1), order="F") + self.asc
 
         if self.num_classes == 1 and not self.ord_model:  # regression
             return raw_preds
@@ -1825,7 +1781,6 @@ class RUMBoost:
             If return_data is True, and reduced_valid_set is not None, return one or several list(s) with J preprocessed validation sets corresponding to the J boosters.
         """
         train_set_J = []
-        data_to_repeat = []
         reduced_valid_sets_J = []
         self.valid_labels = []
 
@@ -1860,12 +1815,14 @@ class RUMBoost:
                     ]  # only relevant features for the jth booster
 
                     if struct["shared"] == True:
-                        new_label = self.labels_j[
-                            :, struct["utility"][: len(struct["variables"])]
-                        ].reshape(-1, order="F")
+                        new_label = self.labels_j[:, struct["utility"]].reshape(
+                            -1, order="F"
+                        )
                         feature_names = "auto"
                     else:
-                        new_label = self.labels_j[:, 0].reshape(-1, order="F")
+                        new_label = self.labels_j[:, struct["utility"][0]].reshape(
+                            -1, order="F"
+                        )
                         feature_names = struct["variables"]
                     train_set_j = Dataset(
                         train_set_j_data.values.reshape(
@@ -1899,12 +1856,12 @@ class RUMBoost:
 
                             if struct["shared"] == True:
                                 label_valid = val_labels_j[i][
-                                    :, struct["utility"][: len(struct["variables"])]
+                                    :, struct["utility"]
                                 ].reshape(-1, order="F")
                             else:
-                                label_valid = val_labels_j[i][:, 0].reshape(
-                                    -1, order="F"
-                                )
+                                label_valid = val_labels_j[i][
+                                    :, struct["utility"][0]
+                                ].reshape(-1, order="F")
                             valid_set_j = Dataset(
                                 valid_set_j_data.values.reshape(
                                     (len(label_valid), -1),
@@ -2039,9 +1996,6 @@ class RUMBoost:
                     train_set=self.train_set[j],
                 )
                 if self.device is not None:
-                    print(
-                        "[RUMBoost] [Warning]: assuming utility is contiguous and sorted"
-                    )
                     idx_ranges = [
                         struct["utility"][0] * self.num_obs[0],
                         (struct["utility"][-1] + 1) * self.num_obs[0],
@@ -2093,46 +2047,39 @@ class RUMBoost:
 
         gains = np.array(self._current_gains)
         max_boost = np.minimum(self.max_booster_to_update, len(gains))
-        best_boosters = np.argsort(gains)[::-1]
+        best_boosters = np.argsort(gains)[::-1][:max_boost]
 
-        selected_indices = []
-        utility_counter = np.zeros(self.num_classes)
-        # trying to select boosters to update all utilities
-        for b in best_boosters:
-            utilities = self.rum_structure[b]["utility"]
-            if (utility_counter[utilities] > utility_counter.min()).all():
-                continue
-            utility_counter[utilities] += 1
-            selected_indices.append(b)
-            if len(selected_indices) == max_boost:
-                break
+        return best_boosters
 
-        return selected_indices
+    def _update_raw_preds(self):
+        """Update the raw predictions of the RUMBoost model with the best booster(s) to update."""
+        # reinitialise raw predictions
+        if self.device is not None:
+            self.raw_preds = torch.zeros(
+                self.num_obs[0] * self.num_classes,
+                device=self.device,
+                dtype=torch.float32,
+            )
+        else:
+            self.raw_preds = np.zeros(self.num_obs[0] * self.num_classes)
 
-    def _update_raw_preds(self, best_boosters):
-        """Update the raw predictions of the RUMBoost model with the best booster(s) to update.
-
-        Parameters
-        ----------
-        best_boosters : list
-            List of the best booster(s) to update.
-        """
-        for j in best_boosters:
+        # add all ensembles prediction to raw utility predictions
+        for j, booster in enumerate(self.boosters):
             if self.boost_from_parameter_space[j]:
-                self._current_preds[j] = self._monotonise_beta(
-                    self._current_preds[j], j, force_cpu=True
+                current_preds = self._monotonise_beta(
+                    booster._Booster__inner_predict(0), j, force_cpu=True
                 ) * self.train_set[j].data.reshape(-1)
-                +self.asc[j]
+                # +self.asc[j]
+            else:
+                current_preds = booster._Booster__inner_predict(0)
             if self.device is not None:
                 self.raw_preds[
                     self.booster_train_idx[j][0] : self.booster_train_idx[j][1]
                 ] += (
-                    torch.from_numpy(self._current_preds[j])
-                    .type(torch.float32)
-                    .to(self.device)
+                    torch.from_numpy(current_preds).type(torch.float32).to(self.device)
                 )
             else:
-                self.raw_preds[self.booster_train_idx[j]] += self._current_preds[j]
+                self.raw_preds[self.booster_train_idx[j]] += current_preds
 
     def _update_mu_or_alphas(self, res, optimise_mu, optimise_alphas, alpha_shape):
         """Update mu or alphas for the cross-nested model.
@@ -2257,7 +2204,7 @@ class RUMBoost:
                     "torch_compile": self.torch_compile,
                     "rum_structure": self.rum_structure,
                     "boost_from_parameter_space": self.boost_from_parameter_space,
-                    "asc": self.asc.tolist() if self.asc is not None else None,
+                    "asc": self.asc.cpu().numpy().tolist() if self.asc is not None else None,
                 },
             }
         else:
@@ -2481,7 +2428,7 @@ def rum_train(
                 List of dictionaries specifying the variable used to create the parameter ensemble,
                 and their monotonicity or interaction. The list must contain one dictionary for each parameter.
                 Each dictionary has four required keys:
-                    - 'utility': list of alternatives in which the parameter ensemble is used
+                    - 'utility': list of alternatives in which the parameter ensemble is used.
                     - 'variables': list of columns from the train_set included in that parameter_ensemble
                     - 'boosting_params': dict
                         Dictionary containing the boosting parameters for the parameter ensemble.
@@ -2757,8 +2704,7 @@ def rum_train(
     if "rum_structure" not in model_specification:
         raise ValueError("Model specification must contain rum_structure key")
     rumb.rum_structure = model_specification["rum_structure"]
-    if not isinstance(rumb.rum_structure, list):
-        raise ValueError("rum_structure must be a list")
+    _check_rum_structure(rumb.rum_structure)
 
     if (
         (
@@ -3033,6 +2979,7 @@ def rum_train(
                 "If specified, the length of boost_from_parameter_space must be equal to the number of parameter ensembles."
             )
         rumb.boost_from_parameter_space = params["boost_from_parameter_space"]
+
         if params.get("params_monotonic_function", "softplus") == "softplus":
             rumb._monotonise_beta = rumb._monotonise_with_softplus
             rumb._monotonise_grad = rumb._monotonise_grad_softplus
@@ -3042,12 +2989,11 @@ def rum_train(
             rumb._monotonise_beta = rumb._monotonise_with_relu
             rumb._monotonise_grad = rumb._monotonise_grad_relu
             rumb._monotonise_hess = rumb._monotonise_hess_relu
-        rumb.asc = np.zeros(len(rumb.rum_structure))
 
         optim_interval = params.get("optim_interval", 1)
-        optimise_ascs = all(rumb.boost_from_parameter_space) and optim_interval > 0
+        optimise_ascs = any(rumb.boost_from_parameter_space) and optim_interval > 0
 
-        ascs = np.zeros(rumb.num_classes) if optimise_ascs else None
+        rumb.asc = np.zeros(rumb.num_classes)
 
         # count the number of ensembles boosted from the parameter space
         # for each utility
@@ -3067,7 +3013,7 @@ def rum_train(
     else:
         rumb.boost_from_parameter_space = [False] * len(rumb.rum_structure)
         optimise_ascs = False
-        rumb.asc = np.zeros(len(rumb.rum_structure))
+        rumb.asc = np.zeros(rumb.num_classes)
 
     # check dataset and preprocess it
     if isinstance(train_set, dict):
@@ -3150,6 +3096,7 @@ def rum_train(
     # convert a few numpy arrays to torch tensors if needed
     if torch_tensors:
         rumb.labels = torch.from_numpy(rumb.labels).type(torch.int16).to(rumb.device)
+        rumb.asc = torch.from_numpy(rumb.asc).type(torch.double).to(rumb.device)
         if rumb.labels_j is not None:
             rumb.labels_j = (
                 torch.from_numpy(rumb.labels_j).type(torch.int8).to(rumb.device)
@@ -3274,34 +3221,19 @@ def rum_train(
             rumb.raw_preds = np.zeros(rumb.num_classes * rumb.num_obs[0])
     if init_models:
         for j, booster in enumerate(rumb.boosters):
-            if not rumb.rum_structure[j]["shared"]:
-                init_pred = np.tile(
-                    booster._Booster__inner_predict(0),
-                    len(rumb.rum_structure[j]["utility"]),
-                )
+            init_pred = booster._Booster__inner_predict(0)
+            if torch_tensors:
+                rumb.raw_preds[
+                    rumb.booster_train_idx[j][0] : rumb.booster_train_idx[j][1]
+                ] += (torch.from_numpy(init_pred).type(torch.float32).to(rumb.device))
             else:
-                init_pred = np.tile(
-                    booster._Booster__inner_predict(0),
-                    int(
-                        len(rumb.rum_structure[j]["utility"])
-                        / len(rumb.rum_structure[j]["variables"])
-                    ),
-                )
-                if torch_tensors:
-                    rumb.raw_preds[
-                        rumb.booster_train_idx[j][0] : rumb.booster_train_idx[j][1]
-                    ] += (
-                        torch.from_numpy(init_pred).type(torch.float32).to(rumb.device)
-                    )
-                else:
-                    rumb.raw_preds[rumb.booster_train_idx[j]] += init_pred
+                rumb.raw_preds[rumb.booster_train_idx[j]] += init_pred
 
     rumb._preds = rumb._inner_predict()
 
     # start training
     for i in range(init_iteration, init_iteration + num_boost_round):
         # initialising the current predictions
-        rumb._current_preds = []
         rumb._current_gains = []
         # update all binary boosters of the rumb
         for j, booster in enumerate(rumb.boosters):
@@ -3334,40 +3266,6 @@ def rum_train(
                 )  # we normalise with the full number of observations even when not predicting for all alternatives since the gradient are summed in the objective function
             )
 
-            # store current predictions
-            if not rumb.rum_structure[j]["shared"]:
-                rumb._current_preds.append(
-                    np.tile(
-                        -booster._Booster__inner_predict_buffer[  # this should be first because it is going to be updated when calling __inner_predict()
-                            0
-                        ]
-                        + booster._Booster__inner_predict(0),
-                        len(rumb.rum_structure[j]["utility"]),
-                    )
-                )
-            elif len(rumb.rum_structure[j]["variables"]) < len(
-                rumb.rum_structure[j]["utility"]
-            ):
-                rumb._current_preds.append(
-                    np.tile(
-                        -booster._Booster__inner_predict_buffer[
-                            0
-                        ]  # this should be first because it is going to be updated when calling __inner_predict()
-                        + booster._Booster__inner_predict(0),
-                        int(
-                            len(rumb.rum_structure[j]["utility"])
-                            / len(rumb.rum_structure[j]["variables"])
-                        ),
-                    )
-                )
-            else:
-                rumb._current_preds.append(
-                    -booster._Booster__inner_predict_buffer[
-                        0
-                    ]  # this should be first because it is going to be updated when calling __inner_predict()
-                    + booster._Booster__inner_predict(0)
-                )
-
             # check evaluation result. (from lightGBM initial code, check on all J binary boosters)
             evaluation_result_list = []
             if rumb.valid_labels is not None:
@@ -3389,6 +3287,16 @@ def rum_train(
             except callback.EarlyStopException as earlyStopException:
                 booster.best_iteration = earlyStopException.best_iteration + 1
                 evaluation_result_list = earlyStopException.best_score
+
+        # find best booster and update raw predictions
+        best_boosters = rumb._find_best_booster()
+
+        # rollback unchosen boosters
+        unchosen_boosters = set(range(len(rumb.boosters))) - set(best_boosters)
+        rumb._rollback_boosters(unchosen_boosters)
+
+        # update raw predictions
+        rumb._update_raw_preds()
 
         if (optimise_mu or optimise_alphas) and ((i + 1) % optim_interval == 0):
             params_to_optimise = []
@@ -3418,7 +3326,7 @@ def rum_train(
                 method="SLSQP",
             )
 
-            rumb._current_gains.append(rumb.best_score_train - res.fun)
+            rumb._update_mu_or_alphas(res.x, optimise_mu, optimise_alphas, alpha_shape)
 
         if optimise_thresholds and ((i + 1) % optim_interval == 0):
 
@@ -3452,39 +3360,30 @@ def rum_train(
 
         if optimise_ascs and ((i + 1) % optim_interval == 0):
             if rumb.device is not None:
-                raw_preds = rumb._inner_predict(utilities=True).cpu().numpy()
+                raw_preds = rumb.raw_preds[rumb.subsample_idx][:, None].cpu().numpy().reshape((rumb.num_obs[0], -1), order="F")
                 labels = rumb.labels[rumb.subsample_idx].cpu().numpy()
+                ascs = rumb.asc.cpu().numpy()
             else:
-                raw_preds = rumb._inner_predict(utilities=True)
+                raw_preds = rumb.raw_preds[rumb.subsample_idx][:, None].reshape((rumb.num_obs[0], -1), order="F")
                 labels = rumb.labels[rumb.subsample_idx]
+                ascs = rumb.asc
             res = minimize(
                 optimise_asc,
                 ascs,
                 args=(raw_preds, labels),
                 method="SLSQP",
             )
-            ascs = res.x
+            if rumb.device is not None:
+                rumb.asc = torch.from_numpy(res.x).type(torch.double).to(rumb.device)
+            else:
+                rumb.asc = res.x
 
-            for j, struct in enumerate(rumb.rum_structure):
-                if rumb.boost_from_parameter_space[j]:
-                    rumb.asc[j] = (
-                        res.x[struct["utility"][0]]
-                        / rumb.len_params_space[struct["utility"][0]]
-                    )  # we share asc across parameters of the same utility function
-
-        # find best booster and update raw predictions
-        best_boosters = rumb._find_best_booster()
-
-        if opt_mu_or_alpha_idx in best_boosters:
-            best_boosters.remove(opt_mu_or_alpha_idx)
-            rumb._update_mu_or_alphas(res, optimise_mu, optimise_alphas, alpha_shape)
-
-        # update raw predictions
-        rumb._update_raw_preds(best_boosters)
-
-        # rollback unchosen boosters
-        unchosen_boosters = set(range(len(rumb.boosters))) - set(best_boosters)
-        rumb._rollback_boosters(unchosen_boosters)
+            # for j, struct in enumerate(rumb.rum_structure):
+            #     if rumb.boost_from_parameter_space[j]:
+            #         rumb.asc[j] = (
+            #             res.x[struct["utility"][0]]
+            #             / rumb.len_params_space[struct["utility"][0]]
+            #         )  # we share asc across parameters of the same utility function
 
         # reshuffle indices
         if subsample_freq > 0 and (i + 1) % subsample_freq == 0:
