@@ -1593,9 +1593,12 @@ class RUMBoost:
         # using pytorch if required
         if self.device is not None:
             if data_idx == 0:
-                raw_preds = self.raw_preds.view(-1, self.num_obs[data_idx]).T[
-                    self.subsample_idx, :
-                ] + self.asc
+                raw_preds = (
+                    self.raw_preds.view(-1, self.num_obs[data_idx]).T[
+                        self.subsample_idx, :
+                    ]
+                    + self.asc
+                )
             else:
                 if (
                     self.num_classes == 2
@@ -1638,9 +1641,12 @@ class RUMBoost:
                             .type(dtype=torch.float32)
                             .to(device=self.device)
                         )
-                raw_preds = raw_preds.view(-1, self.num_obs[data_idx]).T[
-                    self.subsample_idx_valid, :
-                ] + self.asc
+                raw_preds = (
+                    raw_preds.view(-1, self.num_obs[data_idx]).T[
+                        self.subsample_idx_valid, :
+                    ]
+                    + self.asc
+                )
             if self.torch_compile:
                 preds, pred_i_m, pred_m = _inner_predict_torch_compiled(
                     raw_preds,
@@ -1674,9 +1680,12 @@ class RUMBoost:
 
         # reshaping raw predictions into num_obs, num_classes array
         if data_idx == 0:
-            raw_preds = self.raw_preds.reshape((self.num_obs[data_idx], -1), order="F")[
-                self.subsample_idx, :
-            ] + self.asc
+            raw_preds = (
+                self.raw_preds.reshape((self.num_obs[data_idx], -1), order="F")[
+                    self.subsample_idx, :
+                ]
+                + self.asc
+            )
         else:
             if self.num_classes == 2:  # binary classification requires only one column
                 raw_preds = np.zeros(self.num_obs[data_idx])
@@ -1695,7 +1704,9 @@ class RUMBoost:
                     raw_preds[self.booster_valid_idx[j]] += self.boosters[
                         j
                     ]._Booster__inner_predict(data_idx)
-            raw_preds = raw_preds.reshape((self.num_obs[data_idx], -1), order="F") + self.asc
+            raw_preds = (
+                raw_preds.reshape((self.num_obs[data_idx], -1), order="F") + self.asc
+            )
 
         if self.num_classes == 1 and not self.ord_model:  # regression
             return raw_preds
@@ -2043,13 +2054,29 @@ class RUMBoost:
         self.best_score_train = 1e6
 
     def _find_best_booster(self):
-        """Find the best booster(s) to update the raw_predictions accordingly."""
+        """
+        Find the best booster(s) to update the raw_predictions accordingly.
+        Best boosters are the one with the highest gain in utility function.
+        We can choose at most the number of boosters times the number of classes
+        in the smallest utility function. This is intended to update each utility
+        function with the same number of trees, but it is not always possible
+        with shared ensembles.
+        """
 
         gains = np.array(self._current_gains)
-        max_boost = np.minimum(self.max_booster_to_update, len(gains))
-        best_boosters = np.argsort(gains)[::-1][:max_boost]
+        max_boost = self.max_booster_to_update // self.num_classes
+        best_boosters = np.argsort(gains)[::-1].tolist()
+        # we can choose safely at most the maximum number of boosters 
+        # in the smallest utility function (they don't necessarily 
+        # all have the same number of boosters)
+        selected_boosters = []
+        for u_idx in self.utility_functions.values():
+            selected_boosters.extend([b for b in best_boosters if b in u_idx][:max_boost])
 
-        return best_boosters
+        # remove duplicates (shared ensembles)
+        selected_boosters = list(set(selected_boosters))
+
+        return selected_boosters
 
     def _update_raw_preds(self):
         """Update the raw predictions of the RUMBoost model with the best booster(s) to update."""
@@ -2204,7 +2231,11 @@ class RUMBoost:
                     "torch_compile": self.torch_compile,
                     "rum_structure": self.rum_structure,
                     "boost_from_parameter_space": self.boost_from_parameter_space,
-                    "asc": self.asc.cpu().numpy().tolist() if self.asc is not None else None,
+                    "asc": (
+                        self.asc.cpu().numpy().tolist()
+                        if self.asc is not None
+                        else None
+                    ),
                 },
             }
         else:
@@ -2403,7 +2434,11 @@ def rum_train(
                     - 'verbose_interval': int, optional (default = 10)
                         Interval of the verbosity display. only used if verbosity > 1.
                     - 'max_booster_to_update': int, optional (default = num_classes)
-                        Maximum number of boosters to update at each round.
+                        Maximum number of boosters to update at each round. It has to be
+                        at least equal to the number of classes, and at most equal to
+                        the number of classes times the maximum number of boosters in the
+                        smallest utility function. This is intended to update each utility
+                        function with the same number of trees.
                     - 'boost_from_parameter_space': list, optional (default = [])
                         If True, the boosting will be done in the parameter space, as opposed to the utility space.
                         It means that the GBDT algorithm will ouput betas instead of piece-wise constant utility
@@ -2428,15 +2463,19 @@ def rum_train(
                 List of dictionaries specifying the variable used to create the parameter ensemble,
                 and their monotonicity or interaction. The list must contain one dictionary for each parameter.
                 Each dictionary has four required keys:
-                    - 'utility': list of alternatives in which the parameter ensemble is used.
+                    - 'utility': list of alternatives in which the parameter ensemble is used. If more than
+                        one alternative is specified, the parameter ensemble is shared across alternatives,
+                        and the number of variables shared must be equal to the number of alternatives.
                     - 'variables': list of columns from the train_set included in that parameter_ensemble
                     - 'boosting_params': dict
                         Dictionary containing the boosting parameters for the parameter ensemble.
-                        If num_classes > 2, please specify params['objective'] = 'multiclass'.
                         These parameters are the same than Lightgbm parameters. More information here:
                         https://lightgbm.readthedocs.io/en/latest/Parameters.html.
                     - 'shared': bool
                         If True, the parameter ensemble is shared across all alternatives.
+                        When shared, the number of variables shared must be equal to the number of alternatives.
+                        If the same variable is shared across alternatives, it must be repeated in the
+                        variables list (by example variables = ['var1', 'var1', 'var1'] and utility = [0, 1, 2]).
 
         The other keys are optional and can be:
 
@@ -2724,9 +2763,24 @@ def rum_train(
             "Only one model specification can be used at a time. Choose between nested_logit, cross_nested_logit or ordinal_logit"
         )
 
+    # store utility function specifications
+    rumb.utility_functions = {u: [] for u in range(rumb.num_classes)}
+    for j, struct in enumerate(rumb.rum_structure):
+        for u in struct["utility"]:
+            rumb.utility_functions[u].append(j)
+
     rumb.max_booster_to_update = params.get(
-        "max_booster_to_update", len(rumb.rum_structure)
+        "max_booster_to_update", rumb.num_classes
     )
+    if rumb.max_booster_to_update < rumb.num_classes:
+        raise ValueError(
+            f"The maximum number of boosters to update must be at least equal to the number of classes ({rumb.num_classes})"
+        )
+    min_utility = min([len(u_idx) for u_idx in rumb.utility_functions.values()])
+    if rumb.max_booster_to_update > rumb.num_classes * min_utility:
+        raise ValueError(
+            f"The maximum number of boosters to update must be at most equal to the number of classes ({rumb.num_classes}) times the maximum number of boosters in the smallest utility function ({min_utility})"
+        )
 
     rumb.batch_size = params.get("batch_size", 0)
 
@@ -3360,11 +3414,18 @@ def rum_train(
 
         if optimise_ascs and ((i + 1) % optim_interval == 0):
             if rumb.device is not None:
-                raw_preds = rumb.raw_preds[rumb.subsample_idx][:, None].cpu().numpy().reshape((rumb.num_obs[0], -1), order="F")
+                raw_preds = (
+                    rumb.raw_preds[rumb.subsample_idx][:, None]
+                    .cpu()
+                    .numpy()
+                    .reshape((rumb.num_obs[0], -1), order="F")
+                )
                 labels = rumb.labels[rumb.subsample_idx].cpu().numpy()
                 ascs = rumb.asc.cpu().numpy()
             else:
-                raw_preds = rumb.raw_preds[rumb.subsample_idx][:, None].reshape((rumb.num_obs[0], -1), order="F")
+                raw_preds = rumb.raw_preds[rumb.subsample_idx][:, None].reshape(
+                    (rumb.num_obs[0], -1), order="F"
+                )
                 labels = rumb.labels[rumb.subsample_idx]
                 ascs = rumb.asc
             res = minimize(
