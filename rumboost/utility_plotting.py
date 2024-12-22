@@ -599,10 +599,9 @@ def plot_parameters(
                 elif boost_from_parameter_space[u][f]:
                     val_0 = (
                         model.asc[int(u)]
-                        * model.len_params_space[
-                            model.rum_structure[int(u)]["utility"][0]
-                        ]
                     )
+                    if model.device == "cuda":
+                        val_0 = val_0.cpu().detach().numpy()
                     non_lin_func = [n + val_0 for n in non_lin_func]
 
                 if with_asc and not boost_from_parameter_space[u][f]:
@@ -672,7 +671,7 @@ def plot_parameters(
             x_tot = np.linspace(0, 1.05 * max(X[f]), 10000)
             non_lin_func_tot = [0] * 10000
             for i in indices:
-                if str(i) not in weights_arranged:
+                if str(i) not in weights_arranged or f not in weights_arranged[str(i)]:
                     continue
                 if f in list(X.columns):
                     x, non_lin_func = non_lin_function(
@@ -703,10 +702,7 @@ def plot_parameters(
                     val_0 = non_lin_func[0]
                     non_lin_func = [n - val_0 for n in non_lin_func]
                 elif boost_from_parameter_space[str(i)][f]:
-                    val_0 = (
-                        model.asc[i]
-                        * model.len_params_space[model.rum_structure[i]["utility"][0]]
-                    )
+                    val_0 = 0
                     non_lin_func = [n + val_0 for n in non_lin_func]
 
                 non_lin_func_tot = [

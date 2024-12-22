@@ -205,6 +205,10 @@ class RUMBoost:
                 # multiplying gradients and hessians by observations
                 # we start with hess because it needs the original values
                 # (second derivative of the chain rule)
+                if j == 73:
+                    stop = 0
+                else:
+                    pass
                 hess = hess * self._monotonise_grad(
                     self.train_set[j].data.reshape(-1), j
                 ) ** 2 + grad * self._monotonise_hess(
@@ -238,7 +242,19 @@ class RUMBoost:
             for monotone_constraint in self.rum_structure[j]["boosting_params"][
                 "monotone_constraints"
             ]:
-                if monotone_constraint != 0:
+                if monotone_constraint == 1:
+                    if (self.device is not None) and (not force_cpu):
+                        monotone_constraint = (
+                            torch.tensor(monotone_constraint).to(self.device).float()
+                        )
+                        x = monotone_constraint * torch.nn.functional.softplus(
+                            x * monotone_constraint, beta=self.softplus_strength
+                        )
+                    else:
+                        x = monotone_constraint * safe_softplus(
+                            x * monotone_constraint, beta=self.softplus_strength
+                        )
+                elif monotone_constraint == -1:
                     if (self.device is not None) and (not force_cpu):
                         monotone_constraint = (
                             torch.tensor(monotone_constraint).to(self.device).float()
@@ -3045,7 +3061,7 @@ def rum_train(
             rumb._monotonise_hess = rumb._monotonise_hess_relu
 
         optim_interval = params.get("optim_interval", 1)
-        optimise_ascs = any(rumb.boost_from_parameter_space) and optim_interval > 0
+        optimise_ascs = all(rumb.boost_from_parameter_space) and optim_interval > 0
 
         rumb.asc = np.zeros(rumb.num_classes)
 
