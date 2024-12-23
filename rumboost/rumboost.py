@@ -205,17 +205,10 @@ class RUMBoost:
                 # multiplying gradients and hessians by observations
                 # we start with hess because it needs the original values
                 # (second derivative of the chain rule)
-                if j == 73:
-                    stop = 0
-                else:
-                    pass
-                hess = hess * self._monotonise_grad(
-                    self.train_set[j].data.reshape(-1), j
-                ) ** 2 + grad * self._monotonise_hess(
-                    self.train_set[j].data.reshape(-1), j
-                )
-                grad *= self._monotonise_grad(self.train_set[j].data.reshape(-1), j)
-                # hess *= self._monotonise_hess(self.train_set[j].data.reshape(-1), j)
+                grad_x = self._monotonise_grad(self.train_set[j].data.reshape(-1), j)
+                hess_xx = self._monotonise_hess(self.train_set[j].data.reshape(-1), j)
+                hess = hess * grad_x ** 2 + grad * hess_xx
+                grad = grad * grad_x
             return grad, hess
 
         return wrapper
@@ -434,14 +427,14 @@ class RUMBoost:
                         )
                         grad_x *= (
                             torch.where(
-                                monotone_constraint * raw_preds > 0, 1, 0
+                                monotone_constraint * raw_preds >= 0, 1, 0
                             ).numpy()
                             * monotone_constraint
                         )
                     else:
                         raw_preds = self.boosters[j]._Booster__inner_predict_buffer[0]
                         grad_x *= (
-                            np.where(monotone_constraint * raw_preds > 0, 1, 0)
+                            np.where(monotone_constraint * raw_preds >= 0, 1, 0)
                             * monotone_constraint
                         )
         return grad_x
