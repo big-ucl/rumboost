@@ -1,4 +1,31 @@
 import numpy as np
+from rumboost.metrics import cross_entropy
+from scipy.special import softmax
+
+def optimise_asc(asc, raw_preds, labels):
+    """
+    Optimise the ASC parameters of the model.
+
+    Parameters
+    ----------
+    asc : np.array
+        The array of ASC parameters.
+    raw_preds : np.array
+        The raw predictions of the model.
+    labels : np.array
+        The labels of the dataset.
+
+    Returns
+    -------
+    asc : np.array
+        The optimised ASC parameters.
+    """
+    raw_preds_asc = raw_preds + asc
+    new_preds = softmax(raw_preds_asc, axis=1)
+    new_ce = cross_entropy(new_preds, labels)
+
+    return new_ce
+    
 
 def process_parent(parent, pairs):
     """
@@ -397,3 +424,35 @@ def sort_dict(dict_to_sort):
         dict_sorted[k] = dict_to_sort[k]
 
     return dict_sorted
+    
+def _check_rum_structure(rum_structure):
+    """ Check that rum_structure, a list of dictionaries, is of the correct format. """
+
+    if not isinstance(rum_structure, list):
+        raise ValueError("rum_structure must be a list")
+
+    for i, rum_struct in enumerate(rum_structure):
+        if "utility" not in rum_struct:
+            raise ValueError(
+                f"rum_structure {i} must contain utility key with the list of alternatives"
+            )
+        if "variables" not in rum_struct:
+            raise ValueError(
+                f"rum_structure {i} must contain variables key with the list of variables"
+            )
+        if "boosting_params" not in rum_struct:
+            raise ValueError(
+                f"rum_structure {i} must contain boosting_params key with the boosting parameters"
+            )
+        if "shared" not in rum_struct:
+            raise ValueError(
+                f"rum_structure {i} must contain shared key with a boolean value"
+            )
+        if len(rum_struct["utility"]) > 1 and not rum_struct["shared"]:
+            raise ValueError(
+                f"rum_structure {i} must be shared if the parameter is used in more than one utility function"
+            )
+        if rum_struct["shared"] and len(rum_struct["utility"]) != len(rum_struct["variables"]):
+            raise ValueError(
+                f"rum_structure {i} must have the same number of variables and utility functions if shared is True"
+            )

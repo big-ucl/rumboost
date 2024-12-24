@@ -184,7 +184,7 @@ def _inner_predict_torch(
         )
 
     # regression
-    if num_classes == 1:
+    if num_classes == 1 and not ord_model:
         return raw_preds, None, None
 
     if not utilities:
@@ -210,7 +210,7 @@ def _inner_predict_torch(
             if ord_model in ["proportional_odds", "coral"]:
                 preds = _threshold_preds_torch(raw_preds, thresholds)
 
-            return preds
+            return preds, None, None
 
         if ord_model == "corn":
             preds = _corn_preds_torch(raw_preds)
@@ -250,7 +250,7 @@ def _inner_predict_torch_compiled(
         )
 
     # regression
-    if num_classes == 1:
+    if num_classes == 1 and not ord_model:
         return raw_preds, None, None
 
     if not utilities:
@@ -276,7 +276,7 @@ def _inner_predict_torch_compiled(
             if ord_model in ["proportional_odds", "coral"]:
                 preds = _threshold_preds_torch_compiled(raw_preds, thresholds)
 
-            return preds
+            return preds, None, None
 
         if ord_model == "corn":
             preds = _corn_preds_torch_compiled(raw_preds)
@@ -1126,23 +1126,25 @@ def _f_obj_proportional_odds_torch(
     raw_preds,
     thresholds,
 ):
+    raise NotImplementedError(
+        "The proportional odds loss is not yet implemented for torch tensors."
+    )
     if not torch_installed:
         raise ImportError(
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
 
     thresholds = torch.tensor(thresholds).to(raw_preds.device)
-    preds = preds.view(-1)
-    labels = labels.view(-1)
+    labels = labels.view(-1).int()
 
     grad = torch.where(
         labels == 0,
         torch.sigmoid(raw_preds - thresholds[0]),
         torch.where(
-            labels == len(thresholds),
+            labels == thresholds.shape[0],
             preds[:, -1] - 1,
-            torch.sigmoid(raw_preds - thresholds[labels - 1])
-            + torch.sigmoid(raw_preds - thresholds[labels])
+            torch.sigmoid(raw_preds - thresholds[None, labels - 1])
+            + torch.sigmoid(raw_preds - thresholds[None, labels])
             - 1,
         ),
     )
@@ -1151,12 +1153,12 @@ def _f_obj_proportional_odds_torch(
         labels == 0,
         preds[:, 0] * torch.sigmoid(raw_preds - thresholds[0]),
         torch.where(
-            labels == len(thresholds),
+            labels == thresholds.shape[0],
             preds[:, -1] * (1 - preds[:, -1]),
-            torch.sigmoid(raw_preds - thresholds[labels - 1])
-            * (1 - torch.sigmoid(raw_preds - thresholds[labels - 1]))
-            + torch.sigmoid(raw_preds - thresholds[labels])
-            * (1 - torch.sigmoid(raw_preds - thresholds[labels])),
+            torch.sigmoid(raw_preds - thresholds[None, labels - 1])
+            * (1 - torch.sigmoid(raw_preds - thresholds[None, labels - 1]))
+            + torch.sigmoid(raw_preds - thresholds[None, labels])
+            * (1 - torch.sigmoid(raw_preds - thresholds[None, labels])),
         ),
     )
 
@@ -1170,14 +1172,16 @@ def _f_obj_proportional_odds_torch_compiled(
     raw_preds,
     thresholds,
 ):
+    raise NotImplementedError(
+        "The proportional odds loss is not yet implemented for torch tensors."
+    )
     if not torch_installed:
         raise ImportError(
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
 
     thresholds = torch.tensor(thresholds).to(raw_preds.device)
-    preds = preds.view(-1)
-    labels = labels.view(-1)
+    labels = labels.view(-1).int()
 
     grad = torch.where(
         labels == 0,
@@ -1212,6 +1216,9 @@ def _f_obj_coral_torch(
     raw_preds,
     thresholds,
 ):
+    raise NotImplementedError(
+        "The CORAL loss is not yet implemented for torch tensors."
+    )
     raw_preds = raw_preds[:, None]
     thresholds = torch.tensor(thresholds).to(raw_preds.device)
 
@@ -1231,6 +1238,9 @@ def _f_obj_coral_torch_compiled(
     raw_preds,
     thresholds,
 ):
+    raise NotImplementedError(
+        "The CORAL loss is not yet implemented for torch tensors."
+    )
     raw_preds = raw_preds[:, None]
     thresholds = torch.tensor(thresholds).to(raw_preds.device)
 
@@ -1249,18 +1259,20 @@ def _f_obj_corn_torch(
     raw_preds,
     j,
 ):
-
+    raise NotImplementedError(
+        "The CORN loss is not yet implemented for torch tensors."
+    )
     raw_preds = raw_preds[:, j]
     sigmoids = torch.sigmoid(raw_preds)
 
     grad = torch.where(
-        labels < j,
+        j < labels,
         torch.tensor(0.0, device=labels.device),
-        sigmoids - (labels > j).float(),
+        sigmoids - (j > labels).float(),
     )
 
     hess = torch.where(
-        labels < j, torch.tensor(1.0, device=labels.device), sigmoids * (1 - sigmoids)
+        j < labels, torch.tensor(1.0, device=labels.device), sigmoids * (1 - sigmoids)
     )
 
     return grad, hess
@@ -1272,18 +1284,20 @@ def _f_obj_corn_torch_compiled(
     raw_preds,
     j,
 ):
-
+    raise NotImplementedError(
+        "The CORN loss is not yet implemented for torch tensors."
+    )
     raw_preds = raw_preds[:, j]
     sigmoids = torch.sigmoid(raw_preds)
 
     grad = torch.where(
-        labels < j,
+        j < labels,
         torch.tensor(0.0, device=labels.device),
-        sigmoids - (labels > j).float(),
+        sigmoids - (j > labels).float(),
     )
 
     hess = torch.where(
-        labels < j, torch.tensor(1.0, device=labels.device), sigmoids * (1 - sigmoids)
+        j < labels, torch.tensor(1.0, device=labels.device), sigmoids * (1 - sigmoids)
     )
 
     return grad, hess

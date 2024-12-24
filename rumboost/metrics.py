@@ -59,6 +59,7 @@ def binary_cross_entropy(preds, labels):
     Cross entropy : float
         The negative cross-entropy, as float.
     """
+    preds = preds.reshape(-1)
     return -np.mean(labels * np.log(preds) + (1 - labels) * np.log(1 - preds))
 
 def mse(preds, target):
@@ -78,13 +79,14 @@ def mse(preds, target):
     Mean squared error : float
         The mean squared error, as float.
     """
-    return np.mean((preds - target) ** 2)
+    return np.mean((preds.reshape(-1) - target) ** 2)
 
 
 def weighted_binary_cross_entropy(preds, labels):
     """
     Compute weighted binary cross entropy for given predictions and data.
-    The weights are all ones.
+    The weights are all ones. This function is used in the ordinal 
+    regression model with coral estimation.
 
     Parameters
     ----------
@@ -107,3 +109,23 @@ def weighted_binary_cross_entropy(preds, labels):
             axis=1,
         )
     )
+
+def safe_softplus(x, beta = 1, threshold = 20):
+    """
+    Compute the softplus function in a safe way to avoid numerical issues.
+
+    Parameters
+    ----------
+    x: numpy array
+        The input of the softplus function.
+    beta: float
+        The beta parameter for the softplus function.
+    threshold: float
+        The threshold for the input of the exponential function.
+
+    Returns
+    -------
+    Softplus : numpy array
+        The softplus function applied to x.
+    """
+    return np.where(beta * x > threshold, x, (1 / beta) * np.logaddexp(0, beta * x))

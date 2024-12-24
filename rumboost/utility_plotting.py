@@ -190,7 +190,8 @@ def plot_parameters(
     sm_tt_cost=False,
     num_iteration=None,
     ylim=None,
-    boost_from_parameter_space=False,
+    boost_from_parameter_space=None,
+    group_feature=None,
     save_file="",
 ):
     """
@@ -207,7 +208,7 @@ def plot_parameters(
         Keys should be a string of the booster index, and values should be the utility name.
     feature_names : list, optional (default = None)
         List of feature names.
-    asc_normalised : bool, optional (default = False)
+    asc_normalised : bool, optional (default = True)
         If True, scale down utilities to be zero at the y axis.
     with_asc : bool, optional (default = False)
         If True, add the ASCs to all graphs (one is normalised, and asc_normalised must be True).
@@ -223,9 +224,13 @@ def plot_parameters(
         The number of iterations to plot. If None, plot all iterations.
     ylim : list[tuple], optional (default = None)
         List of tuples containing the y limits for each plot.
-    boost_from_parameter_space : bool, optional (default = False)
-        Set to true if the boosting has been done in the parameter space, that is,
-        the GBDT outputs betas, and not piece-wise constant utilities.
+    boost_from_parameter_space : dict[dict[bool]], optional (default = None)
+        Dictionary of dictionary mapping booster to their type of boosting (parameter or utility space).
+        First key should be a string of the booster index, first value / second key
+        should be the utility name and second value is True if boosted from parameter space, False otherwise.
+    group_feature : dict, optional (default = None)
+        This variable can be used if a feature have several ensembles, and we want to group all ensembles in one plot.
+        Keys should be the feature name, and values should be the list of ensembles index in rum_structure.
     save_file : str, optional (default='')
         The name to save the figure with. The figure will be saved only if save_file is not an empty string.
     """
@@ -569,7 +574,7 @@ def plot_parameters(
                         0,
                         1.05 * max(X[f]),
                         10000,
-                        boost_from_parameter_space,
+                        boost_from_parameter_space[u][f],
                     )
                 elif xlabel_max:
                     x, non_lin_func = non_lin_function(
@@ -577,7 +582,7 @@ def plot_parameters(
                         0,
                         1.05 * xlabel_max[u],
                         10000,
-                        boost_from_parameter_space,
+                        boost_from_parameter_space[u][f],
                     )
                 else:
                     x, non_lin_func = non_lin_function(
@@ -585,14 +590,21 @@ def plot_parameters(
                         0,
                         1.05 * weights_arranged[u][f]["Splitting points"][-1],
                         10000,
-                        boost_from_parameter_space,
+                        boost_from_parameter_space[u][f],
                     )
 
-                if asc_normalised:
+                if asc_normalised and not boost_from_parameter_space[u][f]:
                     val_0 = non_lin_func[0]
                     non_lin_func = [n - val_0 for n in non_lin_func]
+                elif boost_from_parameter_space[u][f]:
+                    val_0 = (
+                        model.asc[int(u)]
+                    )
+                    if model.device == "cuda":
+                        val_0 = val_0.cpu().detach().numpy()
+                    non_lin_func = [n + val_0 for n in non_lin_func]
 
-                if with_asc:
+                if with_asc and not boost_from_parameter_space[u][f]:
                     non_lin_func = [n + ASCs[int(u)] for n in non_lin_func]
 
                 # plot parameters
@@ -653,6 +665,104 @@ def plot_parameters(
                     )
 
                 plt.show()
+
+    if group_feature:
+        for f, indices in group_feature.items():
+            x_tot = np.linspace(0, 1.05 * max(X[f]), 10000)
+            non_lin_func_tot = [0] * 10000
+            for i in indices:
+                if str(i) not in weights_arranged or f not in weights_arranged[str(i)]:
+                    continue
+                if f in list(X.columns):
+                    x, non_lin_func = non_lin_function(
+                        weights_arranged[str(i)][f],
+                        0,
+                        1.05 * max(X[f]),
+                        10000,
+                        boost_from_parameter_space[str(i)][f],
+                    )
+                elif xlabel_max:
+                    x, non_lin_func = non_lin_function(
+                        weights_arranged[str(i)][f],
+                        0,
+                        1.05 * xlabel_max[str(i)],
+                        10000,
+                        boost_from_parameter_space[str(i)][f],
+                    )
+                else:
+                    x, non_lin_func = non_lin_function(
+                        weights_arranged[str(i)][f],
+                        0,
+                        1.05 * weights_arranged[str(i)][f]["Splitting points"][-1],
+                        10000,
+                        boost_from_parameter_space[str(i)][f],
+                    )
+
+                if asc_normalised and not boost_from_parameter_space[str(i)][f]:
+                    val_0 = non_lin_func[0]
+                    non_lin_func = [n - val_0 for n in non_lin_func]
+                elif boost_from_parameter_space[str(i)][f]:
+                    val_0 = 0
+                    non_lin_func = [n + val_0 for n in non_lin_func]
+
+                non_lin_func_tot = [
+                    n_t + n for n_t, n in zip(non_lin_func_tot, non_lin_func)
+                ]
+
+            x = x_tot
+            non_lin_func = non_lin_func_tot
+
+            # plot parameters
+            plt.figure(figsize=(3.49, 2.09), dpi=1000)
+            # plt.title('Influence of {} on the predictive function ({} utility)'.format(f, utility_names[u]), fontdict={'fontsize':  16})
+            plt.ylabel("{} utility".format(utility_names[str(i)]))
+
+            if "dur" in f:
+                plt.xlabel("{} [h]".format(f))
+            elif "TIME" in f:
+                plt.xlabel("{} [min]".format(f))
+            elif "cost" in f:
+                plt.xlabel("{} [£]".format(f))
+            elif "distance" in f:
+                plt.xlabel("{} [km]".format(f))
+            elif "CO" in f:
+                plt.xlabel("{} [chf]".format(f))
+            else:
+                plt.xlabel("{}".format(f))
+
+            sns.lineplot(x=x, y=non_lin_func, color="k", label="RUMBoost")
+
+            if f in list(X.columns):
+                plt.xlim([0 - 0.05 * np.max(X[f]), np.max(X[f]) * 1.05])
+            elif xlabel_max:
+                plt.xlim([0 - 0.05 * xlabel_max[str(i)], xlabel_max[str(i)] * 1.05])
+            else:
+                plt.xlim(
+                    [
+                        0 - 0.05 * weights_arranged[str(i)][f]["Splitting points"][-1],
+                        weights_arranged[str(i)][f]["Splitting points"][-1] * 1.05,
+                    ]
+                )
+            if ylim:
+                plt.ylim(ylim[i])
+            else:
+                plt.ylim(
+                    [
+                        np.min(non_lin_func)
+                        - 0.05 * (np.max(non_lin_func) - np.min(non_lin_func)),
+                        np.max(non_lin_func)
+                        + 0.05 * (np.max(non_lin_func) - np.min(non_lin_func)),
+                    ]
+                )
+
+            plt.tight_layout()
+
+            if save_file:
+                plt.savefig(
+                    f"{save_file}_{utility_names[int(i)]}_{f}.png", facecolor="white"
+                )
+
+            plt.show()
 
 
 def plot_market_segm(
@@ -2215,7 +2325,11 @@ def weights_to_plot_v2(model, market_segm=False, num_iteration=None):
 
             weights_for_plot[str(i)][f] = {
                 "Splitting points": split_points,
-                "Histogram values": function_value,
+                "Histogram values": list(
+                    model._monotonise_beta(
+                        np.array(function_value), i, force_cpu=True
+                    )
+                ),
             }
 
     return weights_for_plot
@@ -2258,7 +2372,7 @@ def non_lin_function(
         start_point = x_min * float(
             weights_ordered["Histogram values"][0]
         )  # for continuity in the piece-wise linear function, first value
-        x_pad = x_min # padding for accounting from previous intervals
+        x_pad = x_min  # padding for accounting from previous intervals
 
     # handling no split points
     if max_i == 0:
@@ -2266,19 +2380,24 @@ def non_lin_function(
 
     for x in x_values:
         if boosted_from_parameter_space:
-            if i == max_i: # last interval
+            if i == max_i:  # last interval
                 nonlin_function += [
-                    start_point + float(weights_ordered["Histogram values"][i]) * (x - x_pad)
+                    start_point
+                    + float(weights_ordered["Histogram values"][i]) * (x - x_pad)
                 ]  # a + bx
-            elif x < float(weights_ordered["Splitting points"][i]): # up to last interval
+            elif x < float(
+                weights_ordered["Splitting points"][i]
+            ):  # up to last interval
                 nonlin_function += [
-                    start_point + float(weights_ordered["Histogram values"][i]) * (x - x_pad)
+                    start_point
+                    + float(weights_ordered["Histogram values"][i]) * (x - x_pad)
                 ]  # a + bx
             else:
                 x_pad = float(weights_ordered["Splitting points"][i])
                 start_point = nonlin_function[-1]  # update new intercept
                 nonlin_function += [
-                    start_point + float(weights_ordered["Histogram values"][i + 1]) * (x - x_pad)
+                    start_point
+                    + float(weights_ordered["Histogram values"][i + 1]) * (x - x_pad)
                 ]  # a + bx
                 # go to next splitting points
                 if i <= max_i - 1:

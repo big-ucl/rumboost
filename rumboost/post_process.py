@@ -2,6 +2,9 @@ import pandas as pd
 import numpy as np
 import lightgbm as lgb
 from rumboost.rumboost import RUMBoost, rum_train
+from rumboost.utility_plotting import weights_to_plot_v2
+
+from biogeme.expressions import Beta
 
 
 def split_fe_model(model: RUMBoost):
@@ -99,3 +102,28 @@ def bootstrap(
         )
 
     return models
+
+def assist_model_spec(model):
+    """
+    Provide a piece-wise linear model spcification based on a pre-trained rumboost model.
+
+    Parameters
+    ----------
+
+    model: RUMBoost
+        A trained rumboost model
+
+    Returns
+    -------
+    model_spec: dict
+        A dictionary containing the model specification used to train a biogeme model.
+    """
+    ascs = {f"asc_{i}": Beta(f"asc_{i}", 0, None, None, 0) for i in range(model.num_classes - 1)}
+    weights = weights_to_plot_v2(model)
+
+    for i, weight in weights.items():
+        for name, tree_info in weight.items():
+            if model.boost_from_parameter_space[int(i)]:
+                pass
+            else:
+                pass
