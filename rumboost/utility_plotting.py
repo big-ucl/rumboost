@@ -574,7 +574,7 @@ def plot_parameters(
                         0,
                         1.05 * max(X[f]),
                         10000,
-                        boost_from_parameter_space[u][f],
+                        boost_from_parameter_space[u][f] if boost_from_parameter_space else False,
                     )
                 elif xlabel_max:
                     x, non_lin_func = non_lin_function(
@@ -582,7 +582,7 @@ def plot_parameters(
                         0,
                         1.05 * xlabel_max[u],
                         10000,
-                        boost_from_parameter_space[u][f],
+                        boost_from_parameter_space[u][f] if boost_from_parameter_space else False,
                     )
                 else:
                     x, non_lin_func = non_lin_function(
@@ -590,10 +590,10 @@ def plot_parameters(
                         0,
                         1.05 * weights_arranged[u][f]["Splitting points"][-1],
                         10000,
-                        boost_from_parameter_space[u][f],
+                        boost_from_parameter_space[u][f] if boost_from_parameter_space else False,
                     )
 
-                if asc_normalised and not boost_from_parameter_space[u][f]:
+                if asc_normalised and (not boost_from_parameter_space or not boost_from_parameter_space[u][f]):
                     val_0 = non_lin_func[0]
                     non_lin_func = [n - val_0 for n in non_lin_func]
                 elif boost_from_parameter_space[u][f]:
@@ -604,7 +604,7 @@ def plot_parameters(
                         val_0 = val_0.cpu().detach().numpy()
                     non_lin_func = [n + val_0 for n in non_lin_func]
 
-                if with_asc and not boost_from_parameter_space[u][f]:
+                if with_asc and (not boost_from_parameter_space or not boost_from_parameter_space[u][f]):
                     non_lin_func = [n + ASCs[int(u)] for n in non_lin_func]
 
                 # plot parameters
