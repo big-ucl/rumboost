@@ -4,7 +4,10 @@ import lightgbm as lgb
 from rumboost.rumboost import RUMBoost, rum_train
 from rumboost.utility_plotting import weights_to_plot_v2
 
-from biogeme.expressions import Beta
+from biogeme.expressions import Beta, Variable, bioMultSum
+from biogeme.models import piecewise_formula, loglogit
+from biogeme.biogeme import BIOGEME
+import biogeme.database as db
 
 
 def split_fe_model(model: RUMBoost):
@@ -103,7 +106,8 @@ def bootstrap(
 
     return models
 
-def assist_model_spec(model):
+
+def assist_model_spec(model, dataset, choice, alt_to_normalise=0):
     """
     Provide a piece-wise linear model spcification based on a pre-trained rumboost model.
 
@@ -111,19 +115,207 @@ def assist_model_spec(model):
     ----------
 
     model: RUMBoost
-        A trained rumboost model
+        A trained rumboost model.
+    dataset: pd.DataFrame
+        A dataset used to train the model
+    choice: pd.Series
+        A series containing the choices
+    alt_to_normalise: int, optional (default=0)
+        The variables of that alternative will be normalised when needed (socio-economic characteristics, ascs, ...).
 
     Returns
     -------
     model_spec: dict
         A dictionary containing the model specification used to train a biogeme model.
     """
-    ascs = {f"asc_{i}": Beta(f"asc_{i}", 0, None, None, 0) for i in range(model.num_classes - 1)}
+    dataset["choice"] = choice
+    database = db.Database("rumboost", dataset)
+    globals().update(database.variables)
+
+    # define ascs, with one normalised to zero
+    ascs = {
+        f"asc_{i}": Beta(f"asc_{i}", 0, None, None, 1 if i == alt_to_normalise else 0)
+        for i in range(model.num_classes)
+    }
+
+    # prepare variables to normalise
+    vars_in_utility = {v: [] for v in dataset.columns}
+    for rum in model.rum_structure:
+        for v in rum["variables"]:
+            vars_in_utility[v].extend(rum["utility"])
+
+    vars_to_normalise = []
+    for variables, utilities in vars_in_utility.items():
+        if len(np.unique(utilities)) == model.num_classes:
+            vars_to_normalise.append(variables) 
+
+    # get aggregated split points and leaf values by ensembles and variables
     weights = weights_to_plot_v2(model)
 
+    # initialise utility specification with ascs
+    utility_spec = {i: ascs[f"asc_{i}"] for i in range(model.num_classes)}
+
+    # loop over the ensembles
     for i, weight in weights.items():
+        # loop over the variables within an ensemble
         for name, tree_info in weight.items():
+            # if linear
             if model.boost_from_parameter_space[int(i)]:
-                pass
+                split_points = tree_info["Splitting points"]
+                init_beta = tree_info["Histogram values"]
+                split_points.insert(0, dataset[name].min())
+                split_points.append(dataset[name].max())
+                # monotonicity constraints
+                lowerbound = (
+                    0
+                    if model.rum_structure[int(i)]["boosting_params"][
+                        "monotone_constraints"
+                    ][0]
+                    == 1
+                    else None
+                )
+                upperbound = (
+                    0
+                    if model.rum_structure[int(i)]["boosting_params"][
+                        "monotone_constraints"
+                    ][0]
+                    == -1
+                    else None
+                )
+                # define betas
+                betas = [
+                    Beta(f"{name}_{i}_{j}", init_beta[j], lowerbound, upperbound, 0)
+                    for j in range(len(split_points) - 1)
+                ]
+                # add piecewise linear variables to the proper utility function
+                for u in model.rum_structure[int(i)]["utility"]:
+                    if u == alt_to_normalise and name in vars_to_normalise:
+                        continue
+                    utility_spec[u] = utility_spec[u] + piecewise_formula(
+                        name, split_points, betas
+                    )
             else:
-                pass
+                # if piece-wise constant
+                split_points = tree_info["Splitting points"]
+                init_beta = tree_info["Histogram values"]
+                beta_0 = init_beta[0]
+                init_beta = [i - beta_0 for i in init_beta]
+                # monotonicity constraints
+                lowerbound = (
+                    0
+                    if model.rum_structure[int(i)]["boosting_params"][
+                        "monotone_constraints"
+                    ][0]
+                    == 1
+                    else None
+                )
+                upperbound = (
+                    0
+                    if model.rum_structure[int(i)]["boosting_params"][
+                        "monotone_constraints"
+                    ][0]
+                    == -1
+                    else None
+                )
+                # define betas
+                if len(split_points) == 1: # if already binary
+                    beta_dict = {
+                        f"{name}_{i}_{0}": Beta(f"{name}_{i}_0", init_beta[0], lowerbound, upperbound, 0)
+                    }
+                    vars = [Variable(name)]
+                else:
+                    #if non binary
+                    split_points.insert(0, dataset[name].min())
+                    split_points.append(dataset[name].max())
+                    # we normalise to zero the first beta
+                    beta_dict = {
+                        f"{name}_{i}_0": Beta(f"{name}_{i}_0", 0, None, None, 1)
+                    }
+                    # if monotonicity constraint, we use previous beta as lower/upper bound
+                    for j in range(1, len(split_points) - 1):
+                        beta_dict[f"{name}_{i}_{j}"] = Beta(
+                            f"{name}_{i}_{j}",
+                            init_beta[j],
+                            beta_dict[f"{name}_{i}_{j-1}"] * (lowerbound == 0), 
+                            beta_dict[f"{name}_{i}_{j-1}"] * (upperbound == 0),
+                            int(j == 0),
+                        )
+                    vars = [
+                        database.define_variable(
+                            f"{name}_{i}_{j}",
+                            (Variable(name) - split_points[j])
+                            * (Variable(name) - split_points[j + 1] <= 0),
+                        )
+                        for j in range(len(split_points) - 1)
+                    ]
+                for u in model.rum_structure[int(i)]["utility"]:
+                    utility_spec[u] = utility_spec[u] + bioMultSum(
+                        [b * v for b, v in zip(beta_dict.values(), vars)]
+                    )
+
+    availability = {i: 1 for i in range(model.num_classes)}
+
+    model_name = "assisted_model"
+
+    logprob = loglogit(utility_spec, availability, Variable("choice"))
+
+    the_biogeme = BIOGEME(database, logprob)
+    the_biogeme.modelName = model_name
+    
+    the_biogeme.calculateNullLoglikelihood(availability)
+
+    return the_biogeme
+
+def estimate_dcm_with_assisted_spec(
+    dataset: pd.DataFrame,
+    choice: pd.Series,
+    model: RUMBoost,
+):
+    """
+    Estimate a Discrete Choice Model (currently only logit) with a piece-wise linear model specification based on a pre-trained rumboost model.
+
+    Parameters
+    ----------
+    dataset: pd.DataFrame
+        A dataset used to train the model
+    choice: pd.Series
+        A series containing the choices
+    model: RUMBoost
+        A trained rumboost model.
+
+    Returns
+    -------
+    estimated_model: biogeme.results.bioResults
+    """
+    the_biogeme = assist_model_spec(model, dataset, choice)
+
+    results = the_biogeme.estimate()
+
+    return results
+
+def predict_with_assisted_spec(
+    dataset: pd.DataFrame,
+    model: RUMBoost,
+    beta_values: dict,
+):
+    """
+    Predict choices with a piece-wise linear model specification based on a pre-trained rumboost model.
+
+    Parameters
+    ----------
+    dataset: pd.DataFrame
+        A dataset used to predict the choices
+    model: RUMBoost
+        A trained rumboost model.
+    beta_values: dict
+        A dictionary containing the beta values of the model, estimated on the train set.
+
+    Returns
+    -------
+    prediction_results: biogeme.results.bioResults
+    """
+    the_biogeme = assist_model_spec(model, dataset, dataset.choice)
+
+    prediction_results = the_biogeme.simulate(beta_values)
+
+    return prediction_results
