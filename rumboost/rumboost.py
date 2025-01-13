@@ -238,7 +238,7 @@ class RUMBoost:
                 if monotone_constraint == 1:
                     if (self.device is not None) and (not force_cpu):
                         monotone_constraint = (
-                            torch.tensor(monotone_constraint).to(self.device).float()
+                            torch.tensor(monotone_constraint).to(self.device).double()
                         )
                         x = monotone_constraint * torch.nn.functional.softplus(
                             x * monotone_constraint, beta=self.softplus_strength
@@ -250,7 +250,7 @@ class RUMBoost:
                 elif monotone_constraint == -1:
                     if (self.device is not None) and (not force_cpu):
                         monotone_constraint = (
-                            torch.tensor(monotone_constraint).to(self.device).float()
+                            torch.tensor(monotone_constraint).to(self.device).double()
                         )
                         x = monotone_constraint * torch.nn.functional.softplus(
                             x * monotone_constraint, beta=self.softplus_strength
@@ -486,8 +486,8 @@ class RUMBoost:
                     self.labels_j[self.subsample_idx, :],
                 )
 
-            grad = grad.cpu().type(torch.float32).numpy()
-            hess = hess.cpu().type(torch.float32).numpy()
+            grad = grad.cpu().numpy()
+            hess = hess.cpu().numpy()
 
             if self.subsample_idx.shape[0] < self.num_obs[0]:
                 grad_rescaled = np.zeros(
@@ -609,8 +609,8 @@ class RUMBoost:
                     self.labels[self.subsample_idx],
                 )
 
-            grad = grad.cpu().type(torch.float32).numpy()
-            hess = hess.cpu().type(torch.float32).numpy()
+            grad = grad.cpu().numpy()
+            hess = hess.cpu().numpy()
 
             if self.subsample_idx.shape[0] < self.num_obs[0]:
                 grad_rescaled = np.zeros(
@@ -677,8 +677,8 @@ class RUMBoost:
                     self.labels[self.subsample_idx],
                 )
 
-            grad = grad.cpu().type(torch.float32).numpy()
-            hess = hess.cpu().type(torch.float32).numpy()
+            grad = grad.cpu().numpy()
+            hess = hess.cpu().numpy()
 
             if self.subsample_idx.shape[0] < self.num_obs[0]:
                 grad_rescaled = np.zeros(
@@ -756,8 +756,8 @@ class RUMBoost:
                     self.rum_structure[j]["utility"],
                 )
 
-            grad = grad.cpu().type(torch.float32).numpy()
-            hess = hess.cpu().type(torch.float32).numpy()
+            grad = grad.cpu().numpy()
+            hess = hess.cpu().numpy()
 
             if self.subsample_idx.shape[0] < self.num_obs[0]:
                 grad_rescaled = np.zeros(
@@ -920,8 +920,8 @@ class RUMBoost:
                     self.rum_structure[j]["utility"],
                 )
 
-            grad = grad.cpu().type(torch.float32).numpy()
-            hess = hess.cpu().type(torch.float32).numpy()
+            grad = grad.cpu().numpy()
+            hess = hess.cpu().numpy()
 
             if self.subsample_idx.shape[0] < self.num_obs[0]:
                 grad_rescaled = np.zeros(
@@ -1108,8 +1108,8 @@ class RUMBoost:
                     self.thresholds,
                 )
 
-            grad = grad.cpu().type(torch.float32).numpy()
-            hess = hess.cpu().type(torch.float32).numpy()
+            grad = grad.cpu().numpy()
+            hess = hess.cpu().numpy()
 
             if self.subsample_idx.shape[0] < self.num_obs[0]:
                 grad_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
@@ -1188,8 +1188,8 @@ class RUMBoost:
                     self.thresholds,
                 )
 
-            grad = grad.cpu().type(torch.float32).numpy()
-            hess = hess.cpu().type(torch.float32).numpy()
+            grad = grad.cpu().numpy()
+            hess = hess.cpu().numpy()
 
             if self.subsample_idx.shape[0] < self.num_obs[0]:
                 grad_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
@@ -1251,8 +1251,8 @@ class RUMBoost:
                     j,
                 )
 
-            grad = grad.cpu().type(torch.float32).numpy()
-            hess = hess.cpu().type(torch.float32).numpy()
+            grad = grad.cpu().numpy()
+            hess = hess.cpu().numpy()
 
             if self.subsample_idx.shape[0] < self.num_obs[0]:
                 grad_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
@@ -1389,12 +1389,11 @@ class RUMBoost:
             self.device = torch.device(self.device)
             if isinstance(self.mu, np.ndarray):
                 self.mu = (
-                    torch.from_numpy(self.mu).type(torch.float32).to(device=self.device)
+                    torch.from_numpy(self.mu).to(device=self.device)
                 )
             if isinstance(self.alphas, np.ndarray):
                 self.alphas = (
                     torch.from_numpy(self.alphas)
-                    .type(torch.float32)
                     .to(device=self.device)
                 )
 
@@ -1418,7 +1417,6 @@ class RUMBoost:
                         * new_data[k].get_data().reshape(-1)
                         # + self.asc[k]
                     )
-                    .type(torch.float32)
                     .to(device=self.device)
                     if self.boost_from_parameter_space[k]
                     else torch.from_numpy(
@@ -1433,7 +1431,6 @@ class RUMBoost:
                             validate_features,
                         )
                     )
-                    .type(torch.float32)
                     .to(device=self.device)
                 )
                 for k, booster in enumerate(self.boosters)
@@ -1442,13 +1439,11 @@ class RUMBoost:
                 raw_preds = torch.zeros(
                     data.num_data(),
                     device=self.device,
-                    dtype=torch.float32,
                 )
             else:
                 raw_preds = torch.zeros(
                     data.num_data() * self.num_classes,
                     device=self.device,
-                    dtype=torch.float32,
                 )
 
             # reshaping raw predictions into num_obs, num_classes array
@@ -1617,7 +1612,6 @@ class RUMBoost:
                     raw_preds = torch.zeros(
                         self.num_obs[data_idx] * self.num_classes,
                         device=self.device,
-                        dtype=torch.float32,
                     )
                 for j, _ in enumerate(self.rum_structure):
                     if self.boost_from_parameter_space[j]:
@@ -1637,7 +1631,6 @@ class RUMBoost:
                                     # + self.asc[j]
                                 )
                             )
-                            .type(dtype=torch.float32)
                             .to(device=self.device)
                         )
                     else:
@@ -1647,7 +1640,6 @@ class RUMBoost:
                             torch.from_numpy(
                                 self.boosters[j]._Booster__inner_predict(data_idx)
                             )
-                            .type(dtype=torch.float32)
                             .to(device=self.device)
                         )
                 raw_preds = (
@@ -2094,7 +2086,6 @@ class RUMBoost:
             self.raw_preds = torch.zeros(
                 self.num_obs[0] * self.num_classes,
                 device=self.device,
-                dtype=torch.float32,
             )
         else:
             self.raw_preds = np.zeros(self.num_obs[0] * self.num_classes)
@@ -2112,7 +2103,7 @@ class RUMBoost:
                 self.raw_preds[
                     self.booster_train_idx[j][0] : self.booster_train_idx[j][1]
                 ] += (
-                    torch.from_numpy(current_preds).type(torch.float32).to(self.device)
+                    torch.from_numpy(current_preds).to(self.device)
                 )
             else:
                 self.raw_preds[self.booster_train_idx[j]] += current_preds
@@ -2139,7 +2130,7 @@ class RUMBoost:
                         torch.tensor(
                             res.x[: len(self.mu)],
                             device=self.device,
-                            dtype=torch.float32,
+                            dtype=torch.double,
                         )
                         - self.mu
                     )
@@ -2151,7 +2142,7 @@ class RUMBoost:
                 alphas_opt = torch.tensor(
                     res.x[len(self.mu) :].reshape(alpha_shape),
                     device=self.device,
-                    dtype=torch.float32,
+                    dtype=torch.double,
                 )
                 alphas_opt = alphas_opt / alphas_opt.sum(dim=1)[:, None]
                 self.alphas.add_(0.1 * (alphas_opt - self.alphas))
@@ -3170,10 +3161,10 @@ def rum_train(
                 for valid_labs in rumb.valid_labels
             ]
         if rumb.mu is not None:
-            rumb.mu = torch.from_numpy(rumb.mu).type(torch.float32).to(rumb.device)
+            rumb.mu = torch.from_numpy(rumb.mu).type(torch.double).to(rumb.device)
         if rumb.alphas is not None:
             rumb.alphas = (
-                torch.from_numpy(rumb.alphas).type(torch.float32).to(rumb.device)
+                torch.from_numpy(rumb.alphas).type(torch.double).to(rumb.device)
             )
 
     if "subsampling" in params and rumb.batch_size > 0:
@@ -3269,13 +3260,13 @@ def rum_train(
     if torch_tensors:
         if rumb.num_classes == 2:
             rumb.raw_preds = torch.zeros(
-                rumb.num_obs[0], device=rumb.device, dtype=torch.float32
+                rumb.num_obs[0], device=rumb.device, dtype=torch.double
             )
         else:
             rumb.raw_preds = torch.zeros(
                 rumb.num_classes * rumb.num_obs[0],
                 device=rumb.device,
-                dtype=torch.float32,
+                dtype=torch.double,
             )
     else:
         if rumb.num_classes == 2:
@@ -3284,13 +3275,19 @@ def rum_train(
             rumb.raw_preds = np.zeros(rumb.num_classes * rumb.num_obs[0])
     if init_models:
         for j, booster in enumerate(rumb.boosters):
-            init_pred = booster._Booster__inner_predict(0)
+            if rumb.boost_from_parameter_space[j]:
+                init_preds = rumb._monotonise_beta(
+                    booster._Booster__inner_predict(0), j, force_cpu=True
+                ) * rumb.train_set[j].data.reshape(-1)
+                # +self.asc[j]
+            else:
+                init_preds = booster._Booster__inner_predict(0)
             if torch_tensors:
                 rumb.raw_preds[
                     rumb.booster_train_idx[j][0] : rumb.booster_train_idx[j][1]
-                ] += (torch.from_numpy(init_pred).type(torch.float32).to(rumb.device))
+                ] += (torch.from_numpy(init_preds).to(rumb.device))
             else:
-                rumb.raw_preds[rumb.booster_train_idx[j]] += init_pred
+                rumb.raw_preds[rumb.booster_train_idx[j]] += init_preds
 
     rumb._preds = rumb._inner_predict()
 
