@@ -18,6 +18,7 @@ test_set_switzerland.pkl
 *.bin
 *.pkl
 preprocessed_dataset/
+*.json
 
 #experiments
 experiment/

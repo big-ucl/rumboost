@@ -593,16 +593,9 @@ def plot_parameters(
                         boost_from_parameter_space[u][f] if boost_from_parameter_space else False,
                     )
 
-                if asc_normalised and (not boost_from_parameter_space or not boost_from_parameter_space[u][f]):
+                if asc_normalised: 
                     val_0 = non_lin_func[0]
                     non_lin_func = [n - val_0 for n in non_lin_func]
-                elif boost_from_parameter_space[u][f]:
-                    val_0 = (
-                        model.asc[int(u)]
-                    )
-                    if model.device == "cuda":
-                        val_0 = val_0.cpu().detach().numpy()
-                    non_lin_func = [n + val_0 for n in non_lin_func]
 
                 if with_asc and (not boost_from_parameter_space or not boost_from_parameter_space[u][f]):
                     non_lin_func = [n + ASCs[int(u)] for n in non_lin_func]

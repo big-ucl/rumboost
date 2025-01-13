@@ -295,6 +295,7 @@ def estimate_dcm_with_assisted_spec(
 
 def predict_with_assisted_spec(
     dataset: pd.DataFrame,
+    choice: pd.Series,
     model: RUMBoost,
     beta_values: dict,
 ):
@@ -305,6 +306,8 @@ def predict_with_assisted_spec(
     ----------
     dataset: pd.DataFrame
         A dataset used to predict the choices
+    choice: pd.Series
+        A series containing the choices
     model: RUMBoost
         A trained rumboost model.
     beta_values: dict
@@ -314,7 +317,7 @@ def predict_with_assisted_spec(
     -------
     prediction_results: biogeme.results.bioResults
     """
-    the_biogeme = assist_model_spec(model, dataset, dataset.choice)
+    the_biogeme = assist_model_spec(model, dataset, choice)
 
     prediction_results = the_biogeme.simulate(beta_values)
 
