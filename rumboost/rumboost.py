@@ -190,6 +190,30 @@ class RUMBoost:
         if self.thresholds is not None:  # numpy.ndarray so need to specify not None
             self.thresholds = np.array(self.thresholds)
 
+        if (
+            isinstance(self.boost_from_parameter_space, list)
+            and any(self.boost_from_parameter_space)
+            and kwargs.get("params_monotonic_function", "softplus") == "softplus"
+        ):
+            self._monotonise_beta = self._monotonise_with_softplus
+            self._monotonise_grad = self._monotonise_grad_softplus
+            self._monotonise_hess = self._monotonise_hess_softplus
+            self.softplus_strength = kwargs.get("softplus_strength", 1.0)
+        elif (
+            isinstance(self.boost_from_parameter_space, list)
+            and any(self.boost_from_parameter_space)
+            and kwargs.get("params_monotonic_function", "softplus") == "relu"
+        ):
+            self._monotonise_beta = self._monotonise_with_relu
+            self._monotonise_grad = self._monotonise_grad_relu
+            self._monotonise_hess = self._monotonise_hess_relu
+
+        if isinstance(self.split_and_leaf_values, dict):
+            self.split_and_leaf_values = {
+                k: {"splits": np.array(v["splits"]), "leaves": np.array(v["leaves"])}
+                for k, v in self.split_and_leaf_values.items()
+            }
+
     def multiply_grad_hess_by_data(func):
         """
         Decorator to multiply the gradient and hessian by the number of observations for the jth booster.
@@ -207,7 +231,7 @@ class RUMBoost:
                 # (second derivative of the chain rule)
                 grad_x = self._monotonise_grad(self.train_set[j].data.reshape(-1), j)
                 hess_xx = self._monotonise_hess(self.train_set[j].data.reshape(-1), j)
-                hess = hess * grad_x ** 2 + grad * hess_xx
+                hess = hess * grad_x**2 + grad * hess_xx
                 grad = grad * grad_x
             return grad, hess
 
@@ -1388,15 +1412,15 @@ class RUMBoost:
 
             self.device = torch.device(self.device)
             if isinstance(self.mu, np.ndarray):
-                self.mu = (
-                    torch.from_numpy(self.mu).to(device=self.device)
-                )
+                self.mu = torch.from_numpy(self.mu).to(device=self.device)
             if isinstance(self.alphas, np.ndarray):
-                self.alphas = (
-                    torch.from_numpy(self.alphas)
-                    .to(device=self.device)
-                )
+                self.alphas = torch.from_numpy(self.alphas).to(device=self.device)
 
+            constants = [
+                self._compute_constants(k, new_data[k].get_data().reshape(-1))
+                for k in range(len(self.boosters))
+                if self.boost_from_parameter_space[k]
+            ]
             booster_preds = [
                 (
                     torch.from_numpy(
@@ -1415,9 +1439,8 @@ class RUMBoost:
                             force_cpu=True,
                         )
                         * new_data[k].get_data().reshape(-1)
-                        # + self.asc[k]
-                    )
-                    .to(device=self.device)
+                        + constants[k]
+                    ).to(device=self.device)
                     if self.boost_from_parameter_space[k]
                     else torch.from_numpy(
                         booster.predict(
@@ -1430,8 +1453,7 @@ class RUMBoost:
                             data_has_header,
                             validate_features,
                         )
-                    )
-                    .to(device=self.device)
+                    ).to(device=self.device)
                 )
                 for k, booster in enumerate(self.boosters)
             ]
@@ -1483,6 +1505,11 @@ class RUMBoost:
 
             return preds
 
+        constants = [
+            self._compute_constants(k, new_data[k].get_data().reshape(-1))
+            for k in range(len(self.boosters))
+            if self.boost_from_parameter_space[k]
+        ]
         booster_preds = [
             (
                 self._monotonise_beta(
@@ -1499,7 +1526,7 @@ class RUMBoost:
                     k,
                 )
                 * new_data[k].get_data().reshape(-1)
-                # + self.asc[k]
+                + constants[k]
                 if self.boost_from_parameter_space[k]
                 else booster.predict(
                     new_data[k].get_data(),
@@ -1615,32 +1642,31 @@ class RUMBoost:
                     )
                 for j, _ in enumerate(self.rum_structure):
                     if self.boost_from_parameter_space[j]:
-                        raw_preds[
-                            self.booster_valid_idx[j][0] : self.booster_valid_idx[j][1]
-                        ] += (
-                            (
-                                torch.from_numpy(
-                                    self._monotonise_beta(
-                                        self.boosters[j]._Booster__inner_predict(
-                                            data_idx
-                                        ),
-                                        j,
-                                        force_cpu=True,
-                                    )
-                                    * self.valid_sets[data_idx - 1][j].data.reshape(-1)
-                                    # + self.asc[j]
-                                )
-                            )
-                            .to(device=self.device)
+                        constants = self._compute_constants(
+                            j, self.valid_sets[data_idx - 1][j].data.reshape(-1)
                         )
-                    else:
                         raw_preds[
                             self.booster_valid_idx[j][0] : self.booster_valid_idx[j][1]
                         ] += (
                             torch.from_numpy(
-                                self.boosters[j]._Booster__inner_predict(data_idx)
+                                self._monotonise_beta(
+                                    self.boosters[j]._Booster__inner_predict(data_idx),
+                                    j,
+                                    force_cpu=True,
+                                )
+                                * self.valid_sets[data_idx - 1][j].data.reshape(-1)
+                                + constants
                             )
-                            .to(device=self.device)
+                        ).to(
+                            device=self.device
+                        )
+                    else:
+                        raw_preds[
+                            self.booster_valid_idx[j][0] : self.booster_valid_idx[j][1]
+                        ] += torch.from_numpy(
+                            self.boosters[j]._Booster__inner_predict(data_idx)
+                        ).to(
+                            device=self.device
                         )
                 raw_preds = (
                     raw_preds.view(-1, self.num_obs[data_idx]).T[
@@ -1694,12 +1720,15 @@ class RUMBoost:
                 raw_preds = np.zeros(self.num_obs[data_idx] * self.num_classes)
             for j, _ in enumerate(self.rum_structure):
                 if self.boost_from_parameter_space[j]:
+                    constants = self._compute_constants(
+                        j, self.valid_sets[data_idx - 1][j].data.reshape(-1)
+                    )
                     raw_preds[self.booster_valid_idx[j]] += (
                         self._monotonise_beta(
                             self.boosters[j]._Booster__inner_predict(data_idx), j
                         )
                         * self.valid_sets[data_idx - 1][j].data.reshape(-1)
-                        # + self.asc[j]
+                        + constants
                     )
                 else:
                     raw_preds[self.booster_valid_idx[j]] += self.boosters[
@@ -2067,20 +2096,28 @@ class RUMBoost:
         gains = np.array(self._current_gains)
         max_boost = self.max_booster_to_update // self.num_classes
         best_boosters = np.argsort(gains)[::-1].tolist()
-        # we can choose safely at most the maximum number of boosters 
-        # in the smallest utility function (they don't necessarily 
+        # we can choose safely at most the maximum number of boosters
+        # in the smallest utility function (they don't necessarily
         # all have the same number of boosters)
         selected_boosters = []
         for u_idx in self.utility_functions.values():
-            selected_boosters.extend([b for b in best_boosters if b in u_idx][:max_boost])
+            selected_boosters.extend(
+                [b for b in best_boosters if b in u_idx][:max_boost]
+            )
 
         # remove duplicates (shared ensembles)
         selected_boosters = list(set(selected_boosters))
 
         return selected_boosters
 
-    def _update_raw_preds(self):
-        """Update the raw predictions of the RUMBoost model with the best booster(s) to update."""
+    def _update_raw_preds(self, best_boosters):
+        """Update the raw predictions of the RUMBoost model with the best booster(s) to update.
+
+        Parameters
+        ----------
+        best_boosters : list of int
+            The indices of the best booster(s) chosen to be updated.
+        """
         # reinitialise raw predictions
         if self.device is not None:
             self.raw_preds = torch.zeros(
@@ -2093,20 +2130,109 @@ class RUMBoost:
         # add all ensembles prediction to raw utility predictions
         for j, booster in enumerate(self.boosters):
             if self.boost_from_parameter_space[j]:
+                if j in best_boosters:
+                    self._update_linear_constants(j, booster)
+                constants = self._compute_constants(j, self.train_set[j].data)
                 current_preds = self._monotonise_beta(
                     booster._Booster__inner_predict(0), j, force_cpu=True
                 ) * self.train_set[j].data.reshape(-1)
-                # +self.asc[j]
+                +constants
             else:
                 current_preds = booster._Booster__inner_predict(0)
             if self.device is not None:
                 self.raw_preds[
                     self.booster_train_idx[j][0] : self.booster_train_idx[j][1]
-                ] += (
-                    torch.from_numpy(current_preds).to(self.device)
-                )
+                ] += torch.from_numpy(current_preds).to(self.device)
             else:
                 self.raw_preds[self.booster_train_idx[j]] += current_preds
+
+    def _gather_split_info(self, j, booster):
+        """
+        Gather split information for each booster.
+        Code adapted from LightGBM get_split_value_histogram Booster method.
+
+        Parameters
+        ----------
+        j : int
+            The index of the booster.
+        booster : Booster
+            The booster to gather split information from.
+        """
+
+        def add(root: Dict[str, Any]) -> None:
+            """Recursively add thresholds."""
+            if "split_index" in root:  # non-leaf
+                if isinstance(root["threshold"], str):
+                    raise LightGBMError(
+                        "Cannot compute split value histogram for the categorical feature"
+                    )
+                else:
+                    split_values.append(root["threshold"])
+                add(root["left_child"])
+                add(root["right_child"])
+            elif "leaf_value" in root:  # leaf
+                leaf_values.append(root["leaf_value"])
+
+        model = booster.dump_model()
+        last_tree = model["tree_info"][-1]
+        split_values: List[float] = []
+        leaf_values: List[float] = []
+        add(last_tree["tree_structure"])
+
+        return split_values, leaf_values
+
+    def _update_linear_constants(self, j, booster):
+        """
+        Update the linear constants for the jth booster.
+        The linear constants are the intercept of each model after a split point.
+        It is only implemented for a max depth of 1.
+
+        Parameters
+        ----------
+        j : int
+            The index of the booster.
+        booster : Booster
+            The booster to gather linear constants from.
+        """
+        # only implemented for a max depth of 1 so one split value and two leaf values
+        split_values, leaf_values = self._gather_split_info(j, booster)
+
+        for s in split_values:
+            if (
+                s in self.split_and_leaf_values[j]["splits"]
+            ):  # if the split value exists already
+                index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
+                self.split_and_leaf_values[j]["leaves"][:index] += leaf_values[0] * (
+                    self.split_and_leaf_values[j]["splits"][:index] - s
+                )
+                self.split_and_leaf_values[j]["leaves"][index:] += leaf_values[1] * (
+                    self.split_and_leaf_values[j]["splits"][index:] - s
+                )
+            else:
+                index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
+                v_0 = self.split_and_leaf_values[j]["leaves"][index - 1]
+                v_1 = self.split_and_leaf_values[j]["leaves"][index]
+                h_0 = self.split_and_leaf_values[j]["splits"][index - 1]
+                h_1 = self.split_and_leaf_values[j]["splits"][index]
+                vertical = v_1 - v_0
+                horizontal = h_1 - h_0
+                new_value = vertical / horizontal * (s - h_0) + v_0
+                self.split_and_leaf_values[j]["splits"] = np.insert(self.split_and_leaf_values[j]["splits"], index, s)
+                self.split_and_leaf_values[j]["leaves"] = np.insert(self.split_and_leaf_values[j]["leaves"], index, new_value)
+                self.split_and_leaf_values[j]["leaves"][:index] += leaf_values[0] * (
+                    self.split_and_leaf_values[j]["splits"][:index] - s
+                )
+                self.split_and_leaf_values[j]["leaves"][index:] += leaf_values[1] * (
+                    self.split_and_leaf_values[j]["splits"][index:] - s
+                )
+
+    def _compute_constants(self, j, data):
+        """Compute the linear constants for each booster."""
+        sp = self.split_and_leaf_values[j]["splits"]
+        indices = np.searchsorted(sp, data) - 1  # need i-1 to get the correct index
+        constants = self.split_and_leaf_values[j]["leaves"][indices]
+
+        return constants
 
     def _update_mu_or_alphas(self, res, optimise_mu, optimise_alphas, alpha_shape):
         """Update mu or alphas for the cross-nested model.
@@ -2200,6 +2326,16 @@ class RUMBoost:
                 ]
             else:
                 valid_labels_numpy = []
+            if self.split_and_leaf_values is not None:
+                split_and_leaf_values = {
+                    k: {
+                        "splits": v["splits"].cpu().numpy().tolist(),
+                        "leaves": v["leaves"].cpu().numpy().tolist(),
+                    }
+                    for k, v in self.split_and_leaf_values.items()
+                }
+            else:
+                split_and_leaf_values = None
             rumb_to_dict = {
                 "boosters": models_str,
                 "attributes": {
@@ -2236,6 +2372,7 @@ class RUMBoost:
                         if self.asc is not None
                         else None
                     ),
+                    "split_and_leaf_values": split_and_leaf_values,
                 },
             }
         else:
@@ -2247,6 +2384,16 @@ class RUMBoost:
                 valid_labs = [v.tolist() for v in self.valid_labels]
             else:
                 valid_labs = []
+            if self.split_and_leaf_values is not None:
+                split_and_leaf_values = {
+                    k: {
+                        "splits": v["splits"].cpu().numpy().tolist(),
+                        "leaves": v["leaves"].cpu().numpy().tolist(),
+                    }
+                    for k, v in self.split_and_leaf_values.items()
+                }
+            else:
+                split_and_leaf_values = None
             rumb_to_dict = {
                 "boosters": models_str,
                 "attributes": {
@@ -2273,6 +2420,7 @@ class RUMBoost:
                     "rum_structure": self.rum_structure,
                     "boost_from_parameter_space": self.boost_from_parameter_space,
                     "asc": self.asc.tolist() if self.asc is not None else None,
+                    "split_and_leaf_values": split_and_leaf_values,
                 },
             }
 
@@ -2769,9 +2917,7 @@ def rum_train(
         for u in struct["utility"]:
             rumb.utility_functions[u].append(j)
 
-    rumb.max_booster_to_update = params.get(
-        "max_booster_to_update", rumb.num_classes
-    )
+    rumb.max_booster_to_update = params.get("max_booster_to_update", rumb.num_classes)
     if rumb.max_booster_to_update < rumb.num_classes:
         raise ValueError(
             f"The maximum number of boosters to update must be at least equal to the number of classes ({rumb.num_classes})"
@@ -3045,7 +3191,8 @@ def rum_train(
             rumb._monotonise_hess = rumb._monotonise_hess_relu
 
         optim_interval = params.get("optim_interval", 1)
-        optimise_ascs = all(rumb.boost_from_parameter_space) and optim_interval > 0
+        # optimise_ascs = all(rumb.boost_from_parameter_space) and optim_interval > 0
+        optimise_ascs = optim_interval > 0
 
         rumb.asc = np.zeros(rumb.num_classes)
 
@@ -3058,14 +3205,31 @@ def rum_train(
                 for u in rum["utility"]
             ]
         )
+        rumb.split_and_leaf_values = {}
         for j, struct in enumerate(rumb.rum_structure):
             if params["boost_from_parameter_space"][j]:
                 # default regularisation on the hessian because
                 # the sum of hessian can be 0 in the parameter space.
                 if "lambda_l2" not in struct["boosting_params"]:
                     struct["boosting_params"]["lambda_l2"] = 1e-3
+                if (
+                    "max_depth" in struct["boosting_params"]
+                    and struct["boosting_params"]["max_depth"] > 1
+                ):
+                    raise ValueError(
+                        "Feature interaction is not implemented when boosting from the parameter space, please set max_depth to 1."
+                    )
+                feature = struct["variables"][0]
+                train_set.construct()
+                data_min = train_set.get_data()[feature].min()
+                data_max = train_set.get_data()[feature].max()
+                rumb.split_and_leaf_values[j] = {
+                    "splits": np.array([data_min, data_max]),
+                    "leaves": np.array([0.0, 0.0]),
+                }
     else:
         rumb.boost_from_parameter_space = [False] * len(rumb.rum_structure)
+        rumb.split_and_leaf_values = None
         optimise_ascs = False
         rumb.asc = np.zeros(rumb.num_classes)
 
@@ -3285,7 +3449,7 @@ def rum_train(
             if torch_tensors:
                 rumb.raw_preds[
                     rumb.booster_train_idx[j][0] : rumb.booster_train_idx[j][1]
-                ] += (torch.from_numpy(init_preds).to(rumb.device))
+                ] += torch.from_numpy(init_preds).to(rumb.device)
             else:
                 rumb.raw_preds[rumb.booster_train_idx[j]] += init_preds
 
@@ -3356,7 +3520,7 @@ def rum_train(
         rumb._rollback_boosters(unchosen_boosters)
 
         # update raw predictions
-        rumb._update_raw_preds()
+        rumb._update_raw_preds(best_boosters)
 
         if (optimise_mu or optimise_alphas) and ((i + 1) % optim_interval == 0):
             params_to_optimise = []
@@ -3444,13 +3608,6 @@ def rum_train(
                 rumb.asc = torch.from_numpy(res.x).type(torch.double).to(rumb.device)
             else:
                 rumb.asc = res.x
-
-            # for j, struct in enumerate(rumb.rum_structure):
-            #     if rumb.boost_from_parameter_space[j]:
-            #         rumb.asc[j] = (
-            #             res.x[struct["utility"][0]]
-            #             / rumb.len_params_space[struct["utility"][0]]
-            #         )  # we share asc across parameters of the same utility function
 
         # reshuffle indices
         if subsample_freq > 0 and (i + 1) % subsample_freq == 0:
