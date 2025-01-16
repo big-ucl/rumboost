@@ -2033,6 +2033,7 @@ class RUMBoost:
         """
 
         gains = np.array(self._current_gains)
+        zero_gains = [i for i, gain in enumerate(gains) if gain == 0]
         max_boost = self.max_booster_to_update // self.num_classes
         best_boosters = np.argsort(gains)[::-1].tolist()
         # we can choose safely at most the maximum number of boosters
@@ -2046,7 +2047,9 @@ class RUMBoost:
 
         # remove duplicates (shared ensembles)
         selected_boosters = list(set(selected_boosters))
-
+        # remove boosters with zero gain
+        selected_boosters = [b for b in selected_boosters if b not in zero_gains]
+        
         return selected_boosters
 
     def _update_raw_preds(self, best_boosters):
@@ -2112,15 +2115,22 @@ class RUMBoost:
                 add(root["left_child"])
                 add(root["right_child"])
             elif "leaf_value" in root:  # leaf
-                leaf_values.append(
-                    self._monotonise_beta(root["leaf_value"], j, force_cpu=True)
-                )
+                leaf_values.append(root["leaf_value"])
+                leaf_id.append(root["leaf_index"] if "leaf_index" in root else -1)
 
         model = booster.dump_model()
         last_tree = model["tree_info"][-1]
         split_values: List[float] = []
         leaf_values: List[float] = []
+        tree_id = last_tree["tree_index"]
+        leaf_id = []
         add(last_tree["tree_structure"])
+
+        booster.set_leaf_output(tree_id, leaf_id[0], self._monotonise_beta(-leaf_values[0], j, force_cpu=True))
+        booster.set_leaf_output(tree_id, leaf_id[1], self._monotonise_beta(leaf_values[1], j, force_cpu=True))
+
+        leaf_values[0] = self._monotonise_beta(-leaf_values[0], j, force_cpu=True)
+        leaf_values[1] = self._monotonise_beta(leaf_values[1], j, force_cpu=True)
 
         return split_values, leaf_values
 
@@ -2143,8 +2153,12 @@ class RUMBoost:
         for s in split_values:
             if self.device is not None:
                 s = torch.tensor([s]).to(self.device)
-                l_0 = torch.tensor([leaf_values[0]]).to(self.device)
-                l_1 = torch.tensor([leaf_values[1]]).to(self.device)
+                l_0 = torch.tensor(
+                    [leaf_values[0]]
+                ).to(self.device)
+                l_1 = torch.tensor(
+                    [leaf_values[1]]
+                ).to(self.device)
                 if (
                     s in self.split_and_leaf_values[j]["splits"]
                 ):  # if the split value exists already
@@ -2152,7 +2166,7 @@ class RUMBoost:
                         self.split_and_leaf_values[j]["splits"], s
                     )
                     index = index.item()
-                    self.split_and_leaf_values[j]["leaves"][:index] += -l_0 * (
+                    self.split_and_leaf_values[j]["leaves"][:index] += l_0 * (
                         self.split_and_leaf_values[j]["splits"][:index] - s
                     )
                     self.split_and_leaf_values[j]["leaves"][index:] += l_1 * (
@@ -2184,23 +2198,25 @@ class RUMBoost:
                             self.split_and_leaf_values[j]["leaves"][index:],
                         )
                     )
-                    self.split_and_leaf_values[j]["leaves"][:index] += -l_0 * (
+                    self.split_and_leaf_values[j]["leaves"][:index] += l_0 * (
                         self.split_and_leaf_values[j]["splits"][:index] - s
                     )
                     self.split_and_leaf_values[j]["leaves"][index:] += l_1 * (
                         self.split_and_leaf_values[j]["splits"][index:] - s
                     )
             else:
+                l_0 = leaf_values[0]
+                l_1 = leaf_values[1]
                 if (
                     s in self.split_and_leaf_values[j]["splits"]
                 ):  # if the split value exists already
                     index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
-                    self.split_and_leaf_values[j]["leaves"][:index] += -leaf_values[
-                        0
-                    ] * (self.split_and_leaf_values[j]["splits"][:index] - s)
-                    self.split_and_leaf_values[j]["leaves"][index:] += leaf_values[
-                        1
-                    ] * (self.split_and_leaf_values[j]["splits"][index:] - s)
+                    self.split_and_leaf_values[j]["leaves"][:index] += l_0 * (
+                        self.split_and_leaf_values[j]["splits"][:index] - s
+                    )
+                    self.split_and_leaf_values[j]["leaves"][index:] += l_1 * (
+                        self.split_and_leaf_values[j]["splits"][index:] - s
+                    )
                 else:
                     index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
                     v_0 = self.split_and_leaf_values[j]["leaves"][index - 1]
@@ -2216,12 +2232,12 @@ class RUMBoost:
                     self.split_and_leaf_values[j]["leaves"] = np.insert(
                         self.split_and_leaf_values[j]["leaves"], index, new_value
                     )
-                    self.split_and_leaf_values[j]["leaves"][:index] += -leaf_values[
-                        0
-                    ] * (self.split_and_leaf_values[j]["splits"][:index] - s)
-                    self.split_and_leaf_values[j]["leaves"][index:] += leaf_values[
-                        1
-                    ] * (self.split_and_leaf_values[j]["splits"][index:] - s)
+                    self.split_and_leaf_values[j]["leaves"][:index] += l_0 * (
+                        self.split_and_leaf_values[j]["splits"][:index] - s
+                    )
+                    self.split_and_leaf_values[j]["leaves"][index:] += l_1 * (
+                        self.split_and_leaf_values[j]["splits"][index:] - s
+                    )
 
     def _compute_constants(self, j, data):
         """Compute the linear constants for each booster."""
@@ -3481,10 +3497,9 @@ def rum_train(
     if init_models:
         for j, booster in enumerate(rumb.boosters):
             if rumb.boost_from_parameter_space[j]:
-                init_preds = rumb._monotonise_beta(
-                    booster._Booster__inner_predict(0), j, force_cpu=True
-                ) * rumb.train_set[j].data.reshape(-1)
-                # +self.asc[j]
+                init_preds = rumb._linear_predict(
+                    j, rumb.train_set[j].get_data().reshape(-1)
+                )
             else:
                 init_preds = booster._Booster__inner_predict(0)
             if torch_tensors:

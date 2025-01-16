@@ -568,21 +568,21 @@ def plot_parameters(
             for i, f in enumerate(weights_arranged[u]):
 
                 # create nonlinear plot
-                if boost_from_parameter_space and boost_from_parameter_space[u][f]:
-                    x_max = (
-                        1.05 * max(X[f])
-                        if f in list(X.columns)
-                        else (
-                            1.05 * xlabel_max[u]
-                            if xlabel_max
-                            else 1.05 * weights_arranged[u][f]["Splitting points"][-1]
-                        )
-                    )
-                    x = np.linspace(0, 1.05 * x_max, 10000)
-                    non_lin_func = model._linear_predict(int(u), x)
-                    if model.device is not None and not isinstance(non_lin_func, list):
-                        non_lin_func = non_lin_func.cpu().numpy()
-                elif f in list(X.columns):
+                # if boost_from_parameter_space and boost_from_parameter_space[u][f]:
+                #     x_max = (
+                #         1.05 * max(X[f])
+                #         if f in list(X.columns)
+                #         else (
+                #             1.05 * xlabel_max[u]
+                #             if xlabel_max
+                #             else 1.05 * weights_arranged[u][f]["Splitting points"][-1]
+                #         )
+                #     )
+                #     x = np.linspace(0, 1.05 * x_max, 10000)
+                #     non_lin_func = model._linear_predict(int(u), x)
+                #     if model.device is not None and not isinstance(non_lin_func, list):
+                #         non_lin_func = non_lin_func.cpu().numpy()
+                if f in list(X.columns):
                     x, non_lin_func = non_lin_function(
                         weights_arranged[u][f],
                         0,
