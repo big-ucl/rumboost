@@ -1,13 +1,23 @@
 import pandas as pd
+
 try:
     import biogeme.database as db
     import biogeme.biogeme as bio
     import biogeme.logging as blog
     from biogeme.expressions import Beta
-    from biogeme.models import loglogit, logit, lognested, nested, logcnl_avail, cnl_avail
+    from biogeme.models import (
+        loglogit,
+        logit,
+        lognested,
+        nested,
+        logcnl_avail,
+        cnl_avail,
+    )
+
     biogeme_installed = True
 except ImportError:
     biogeme_installed = False
+
 
 def SwissMetro(dataset_train: pd.DataFrame, for_prob=False):
     """
@@ -24,8 +34,10 @@ def SwissMetro(dataset_train: pd.DataFrame, for_prob=False):
         The BIOGEME object containing the model.
     """
     if not biogeme_installed:
-        raise ImportError("Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function.")
-    
+        raise ImportError(
+            "Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function."
+        )
+
     database_train = db.Database("swissmetro_train", dataset_train)
 
     globals().update(database_train.variables)
@@ -134,7 +146,7 @@ def SwissMetro(dataset_train: pd.DataFrame, for_prob=False):
 
 def SwissMetro_normalised(dataset_train: pd.DataFrame, for_prob=False):
     """
-    Create a MNL on the swissmetro dataset, normalised for biogeme estimation.
+    Create a MNL on the swissmetro dataset.
 
     Parameters
     ----------
@@ -146,9 +158,6 @@ def SwissMetro_normalised(dataset_train: pd.DataFrame, for_prob=False):
     biogeme : bio.BIOGEME
         The BIOGEME object containing the model.
     """
-    if not biogeme_installed:
-        raise ImportError("Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function.")
-
     database_train = db.Database("swissmetro_train", dataset_train)
 
     globals().update(database_train.variables)
@@ -180,6 +189,20 @@ def SwissMetro_normalised(dataset_train: pd.DataFrame, for_prob=False):
     B_DEST_ROM = Beta("B_DEST_ROM", 0, None, None, 0)
     B_DEST_TIC = Beta("B_DEST_TIC", 0, None, None, 0)
 
+    B_PURPOSE_1 = Beta("B_PURPOSE_1", 0, None, None, 0)
+    B_PURPOSE_2 = Beta("B_PURPOSE_2", 0, None, None, 0)
+    B_PURPOSE_3 = Beta("B_PURPOSE_3", 0, None, None, 0)
+    B_PURPOSE_4 = Beta("B_PURPOSE_4", 0, None, None, 0)
+    B_PURPOSE_5 = Beta("B_PURPOSE_5", 0, None, None, 0)
+    B_PURPOSE_6 = Beta("B_PURPOSE_6", 0, None, None, 0)
+    B_PURPOSE_7 = Beta("B_PURPOSE_7", 0, None, None, 0)
+    B_PURPOSE_8 = Beta("B_PURPOSE_8", 0, None, None, 0)
+
+    B_AGE_1 = Beta("B_AGE_1", 0, None, None, 0)
+    B_AGE_2 = Beta("B_AGE_2", 0, None, None, 0)
+    B_AGE_3 = Beta("B_AGE_3", 0, None, None, 0)
+    B_AGE_4 = Beta("B_AGE_4", 0, None, None, 0)
+
     # utilities
     V_TRAIN = (
         ASC_TRAIN
@@ -188,27 +211,37 @@ def SwissMetro_normalised(dataset_train: pd.DataFrame, for_prob=False):
         + B_HE * TRAIN_HE
         + B_FIRST * FIRST
         + B_MALE * MALE
-        + B_SEV_LUGGAGES * SEV_LUGGAGES
-        + B_ORIG_ROM * ORIG_ROM
-        + B_ORIG_TIC * ORIG_TIC
-        + B_DEST_ROM * DEST_ROM
-        + B_DEST_TIC * DEST_TIC
-    )
+        + B_PURPOSE_1 * PURPOSE_1
+        + B_PURPOSE_2 * PURPOSE_2
+        + B_PURPOSE_3 * PURPOSE_3
+        + B_PURPOSE_4 * PURPOSE_4
+        + B_PURPOSE_5 * PURPOSE_5
+        + B_PURPOSE_6 * PURPOSE_6
+        + B_PURPOSE_7 * PURPOSE_7
+        + B_PURPOSE_8 * PURPOSE_8
+        + B_AGE_1 * AGE_1
+        + B_AGE_2 * AGE_2
+    )  # + B_AGE_3 * AGE_3 + B_AGE_4 * AGE_4 #+ B_ORIG_TIC * ORIG_TIC + B_DEST_TIC * DEST_TIC + B_SEV_LUGGAGES * SEV_LUGGAGES + B_ORIG_ROM * ORIG_ROM + B_DEST_ROM * DEST_ROM
     V_SM = (
         ASC_SM
         + B_TIME * SM_TT
         + B_COST * SM_COST
         + B_HE * SM_HE
         + B_MALE * MALE
-        + B_SEV_LUGGAGES * SEV_LUGGAGES
-        + B_ORIG_ROM * ORIG_ROM
-        + B_ORIG_TIC * ORIG_TIC
-        + B_DEST_ROM * DEST_ROM
-        + B_DEST_TIC * DEST_TIC
-    )  # + B_FIRST * FIRST
+        + B_PURPOSE_1 * PURPOSE_1
+        + B_PURPOSE_2 * PURPOSE_2
+        + B_PURPOSE_3 * PURPOSE_3
+        + B_PURPOSE_4 * PURPOSE_4
+        + B_PURPOSE_5 * PURPOSE_5
+        + B_PURPOSE_6 * PURPOSE_6
+        + B_PURPOSE_7 * PURPOSE_7
+        + B_PURPOSE_8 * PURPOSE_8
+        + B_AGE_1 * AGE_1
+        + B_AGE_2 * AGE_2
+    )  # + B_AGE_3 * AGE_3 + B_AGE_4 * AGE_4 #+ B_ORIG_TIC * ORIG_TIC + B_DEST_TIC * DEST_TIC + B_SEV_LUGGAGES * SEV_LUGGAGES + B_SM_SEATS * SM_SEATS + B_ORIG_ROM * ORIG_ROM + B_DEST_ROM * DEST_ROM
     V_CAR = (
         ASC_CAR + B_TIME * CAR_TT + B_COST * CAR_CO
-    )  # + B_MALE * MALE   + B_SEV_LUGGAGES * SEV_LUGGAGES + B_ORIG_ROM * ORIG_ROM + B_ORIG_TIC * ORIG_TIC + B_DEST_ROM * DEST_ROM + B_DEST_TIC * DEST_TIC
+    )  # + B_SEV_LUGGAGES * SEV_LUGGAGES #+ B_MALE * MALE   + B_SEV_LUGGAGES * SEV_LUGGAGES + B_ORIG_ROM * ORIG_ROM + B_ORIG_TIC * ORIG_TIC + B_DEST_ROM * DEST_ROM + B_DEST_TIC * DEST_TIC
 
     # simple model
     # V_TRAIN = ASC_TRAIN + B_TIME * TRAIN_TT + B_COST * TRAIN_COST + B_HE * TRAIN_HE
@@ -262,8 +295,10 @@ def SwissMetro_nested(dataset_train: pd.DataFrame, for_prob=False):
         The BIOGEME object containing the model.
     """
     if not biogeme_installed:
-        raise ImportError("Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function.")
-    
+        raise ImportError(
+            "Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function."
+        )
+
     database_train = db.Database("swissmetro_train", dataset_train)
 
     globals().update(database_train.variables)
@@ -392,8 +427,10 @@ def SwissMetro_MNL(dataset_train: pd.DataFrame, for_prob=False):
         The BIOGEME object containing the model.
     """
     if not biogeme_installed:
-        raise ImportError("Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function.")
-    
+        raise ImportError(
+            "Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function."
+        )
+
     database_train = db.Database("swissmetro_train", dataset_train)
 
     globals().update(database_train.variables)
@@ -459,8 +496,10 @@ def LPMC(dataset_train, for_prob=False):
 
     """
     if not biogeme_installed:
-        raise ImportError("Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function.")
-    
+        raise ImportError(
+            "Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function."
+        )
+
     database_train = db.Database("LTDS_train", dataset_train)
 
     globals().update(database_train.variables)
@@ -731,8 +770,10 @@ def LPMC_normalised(dataset_train, for_prob=False):
 
     """
     if not biogeme_installed:
-        raise ImportError("Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function.")
-    
+        raise ImportError(
+            "Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function."
+        )
+
     database_train = db.Database("LTDS_train", dataset_train)
 
     globals().update(database_train.variables)
@@ -903,8 +944,10 @@ def LPMC_nested(dataset_train, for_prob=False):
 
     """
     if not biogeme_installed:
-        raise ImportError("Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function.")
-    
+        raise ImportError(
+            "Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function."
+        )
+
     database_train = db.Database("LTDS_train", dataset_train)
 
     globals().update(database_train.variables)
@@ -1164,8 +1207,10 @@ def LPMC_nested_normalised(dataset_train, for_prob=False):
 
     """
     if not biogeme_installed:
-        raise ImportError("Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function.")
-    
+        raise ImportError(
+            "Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function."
+        )
+
     database_train = db.Database("LTDS_train", dataset_train)
 
     globals().update(database_train.variables)
@@ -1346,8 +1391,10 @@ def Optima(dataset_train, for_prob=False):
 
     """
     if not biogeme_installed:
-        raise ImportError("Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function.")
-    
+        raise ImportError(
+            "Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function."
+        )
+
     database_train = db.Database("OP", dataset_train)
 
     globals().update(database_train.variables)
@@ -1514,7 +1561,9 @@ def Netherlands(df_train, for_prob=False):
 
 def Airplane(df_train, for_prob=False):
     if not biogeme_installed:
-        raise ImportError("Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function.")
+        raise ImportError(
+            "Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function."
+        )
     database_train = db.Database("airlane_train", df_train)
     pd.options.display.float_format = "{:.3g}".format
 
@@ -1607,7 +1656,9 @@ def Airplane(df_train, for_prob=False):
 
 def Telephone(df_train, for_prob=False):
     if not biogeme_installed:
-        raise ImportError("Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function.")
+        raise ImportError(
+            "Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function."
+        )
     database_train = db.Database("telephone_train", df_train)
     pd.options.display.float_format = "{:.3g}".format
 
@@ -1703,7 +1754,9 @@ def Telephone(df_train, for_prob=False):
 
 def Parking(df_train, for_prob=False):
     if not biogeme_installed:
-        raise ImportError("Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function.")
+        raise ImportError(
+            "Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function."
+        )
     database_train = db.Database("parking_train", df_train)
     pd.options.display.float_format = "{:.3g}".format
 
@@ -1805,7 +1858,9 @@ def Vaccines(dataset_train: pd.DataFrame, for_prob=False):
         The BIOGEME object containing the model.
     """
     if not biogeme_installed:
-        raise ImportError("Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function.")
+        raise ImportError(
+            "Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function."
+        )
     database_train = db.Database("vaccine_train", dataset_train)
 
     globals().update(database_train.variables)
@@ -1942,7 +1997,9 @@ def MTMC_lausanne_MNL(dataset_train: pd.DataFrame, for_prob=False, results=None)
         The BIOGEME object containing the model.
     """
     if not biogeme_installed:
-        raise ImportError("Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function.")
+        raise ImportError(
+            "Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function."
+        )
     database = db.Database("mtmc_train", dataset_train)
     globals().update(database.variables)
 
@@ -2068,7 +2125,9 @@ def MTMC_lausanne_CNL(dataset_train: pd.DataFrame, for_prob=False, results=None)
         The BIOGEME object containing the model.
     """
     if not biogeme_installed:
-        raise ImportError("Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function.")
+        raise ImportError(
+            "Biogeme is not installed and required to load DCMs. Please install it with `pip install biogeme` to use this function."
+        )
     database = db.Database("mtmc_train", dataset_train)
     globals().update(database.variables)
 

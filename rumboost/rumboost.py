@@ -2194,7 +2194,7 @@ class RUMBoost:
                     self.split_and_leaf_values[j]["leaves"] = torch.cat(
                         (
                             self.split_and_leaf_values[j]["leaves"][:index],
-                            s,
+                            new_value,
                             self.split_and_leaf_values[j]["leaves"][index:],
                         )
                     )
@@ -3618,10 +3618,10 @@ def rum_train(
                 opt_func = optimise_thresholds_proportional_odds
 
             if rumb.device is not None:
-                raw_preds = rumb.raw_preds[rumb.subsample_idx][:, None].cpu().numpy()
+                raw_preds = rumb.raw_preds.view(-1, rumb.num_obs[0]).T[rumb.subsample_idx, :].cpu().numpy()
                 labels = rumb.labels[rumb.subsample_idx].cpu().numpy()
             else:
-                raw_preds = rumb.raw_preds[rumb.subsample_idx][:, None]
+                raw_preds = rumb.raw_preds.reshape((rumb.num_obs[0], -1), order="F")[rumb.subsample_idx, :]
                 labels = rumb.labels[rumb.subsample_idx]
 
             # update thresholds
@@ -3641,7 +3641,7 @@ def rum_train(
         if optimise_ascs and ((i + 1) % optim_interval == 0):
             if rumb.device is not None:
                 raw_preds = (
-                    rumb.raw_preds[rumb.subsample_idx][:, None]
+                    rumb.raw_preds.view(-1, rumb.num_obs[0]).T[rumb.subsample_idx, :]
                     .cpu()
                     .numpy()
                     .reshape((rumb.num_obs[0], -1), order="F")
@@ -3649,9 +3649,7 @@ def rum_train(
                 labels = rumb.labels[rumb.subsample_idx].cpu().numpy()
                 ascs = rumb.asc.cpu().numpy()
             else:
-                raw_preds = rumb.raw_preds[rumb.subsample_idx][:, None].reshape(
-                    (rumb.num_obs[0], -1), order="F"
-                )
+                raw_preds = rumb.raw_preds.reshape((rumb.num_obs[0], -1), order="F")[rumb.subsample_idx, :]
                 labels = rumb.labels[rumb.subsample_idx]
                 ascs = rumb.asc
             res = minimize(

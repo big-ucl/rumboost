@@ -214,7 +214,7 @@ def load_preprocess_SwissMetro(
     train_idx, test_idx = next(gsp.split(df_final, groups=df_final["ID"]))
     df_train, df_test = df_final.iloc[train_idx], df_final.iloc[test_idx]
     
-    hh_id = df_train.index.tolist()
+    hh_id = df_train["ID"]
 
     # k folds sampled by households for cross validation
     train_idx = []
@@ -240,6 +240,7 @@ def load_preprocess_SwissMetro(
             df_train["choice"],
             hh_id,
             k=5,
+            seed=random_state,
         ):
             train_idx.append(train_i)
             test_idx.append(test_i)

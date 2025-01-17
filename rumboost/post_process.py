@@ -140,9 +140,12 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0):
 
     # prepare variables to normalise
     vars_in_utility = {v: [] for v in dataset.columns}
+    unique_betas = {}
     for rum in model.rum_structure:
         for v in rum["variables"]:
             vars_in_utility[v].extend(rum["utility"])
+            unique_betas[v] = Beta(f"{v}_0", 0, None, None, 0)
+
 
     vars_to_normalise = []
     for variables, utilities in vars_in_utility.items():
@@ -219,10 +222,16 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0):
                 )
                 # define betas
                 if len(split_points) == 1: # if already binary
-                    beta_dict = {
-                        f"{name}_{i}_{0}": Beta(f"{name}_{i}_0", init_beta[0], lowerbound, upperbound, 0)
-                    }
-                    vars = [Variable(name)]
+                    if len(vars_in_utility[name]) > 1:
+                        beta_dict = {
+                            f"{name}_{i}_{0}": unique_betas[name]
+                        }
+                        vars = [Variable(name)]
+                    else:
+                        beta_dict = {
+                            f"{name}_{i}_{0}": Beta(f"{name}_{i}_0", init_beta[0], lowerbound, upperbound, 0)
+                        }
+                        vars = [Variable(name)]
                 else:
                     #if non binary
                     split_points.insert(0, dataset[name].min())
@@ -249,6 +258,8 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0):
                         for j in range(len(split_points) - 1)
                     ]
                 for u in model.rum_structure[int(i)]["utility"]:
+                    if u == alt_to_normalise and name in vars_to_normalise:
+                        continue
                     utility_spec[u] = utility_spec[u] + bioMultSum(
                         [b * v for b, v in zip(beta_dict.values(), vars)]
                     )
