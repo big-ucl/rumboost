@@ -176,6 +176,11 @@ def load_preprocess_SwissMetro(
     df.loc[:, "AGE_3"] = (df["AGE"] == 3).astype(int)
     df.loc[:, "AGE_4"] = (df["AGE"] == 4).astype(int)
 
+    # # keep only travel times below 6 hours
+    # df = df[df["TRAIN_TT"] < 360]
+    # df = df[df["SM_TT"] < 360]
+    # df = df[df["CAR_TT"] < 360]
+
     # final dataset
     df_final = df[
         [

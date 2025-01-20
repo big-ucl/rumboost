@@ -300,7 +300,7 @@ def estimate_dcm_with_assisted_spec(
     """
     the_biogeme = assist_model_spec(model, dataset, choice)
 
-    results = the_biogeme.estimate()
+    results = the_biogeme.estimate(recycle=True)
 
     return results
 
