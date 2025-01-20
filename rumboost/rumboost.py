@@ -477,6 +477,22 @@ class RUMBoost:
         """
         # return np.zeros_like(self.train_set[j].data.reshape(-1).astype(float))
         return np.zeros_like(self.distances[j].astype(float))
+    
+    def f_obj_full_hessian(self, _, __):
+        """
+        Objective function of the boosters, for the full hessian.
+
+        Returns
+        -------
+        grad : numpy array
+            The gradient with the cross-entropy loss function.
+        hess : numpy array
+            The hessian with the cross-entropy loss function.
+        """
+        j = self._current_j
+        u = self.rum_structure[j]["utility"]
+
+        return self.grads[:, u].cpu().numpy(), self.hess[:, u].cpu().numpy()
 
     @multiply_grad_hess_by_data
     def f_obj(self, _, __):
@@ -2221,24 +2237,6 @@ class RUMBoost:
                     * np.diff(self.split_and_leaf_values[j]["splits"])
                 )
 
-    def _compute_constants(self, j, data):
-        """Compute the linear constants for each booster."""
-        sp = self.split_and_leaf_values[j]["splits"]
-
-        if self.device is not None:
-            data_t = torch.from_numpy(data).to(self.device)
-            indices = (
-                torch.searchsorted(sp, data_t) - 1
-            )  # need i-1 to get the correct index
-            constants = self.split_and_leaf_values[j]["leaves"][indices]
-            distances = data_t - sp[indices]
-        else:
-            indices = np.searchsorted(sp, data) - 1  # need i-1 to get the correct index
-            constants = self.split_and_leaf_values[j]["leaves"][indices]
-            distances = data - sp[indices]
-
-        return constants, distances
-
     def _linear_predict(self, j, data):
         """Predict the linear part of the utility function."""
         sp = self.split_and_leaf_values[j]["splits"]
@@ -2267,6 +2265,25 @@ class RUMBoost:
             )
 
         return preds
+
+    def _compute_grads(self, preds, labels_j):
+        """Compute the gradients of the utility function."""
+        return preds - labels_j
+    
+    def _compute_hessians(self, preds):
+        """Compute the hessians of the utility function."""
+        id_m_preds = torch.eye(self.num_classes, device=self.device)[None, :, :] - preds[:, :, None].expand(-1, -1, self.num_classes)
+        m_preds = preds[:, :, None].expand(-1, -1, self.num_classes)
+        return torch.transpose(m_preds, 1, 2) * id_m_preds
+    
+    def _precompute_grad_hess(self):
+        """Precompute the gradients and hessians of the utility function."""
+        preds = self._preds
+        labels_j = self.labels_j[self.subsample_idx]
+        grads = self._compute_grads(preds, labels_j)
+        hess = self._compute_hessians(preds)
+        self.grads = (torch.linalg.pinv(hess) @ grads[:, :, None]).squeeze()
+        self.hess = torch.ones_like(grads)
 
     def _update_mu_or_alphas(self, res, optimise_mu, optimise_alphas, alpha_shape):
         """Update mu or alphas for the cross-nested model.
@@ -2640,6 +2657,9 @@ def rum_train(
                         The interval at which the model will be saved during training.
                     - 'eval_function': func (default = cross_entropy if multi-class, binary_log_loss if binary, mse if regression)
                         The evaluation function to be used.
+                    - 'full_hessian': bool, optional (default = False)
+                        If True, the full hessian is used to compute the gradients and hessians. Currently only
+                        implemented for the multiclass case, and only works with cuda.
 
             -'rum_structure' : list[dict[str, Any]]
                 List of dictionaries specifying the variable used to create the parameter ensemble,
@@ -3180,7 +3200,6 @@ def rum_train(
         rumb.nests = None
         rumb.nest_alt = None
         rumb.alphas = None
-
     else:
         # no nesting structure nor ordinal logit
         rumb.mu = None
@@ -3189,7 +3208,23 @@ def rum_train(
         rumb.alphas = None
         rumb.ord_model = None
         rumb.thresholds = None
-        if rumb.num_classes == 2:
+        if params.get("full_hessian", False):
+            if rumb.num_classes < 3:
+                raise ValueError("Full hessian is only implemented for multi-class tasks.")
+            if not torch_installed:
+                raise ImportError(
+                    "PyTorch is not installed. Please install PyTorch to use the full hessian."
+                )
+            if not torch_tensors:
+                raise ValueError(
+                    "The full hessian requires torch tensors to be used. Please specify torch_tensors."
+                )
+            if rumb.device != torch.device("cuda"):
+                raise ValueError(
+                    "The full hessian requires the device to be cuda. Please specify torch_tensors."
+                )
+            f_obj = rumb.f_obj_full_hessian
+        elif rumb.num_classes == 2:
             f_obj = rumb.f_obj_binary
         elif rumb.num_classes > 2:
             f_obj = rumb.f_obj
@@ -3497,6 +3532,9 @@ def rum_train(
 
     rumb._preds = rumb._inner_predict()
 
+    if params.get("full_hessian", False):
+        rumb._precompute_grad_hess()
+
     # start training
     for i in range(init_iteration, init_iteration + num_boost_round):
         # initialising the current predictions
@@ -3693,6 +3731,9 @@ def rum_train(
 
         # make predictions after boosting round to compute new cross entropy and for next iteration grad and hess
         rumb._preds = rumb._inner_predict()
+
+        if params.get("full_hessian", False):
+            rumb._precompute_grad_hess()
 
         # compute cross validation on training or validation test
         eval_train = eval_func(rumb._preds, rumb.labels[rumb.subsample_idx])
