@@ -176,6 +176,11 @@ def load_preprocess_SwissMetro(
     df.loc[:, "AGE_3"] = (df["AGE"] == 3).astype(int)
     df.loc[:, "AGE_4"] = (df["AGE"] == 4).astype(int)
 
+    # # keep only travel times below 6 hours
+    # df = df[df["TRAIN_TT"] < 360]
+    # df = df[df["SM_TT"] < 360]
+    # df = df[df["CAR_TT"] < 360]
+
     # final dataset
     df_final = df[
         [
@@ -214,7 +219,7 @@ def load_preprocess_SwissMetro(
     train_idx, test_idx = next(gsp.split(df_final, groups=df_final["ID"]))
     df_train, df_test = df_final.iloc[train_idx], df_final.iloc[test_idx]
     
-    hh_id = df_train.index.tolist()
+    hh_id = df_train["ID"]
 
     # k folds sampled by households for cross validation
     train_idx = []
@@ -240,6 +245,7 @@ def load_preprocess_SwissMetro(
             df_train["choice"],
             hh_id,
             k=5,
+            seed=random_state,
         ):
             train_idx.append(train_i)
             test_idx.append(test_i)

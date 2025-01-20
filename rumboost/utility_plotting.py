@@ -568,13 +568,31 @@ def plot_parameters(
             for i, f in enumerate(weights_arranged[u]):
 
                 # create nonlinear plot
+                # if boost_from_parameter_space and boost_from_parameter_space[u][f]:
+                #     x_max = (
+                #         1.05 * max(X[f])
+                #         if f in list(X.columns)
+                #         else (
+                #             1.05 * xlabel_max[u]
+                #             if xlabel_max
+                #             else 1.05 * weights_arranged[u][f]["Splitting points"][-1]
+                #         )
+                #     )
+                #     x = np.linspace(0, 1.05 * x_max, 10000)
+                #     non_lin_func = model._linear_predict(int(u), x)
+                #     if model.device is not None and not isinstance(non_lin_func, list):
+                #         non_lin_func = non_lin_func.cpu().numpy()
                 if f in list(X.columns):
                     x, non_lin_func = non_lin_function(
                         weights_arranged[u][f],
                         0,
                         1.05 * max(X[f]),
                         10000,
-                        boost_from_parameter_space[u][f] if boost_from_parameter_space else False,
+                        (
+                            boost_from_parameter_space[u][f]
+                            if boost_from_parameter_space
+                            else False
+                        ),
                     )
                 elif xlabel_max:
                     x, non_lin_func = non_lin_function(
@@ -582,7 +600,11 @@ def plot_parameters(
                         0,
                         1.05 * xlabel_max[u],
                         10000,
-                        boost_from_parameter_space[u][f] if boost_from_parameter_space else False,
+                        (
+                            boost_from_parameter_space[u][f]
+                            if boost_from_parameter_space
+                            else False
+                        ),
                     )
                 else:
                     x, non_lin_func = non_lin_function(
@@ -590,21 +612,21 @@ def plot_parameters(
                         0,
                         1.05 * weights_arranged[u][f]["Splitting points"][-1],
                         10000,
-                        boost_from_parameter_space[u][f] if boost_from_parameter_space else False,
+                        (
+                            boost_from_parameter_space[u][f]
+                            if boost_from_parameter_space
+                            else False
+                        ),
                     )
 
-                if asc_normalised and (not boost_from_parameter_space or not boost_from_parameter_space[u][f]):
+                if asc_normalised:
                     val_0 = non_lin_func[0]
                     non_lin_func = [n - val_0 for n in non_lin_func]
-                elif boost_from_parameter_space[u][f]:
-                    val_0 = (
-                        model.asc[int(u)]
-                    )
-                    if model.device == "cuda":
-                        val_0 = val_0.cpu().detach().numpy()
-                    non_lin_func = [n + val_0 for n in non_lin_func]
 
-                if with_asc and (not boost_from_parameter_space or not boost_from_parameter_space[u][f]):
+                if with_asc and (
+                    not boost_from_parameter_space
+                    or not boost_from_parameter_space[u][f]
+                ):
                     non_lin_func = [n + ASCs[int(u)] for n in non_lin_func]
 
                 # plot parameters
@@ -2326,9 +2348,7 @@ def weights_to_plot_v2(model, market_segm=False, num_iteration=None):
             weights_for_plot[str(i)][f] = {
                 "Splitting points": split_points,
                 "Histogram values": list(
-                    model._monotonise_beta(
-                        np.array(function_value), i, force_cpu=True
-                    )
+                    model._monotonise_beta(np.array(function_value), i, force_cpu=True)
                 ),
             }
 
