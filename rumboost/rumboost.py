@@ -433,31 +433,31 @@ class RUMBoost:
             float
         )  # distances from the data point to the last split point
         # grad_x = self.train_set[j].data.reshape(-1).astype(float)
-        if self.rum_structure[j]["boosting_params"].get("monotone_constraints", []):
-            for monotone_constraint in self.rum_structure[j]["boosting_params"][
-                "monotone_constraints"
-            ]:
-                if monotone_constraint != 0:
-                    if self.device is not None:
-                        raw_preds = torch.tensor(
-                            self._monotonise_beta(
-                                self.boosters[j]._Booster__inner_predict_buffer[0],
-                                j,
-                                force_cpu=True,
-                            )
-                        )
-                        grad_x *= (
-                            torch.where(
-                                monotone_constraint * raw_preds > 0, 1, 0
-                            ).numpy()
-                            * monotone_constraint
-                        )
-                    else:
-                        raw_preds = self.boosters[j]._Booster__inner_predict_buffer[0]
-                        grad_x *= (
-                            np.where(monotone_constraint * raw_preds > 0, 1, 0)
-                            * monotone_constraint
-                        )
+        # if self.rum_structure[j]["boosting_params"].get("monotone_constraints", []):
+        #     for monotone_constraint in self.rum_structure[j]["boosting_params"][
+        #         "monotone_constraints"
+        #     ]:
+        #         if monotone_constraint != 0:
+        #             if self.device is not None:
+        #                 raw_preds = torch.tensor(
+        #                     self._monotonise_beta(
+        #                         self.boosters[j]._Booster__inner_predict_buffer[0],
+        #                         j,
+        #                         force_cpu=True,
+        #                     )
+        #                 )
+        #                 grad_x *= (
+        #                     torch.where(
+        #                         monotone_constraint * raw_preds > 0, 1, 0
+        #                     ).numpy()
+        #                     * monotone_constraint
+        #                 )
+        #             else:
+        #                 raw_preds = self.boosters[j]._Booster__inner_predict_buffer[0]
+        #                 grad_x *= (
+        #                     np.where(monotone_constraint * raw_preds > 0, 1, 0)
+        #                     * monotone_constraint
+        #                 )
         return grad_x
 
     def _monotonise_hess_relu(self, j):
@@ -477,7 +477,7 @@ class RUMBoost:
         """
         # return np.zeros_like(self.train_set[j].data.reshape(-1).astype(float))
         return np.zeros_like(self.distances[j].astype(float))
-    
+
     def f_obj_full_hessian(self, _, __):
         """
         Objective function of the boosters, for the full hessian.
@@ -2104,15 +2104,73 @@ class RUMBoost:
             else:
                 self.raw_preds[self.booster_train_idx[j]] += current_preds
 
-    def _gather_split_info(self, j, booster):
+    def _check_leaves_monotonicity(self, j, index, l_0, l_1):
+        """
+        Check that the new leaf values of the jth booster are not violating monotonicity constraint.
+        If so, replace the leaf values by the max (or min if negative monotonic constraint) value
+        that the leaf can take to ensure monotonicity.
+
+        Parameters
+        ----------
+        j : int
+            The index of the booster.
+        index : int
+            The index of the split in the split_and_leaf_values attribute.
+        l_0 : float
+            The leaf value of the left child.
+        l_1 : float
+            The leaf value of the right child.
+        """
+        monotone_constraints = self.rum_structure[j]["boosting_params"].get(
+            "monotone_constraints", [0]
+        )
+        if monotone_constraints[0] != 0:
+            if self.device is not None:
+                m = torch.tensor(monotone_constraints[0]).to(self.device)
+                l_0 = l_0.cpu().numpy()
+                l_1 = l_1.cpu().numpy()
+                if torch.any(self.split_and_leaf_values[j]["leaves"][:index] * m < 0):
+                    offset = torch.max(
+                        self.split_and_leaf_values[j]["leaves"][:index] * m
+                    )
+                    self.split_and_leaf_values[j]["leaves"][:index] += offset * m
+                    offset = offset.cpu().numpy()
+                    m_copy = m.cpu().numpy()
+                    self.boosters[j].set_leaf_output(
+                        self.boosters[j].num_trees() - 1, 0, l_0 + offset * m_copy
+                    )
+                if torch.any(self.split_and_leaf_values[j]["leaves"][index:] * m < 0):
+                    offset = torch.max(
+                        self.split_and_leaf_values[j]["leaves"][index:] * m
+                    )
+                    self.split_and_leaf_values[j]["leaves"][index:] += offset * m
+                    offset = offset.cpu().numpy()
+                    m = m.cpu().numpy()
+                    self.boosters[j].set_leaf_output(
+                        self.boosters[j].num_trees() - 1, 1, l_1 + offset * m
+                    )
+            else:
+                m = monotone_constraints[0]
+                if np.any(self.split_and_leaf_values[j]["leaves"][:index] * m < 0):
+                    offset = np.max(self.split_and_leaf_values[j]["leaves"][:index] * m)
+                    self.split_and_leaf_values[j]["leaves"][:index] += offset * m
+                    self.boosters[j].set_leaf_output(
+                        self.boosters[j].num_trees() - 1, 0, l_0 + offset * m
+                    )
+                if np.any(self.split_and_leaf_values[j]["leaves"][index:] * m < 0):
+                    offset = np.max(self.split_and_leaf_values[j]["leaves"][index:] * m)
+                    self.split_and_leaf_values[j]["leaves"][index:] += offset * m
+                    self.boosters[j].set_leaf_output(
+                        self.boosters[j].num_trees() - 1, 1, l_1 + offset * m
+                    )
+
+    def _gather_split_info(self, booster):
         """
         Gather split information for each booster.
         Code adapted from LightGBM get_split_value_histogram Booster method.
 
         Parameters
         ----------
-        j : int
-            The index of the booster.
         booster : Booster
             The booster to gather split information from.
         """
@@ -2160,7 +2218,7 @@ class RUMBoost:
             The booster to gather linear constants from.
         """
         # only implemented for a max depth of 1 so one split value and two leaf values
-        split_values, leaf_values = self._gather_split_info(j, booster)
+        split_values, leaf_values = self._gather_split_info(booster)
 
         for s in split_values:
             if self.device is not None:
@@ -2176,6 +2234,11 @@ class RUMBoost:
                     index = index.item()
                     self.split_and_leaf_values[j]["leaves"][:index] += l_0
                     self.split_and_leaf_values[j]["leaves"][index:] += l_1
+                    # check and ensure monotonicity
+                    self._check_leaves_monotonicity(j, index, l_0, l_1)
+                    # self.split_and_leaf_values[j]["leaves"] = self._monotonise_beta(
+                    #     self.split_and_leaf_values[j]["leaves"], j
+                    # )
                 else:
                     index = torch.searchsorted(
                         self.split_and_leaf_values[j]["splits"], s
@@ -2194,14 +2257,17 @@ class RUMBoost:
                             self.split_and_leaf_values[j]["leaves"][index - 1 :] + l_1,
                         )
                     )
+                    # check and ensure monotonicity
+                    self._check_leaves_monotonicity(j, index, l_0, l_1)
+                    # self.split_and_leaf_values[j]["leaves"] = self._monotonise_beta(
+                    #     self.split_and_leaf_values[j]["leaves"], j
+                    # )
+
                 self.split_and_leaf_values[j]["constants"] = torch.cat(
                     (
                         torch.zeros(1, device=self.device),
                         torch.cumsum(
-                            self._monotonise_beta(
-                                self.split_and_leaf_values[j]["leaves"],
-                                j,
-                            )
+                            self.split_and_leaf_values[j]["leaves"]
                             * torch.diff(self.split_and_leaf_values[j]["splits"]),
                             dim=0,
                         ),
@@ -2217,6 +2283,11 @@ class RUMBoost:
                     index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
                     self.split_and_leaf_values[j]["leaves"][:index] += l_0
                     self.split_and_leaf_values[j]["leaves"][index:] += l_1
+                    # check and ensure monotonicity
+                    self._check_leaves_monotonicity(j, index, l_0, l_1)
+                    # self.split_and_leaf_values[j]["leaves"] = self._monotonise_beta(
+                    #     self.split_and_leaf_values[j]["leaves"], j
+                    # )
                 else:
                     index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
                     self.split_and_leaf_values[j]["splits"] = np.insert(
@@ -2228,12 +2299,14 @@ class RUMBoost:
                             self.split_and_leaf_values[j]["leaves"][index - 1 :] + l_1,
                         )
                     )
+                    # check and ensure monotonicity
+                    self._check_leaves_monotonicity(j, index, l_0, l_1)
+                    # self.split_and_leaf_values[j]["leaves"] = self._monotonise_beta(
+                    #     self.split_and_leaf_values[j]["leaves"], j
+                    # )
 
                 self.split_and_leaf_values[j]["constants"] = np.cumsum(
-                    self._monotonise_beta(
-                        self.split_and_leaf_values[j]["leaves"],
-                        j,
-                    )
+                    self.split_and_leaf_values[j]["leaves"]
                     * np.diff(self.split_and_leaf_values[j]["splits"])
                 )
 
@@ -2241,7 +2314,7 @@ class RUMBoost:
         """Predict the linear part of the utility function."""
         sp = self.split_and_leaf_values[j]["splits"]
         csts = self.split_and_leaf_values[j]["constants"]
-        lvs = self._monotonise_beta(self.split_and_leaf_values[j]["leaves"], j)
+        lvs = self.split_and_leaf_values[j]["leaves"]
         if self.device is not None:
             data_t = torch.from_numpy(data).to(self.device)
             indices = (
@@ -2269,13 +2342,15 @@ class RUMBoost:
     def _compute_grads(self, preds, labels_j):
         """Compute the gradients of the utility function."""
         return preds - labels_j
-    
+
     def _compute_hessians(self, preds):
         """Compute the hessians of the utility function."""
-        id_m_preds = torch.eye(self.num_classes, device=self.device)[None, :, :] - preds[:, :, None].expand(-1, -1, self.num_classes)
+        id_m_preds = torch.eye(self.num_classes, device=self.device)[
+            None, :, :
+        ] - preds[:, :, None].expand(-1, -1, self.num_classes)
         m_preds = preds[:, :, None].expand(-1, -1, self.num_classes)
         return torch.transpose(m_preds, 1, 2) * id_m_preds
-    
+
     def _precompute_grad_hess(self):
         """Precompute the gradients and hessians of the utility function."""
         preds = self._preds
@@ -3210,7 +3285,9 @@ def rum_train(
         rumb.thresholds = None
         if params.get("full_hessian", False):
             if rumb.num_classes < 3:
-                raise ValueError("Full hessian is only implemented for multi-class tasks.")
+                raise ValueError(
+                    "Full hessian is only implemented for multi-class tasks."
+                )
             if not torch_installed:
                 raise ImportError(
                     "PyTorch is not installed. Please install PyTorch to use the full hessian."
