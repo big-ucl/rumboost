@@ -190,24 +190,6 @@ class RUMBoost:
         if self.thresholds is not None:  # numpy.ndarray so need to specify not None
             self.thresholds = np.array(self.thresholds)
 
-        if (
-            isinstance(self.boost_from_parameter_space, list)
-            and any(self.boost_from_parameter_space)
-            and kwargs.get("params_monotonic_function", "softplus") == "softplus"
-        ):
-            self._monotonise_beta = self._monotonise_with_softplus
-            self._monotonise_grad = self._monotonise_grad_softplus
-            self._monotonise_hess = self._monotonise_hess_softplus
-            self.softplus_strength = kwargs.get("softplus_strength", 1.0)
-        elif (
-            isinstance(self.boost_from_parameter_space, list)
-            and any(self.boost_from_parameter_space)
-            and kwargs.get("params_monotonic_function", "softplus") == "relu"
-        ):
-            self._monotonise_beta = self._monotonise_with_relu
-            self._monotonise_grad = self._monotonise_grad_relu
-            self._monotonise_hess = self._monotonise_hess_relu
-
         if isinstance(self.split_and_leaf_values, dict):
             self.split_and_leaf_values = {
                 k: {c: np.array(v[c]) for c in v.keys()}
@@ -226,258 +208,13 @@ class RUMBoost:
 
             grad, hess = func(self, preds, data)
             if self.boost_from_parameter_space[j]:
-                # multiplying gradients and hessians by observations
-                # we start with hess because it needs the original values
-                # (second derivative of the chain rule)
-                grad_x = self._monotonise_grad(j)
-                hess_xx = self._monotonise_hess(j)
-                hess = hess * grad_x**2 + grad * hess_xx
-                grad = grad * grad_x
+                x = self.distances[j].astype(float)
+                grad = grad * x
+                hess = hess * x**2
             return grad, hess
 
         return wrapper
 
-    def _monotonise_with_softplus(self, beta, j, force_cpu=False):
-        """
-        Monotonise the beta values with the softplus function.
-
-        Parameters
-        ----------
-        beta : numpy array
-            Beta values.
-        j : int
-            Booster index.
-        force_cpu : bool, optional (default=False)
-            Whether to force the computation on the CPU.
-
-        Returns
-        -------
-        beta : numpy array
-            Monotonised beta values.
-        """
-        if self.rum_structure[j]["boosting_params"].get("monotone_constraints", []):
-            for monotone_constraint in self.rum_structure[j]["boosting_params"][
-                "monotone_constraints"
-            ]:
-                if monotone_constraint != 0:
-                    if (self.device is not None) and (not force_cpu):
-                        monotone_constraint = (
-                            torch.tensor(monotone_constraint).to(self.device).double()
-                        )
-                        beta = monotone_constraint * torch.nn.functional.softplus(
-                            beta * monotone_constraint, beta=self.softplus_strength
-                        )
-                    else:
-                        beta = monotone_constraint * safe_softplus(
-                            beta * monotone_constraint, beta=self.softplus_strength
-                        )
-        return beta
-
-    def _monotonise_grad_softplus(self, j):
-        """
-        Monotonise the gradient of the beta values
-        with the gradient of the softplus function.
-        The gradient of the softplus function is the sigmoid function.
-
-        Parameters
-        ----------
-        x : numpy array
-            Data points.
-        j : int
-            Booster index.
-
-        Returns
-        -------
-        beta : numpy array
-            Monotonised beta values.
-        """
-        # grad_x = self.train_set[j].data.reshape(-1).astype(float)
-        grad_x = self.distances[j].astype(float)
-        if self.rum_structure[j]["boosting_params"].get("monotone_constraints", []):
-            for monotone_constraint in self.rum_structure[j]["boosting_params"][
-                "monotone_constraints"
-            ]:
-                if monotone_constraint != 0:
-                    if self.device is not None:
-                        raw_preds = torch.tensor(
-                            self.boosters[j]._Booster__inner_predict_buffer[0]
-                        )
-                        grad_x *= torch.nn.functional.sigmoid(
-                            self.softplus_strength * raw_preds * monotone_constraint
-                        ).numpy()
-                    else:
-                        raw_preds = self.boosters[j]._Booster__inner_predict_buffer[0]
-                        grad_x *= expit(
-                            self.softplus_strength * raw_preds * monotone_constraint
-                        )
-        return grad_x
-
-    def _monotonise_hess_softplus(self, j):
-        """
-        Monotonise the hessian of the beta values
-        with the hessian of the softplus function.
-        The hessian of the softplus function is the sigmoid function times the sigmoid function minus 1.
-
-        Parameters
-        ----------
-        j : int
-            Booster index.
-
-        Returns
-        -------
-        beta : numpy array
-            Monotonised beta values.
-        """
-        if self.rum_structure[j]["boosting_params"].get("monotone_constraints", []):
-            for monotone_constraint in self.rum_structure[j]["boosting_params"][
-                "monotone_constraints"
-            ]:
-                if monotone_constraint != 0:
-                    if self.device is not None:
-                        raw_preds = torch.tensor(
-                            self.boosters[j]._Booster__inner_predict_buffer[0]
-                        )
-                        hess_xx = (
-                            torch.nn.functional.sigmoid(
-                                self.softplus_strength * raw_preds * monotone_constraint
-                            ).numpy()
-                            * (
-                                1
-                                - torch.nn.functional.sigmoid(
-                                    self.softplus_strength
-                                    * raw_preds
-                                    * monotone_constraint
-                                )
-                            ).numpy()
-                            * self.softplus_strength
-                            * monotone_constraint
-                            # ) * self.train_set[j].data.reshape(-1).astype(float)
-                        ) * self.distances[j].astype(float)
-                    else:
-                        raw_preds = self.boosters[j]._Booster__inner_predict_buffer[0]
-                        hess_xx = (
-                            expit(
-                                self.softplus_strength * raw_preds * monotone_constraint
-                            )
-                            * (
-                                1
-                                - expit(
-                                    self.softplus_strength
-                                    * raw_preds
-                                    * monotone_constraint
-                                )
-                            )
-                            * self.softplus_strength
-                            * monotone_constraint
-                            # ) * self.train_set[j].data.reshape(-1).astype(float)
-                        ) * self.distances[j].astype(float)
-                else:
-                    # hess_xx = np.zeros_like(
-                    #     self.train_set[j].data.reshape(-1).astype(float)
-                    # )
-                    hess_xx = np.zeros_like(self.distances[j].astype(float))
-        return hess_xx
-
-    def _monotonise_with_relu(self, beta, j, force_cpu=False):
-        """
-        Monotonise the beta values with the ReLU function.
-
-        Parameters
-        ----------
-        beta : numpy array
-            Beta values.
-        j : int
-            Booster index.
-        force_cpu : bool, optional (default=False)
-            Whether to force the computation on the CPU.
-
-        Returns
-        -------
-        beta : numpy array
-            Monotonised beta values.
-        """
-        if self.rum_structure[j]["boosting_params"].get("monotone_constraints", []):
-            for monotone_constraint in self.rum_structure[j]["boosting_params"][
-                "monotone_constraints"
-            ]:
-                if monotone_constraint != 0:
-                    if (self.device is not None) and (not force_cpu):
-                        monotone_constraint = (
-                            torch.tensor(monotone_constraint).to(self.device).float()
-                        )
-                        beta = monotone_constraint * torch.nn.functional.relu(
-                            beta * monotone_constraint
-                        )
-                    else:
-                        beta = monotone_constraint * np.maximum(
-                            0, beta * monotone_constraint
-                        )
-        return beta
-
-    def _monotonise_grad_relu(self, j):
-        """
-        Monotonise the gradient of the beta values
-        with the gradient of the ReLU function.
-
-        Parameters
-        ----------
-        j : int
-            Booster index.
-
-        Returns
-        -------
-        beta : numpy array
-            Monotonised beta values.
-        """
-        grad_x = self.distances[j].astype(
-            float
-        )  # distances from the data point to the last split point
-        # grad_x = self.train_set[j].data.reshape(-1).astype(float)
-        if self.rum_structure[j]["boosting_params"].get("monotone_constraints", []):
-            for monotone_constraint in self.rum_structure[j]["boosting_params"][
-                "monotone_constraints"
-            ]:
-                if monotone_constraint != 0:
-                    if self.device is not None:
-                        raw_preds = torch.tensor(
-                            self._monotonise_beta(
-                                self.boosters[j]._Booster__inner_predict_buffer[0],
-                                j,
-                                force_cpu=True,
-                            )
-                        )
-                        grad_x *= (
-                            torch.where(
-                                monotone_constraint * raw_preds > 0, 1, 0
-                            ).numpy()
-                            * monotone_constraint
-                        )
-                    else:
-                        raw_preds = self.boosters[j]._Booster__inner_predict_buffer[0]
-                        grad_x *= (
-                            np.where(monotone_constraint * raw_preds > 0, 1, 0)
-                            * monotone_constraint
-                        )
-        return grad_x
-
-    def _monotonise_hess_relu(self, j):
-        """
-        Monotonise the hessian of the beta values
-        with the hessian of the ReLU function.
-
-        Parameters
-        ----------
-        j : int
-            Booster index.
-
-        Returns
-        -------
-        beta : numpy array
-            Monotonised beta values.
-        """
-        # return np.zeros_like(self.train_set[j].data.reshape(-1).astype(float))
-        return np.zeros_like(self.distances[j].astype(float))
-    
     def f_obj_full_hessian(self, _, __):
         """
         Objective function of the boosters, for the full hessian.
@@ -2104,15 +1841,73 @@ class RUMBoost:
             else:
                 self.raw_preds[self.booster_train_idx[j]] += current_preds
 
-    def _gather_split_info(self, j, booster):
+    def _check_leaves_monotonicity(self, j, index, l_0, l_1):
+        """
+        Check that the new leaf values of the jth booster are not violating monotonicity constraint.
+        If so, replace the leaf values by the max (or min if negative monotonic constraint) value
+        that the leaf can take to ensure monotonicity.
+
+        Parameters
+        ----------
+        j : int
+            The index of the booster.
+        index : int
+            The index of the split in the split_and_leaf_values attribute.
+        l_0 : float
+            The leaf value of the left child.
+        l_1 : float
+            The leaf value of the right child.
+        """
+        monotone_constraints = self.rum_structure[j]["boosting_params"].get(
+            "monotone_constraints", [0]
+        )
+        if monotone_constraints[0] != 0:
+            if self.device is not None:
+                m = torch.tensor(monotone_constraints[0]).to(self.device)
+                l_0 = l_0.cpu().numpy()
+                l_1 = l_1.cpu().numpy()
+                if torch.any(self.split_and_leaf_values[j]["leaves"][:index] * m < 0):
+                    offset = torch.max(
+                        -self.split_and_leaf_values[j]["leaves"][:index] * m
+                    )
+                    self.split_and_leaf_values[j]["leaves"][:index] += offset * m
+                    offset = offset.cpu().numpy()
+                    m_copy = m.cpu().numpy()
+                    self.boosters[j].set_leaf_output(
+                        self.boosters[j].num_trees() - 1, 0, l_0 + offset * m_copy
+                    )
+                if torch.any(self.split_and_leaf_values[j]["leaves"][index:] * m < 0):
+                    offset = torch.max(
+                        -self.split_and_leaf_values[j]["leaves"][index:] * m
+                    )
+                    self.split_and_leaf_values[j]["leaves"][index:] += offset * m
+                    offset = offset.cpu().numpy()
+                    m = m.cpu().numpy()
+                    self.boosters[j].set_leaf_output(
+                        self.boosters[j].num_trees() - 1, 1, l_1 + offset * m
+                    )
+            else:
+                m = monotone_constraints[0]
+                if np.any(self.split_and_leaf_values[j]["leaves"][:index] * m < 0):
+                    offset = np.max(-self.split_and_leaf_values[j]["leaves"][:index] * m)
+                    self.split_and_leaf_values[j]["leaves"][:index] += offset * m
+                    self.boosters[j].set_leaf_output(
+                        self.boosters[j].num_trees() - 1, 0, l_0 + offset * m
+                    )
+                if np.any(self.split_and_leaf_values[j]["leaves"][index:] * m < 0):
+                    offset = np.max(-self.split_and_leaf_values[j]["leaves"][index:] * m)
+                    self.split_and_leaf_values[j]["leaves"][index:] += offset * m
+                    self.boosters[j].set_leaf_output(
+                        self.boosters[j].num_trees() - 1, 1, l_1 + offset * m
+                    )
+
+    def _gather_split_info(self, booster):
         """
         Gather split information for each booster.
         Code adapted from LightGBM get_split_value_histogram Booster method.
 
         Parameters
         ----------
-        j : int
-            The index of the booster.
         booster : Booster
             The booster to gather split information from.
         """
@@ -2160,7 +1955,7 @@ class RUMBoost:
             The booster to gather linear constants from.
         """
         # only implemented for a max depth of 1 so one split value and two leaf values
-        split_values, leaf_values = self._gather_split_info(j, booster)
+        split_values, leaf_values = self._gather_split_info(booster)
 
         for s in split_values:
             if self.device is not None:
@@ -2176,6 +1971,8 @@ class RUMBoost:
                     index = index.item()
                     self.split_and_leaf_values[j]["leaves"][:index] += l_0
                     self.split_and_leaf_values[j]["leaves"][index:] += l_1
+                    # check and ensure monotonicity
+                    self._check_leaves_monotonicity(j, index, l_0, l_1)
                 else:
                     index = torch.searchsorted(
                         self.split_and_leaf_values[j]["splits"], s
@@ -2194,14 +1991,14 @@ class RUMBoost:
                             self.split_and_leaf_values[j]["leaves"][index - 1 :] + l_1,
                         )
                     )
+                    # check and ensure monotonicity
+                    self._check_leaves_monotonicity(j, index, l_0, l_1)
+
                 self.split_and_leaf_values[j]["constants"] = torch.cat(
                     (
                         torch.zeros(1, device=self.device),
                         torch.cumsum(
-                            self._monotonise_beta(
-                                self.split_and_leaf_values[j]["leaves"],
-                                j,
-                            )
+                            self.split_and_leaf_values[j]["leaves"]
                             * torch.diff(self.split_and_leaf_values[j]["splits"]),
                             dim=0,
                         ),
@@ -2217,6 +2014,8 @@ class RUMBoost:
                     index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
                     self.split_and_leaf_values[j]["leaves"][:index] += l_0
                     self.split_and_leaf_values[j]["leaves"][index:] += l_1
+                    # check and ensure monotonicity
+                    self._check_leaves_monotonicity(j, index, l_0, l_1)
                 else:
                     index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
                     self.split_and_leaf_values[j]["splits"] = np.insert(
@@ -2228,12 +2027,11 @@ class RUMBoost:
                             self.split_and_leaf_values[j]["leaves"][index - 1 :] + l_1,
                         )
                     )
+                    # check and ensure monotonicity
+                    self._check_leaves_monotonicity(j, index, l_0, l_1)
 
                 self.split_and_leaf_values[j]["constants"] = np.cumsum(
-                    self._monotonise_beta(
-                        self.split_and_leaf_values[j]["leaves"],
-                        j,
-                    )
+                    self.split_and_leaf_values[j]["leaves"]
                     * np.diff(self.split_and_leaf_values[j]["splits"])
                 )
 
@@ -2241,7 +2039,7 @@ class RUMBoost:
         """Predict the linear part of the utility function."""
         sp = self.split_and_leaf_values[j]["splits"]
         csts = self.split_and_leaf_values[j]["constants"]
-        lvs = self._monotonise_beta(self.split_and_leaf_values[j]["leaves"], j)
+        lvs = self.split_and_leaf_values[j]["leaves"]
         if self.device is not None:
             data_t = torch.from_numpy(data).to(self.device)
             indices = (
@@ -2269,13 +2067,15 @@ class RUMBoost:
     def _compute_grads(self, preds, labels_j):
         """Compute the gradients of the utility function."""
         return preds - labels_j
-    
+
     def _compute_hessians(self, preds):
         """Compute the hessians of the utility function."""
-        id_m_preds = torch.eye(self.num_classes, device=self.device)[None, :, :] - preds[:, :, None].expand(-1, -1, self.num_classes)
+        id_m_preds = torch.eye(self.num_classes, device=self.device)[
+            None, :, :
+        ] - preds[:, :, None].expand(-1, -1, self.num_classes)
         m_preds = preds[:, :, None].expand(-1, -1, self.num_classes)
         return torch.transpose(m_preds, 1, 2) * id_m_preds
-    
+
     def _precompute_grad_hess(self):
         """Precompute the gradients and hessians of the utility function."""
         preds = self._preds
@@ -2646,13 +2446,6 @@ def rum_train(
                     - 'optim_interval': int, optional (default = 1)
                         If all the ensembles are boosted from the parameter space, the interval at which the
                         ASCs are optimised. If 0, the ASCs are fixed.
-                    - 'params_monotonic_function': str, optional (default = 'softplus')
-                        The monotonicity function used to monotonise the boosters in parameter space.
-                        Only used if boost_from_parameter_space is True.
-                        "softplus" or "ReLu" are the available options.
-                    - 'softplus_strength': float, optional (default = 1.0)
-                        Strength of the softplus function used to monotonise the boosters in parameter space.
-                        Only used if boost_from_parameter_space is True.
                     - 'save_model_interval': int, optional (default = 0)
                         The interval at which the model will be saved during training.
                     - 'eval_function': func (default = cross_entropy if multi-class, binary_log_loss if binary, mse if regression)
@@ -3210,7 +3003,9 @@ def rum_train(
         rumb.thresholds = None
         if params.get("full_hessian", False):
             if rumb.num_classes < 3:
-                raise ValueError("Full hessian is only implemented for multi-class tasks.")
+                raise ValueError(
+                    "Full hessian is only implemented for multi-class tasks."
+                )
             if not torch_installed:
                 raise ImportError(
                     "PyTorch is not installed. Please install PyTorch to use the full hessian."
@@ -3249,18 +3044,8 @@ def rum_train(
             )
         rumb.boost_from_parameter_space = params["boost_from_parameter_space"]
 
-        if params.get("params_monotonic_function", "softplus") == "softplus":
-            rumb._monotonise_beta = rumb._monotonise_with_softplus
-            rumb._monotonise_grad = rumb._monotonise_grad_softplus
-            rumb._monotonise_hess = rumb._monotonise_hess_softplus
-            rumb.softplus_strength = params.get("softplus_strength", 1.0)
-        else:
-            rumb._monotonise_beta = rumb._monotonise_with_relu
-            rumb._monotonise_grad = rumb._monotonise_grad_relu
-            rumb._monotonise_hess = rumb._monotonise_hess_relu
-
         optim_interval = params.get("optim_interval", 1)
-        optimise_ascs = all(rumb.boost_from_parameter_space) and optim_interval > 0
+        optimise_ascs = optim_interval > 0
 
         rumb.asc = np.zeros(rumb.num_classes)
 
@@ -3630,7 +3415,7 @@ def rum_train(
                 method="SLSQP",
             )
 
-            rumb._update_mu_or_alphas(res.x, optimise_mu, optimise_alphas, alpha_shape)
+            rumb._update_mu_or_alphas(res, optimise_mu, optimise_alphas, alpha_shape)
 
         if optimise_thresholds and ((i + 1) % optim_interval == 0):
 
