@@ -42,6 +42,8 @@ def split_fe_model(model: RUMBoost):
     attributes_model.device = model.device
     attributes_model.nests = model.nests
     attributes_model.alphas = model.alphas
+    attributes_model.boost_from_parameter_space = model.boost_from_parameter_space[::2]
+    attributes_model.asc = model.asc
 
     socio_economic_model.boosters = [
         b for i, b in enumerate(model.boosters) if i % 2 == 1
@@ -51,6 +53,8 @@ def split_fe_model(model: RUMBoost):
     socio_economic_model.device = model.device
     socio_economic_model.nests = model.nests
     socio_economic_model.alphas = model.alphas
+    socio_economic_model.boost_from_parameter_space = model.boost_from_parameter_space[1::2]
+    socio_economic_model.asc = model.asc
 
     return attributes_model, socio_economic_model
 

@@ -3415,7 +3415,7 @@ def rum_train(
                 method="SLSQP",
             )
 
-            rumb._update_mu_or_alphas(res.x, optimise_mu, optimise_alphas, alpha_shape)
+            rumb._update_mu_or_alphas(res, optimise_mu, optimise_alphas, alpha_shape)
 
         if optimise_thresholds and ((i + 1) % optim_interval == 0):
 
