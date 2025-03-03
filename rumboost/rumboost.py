@@ -2131,7 +2131,7 @@ class RUMBoost:
                 l_1 = l_1.cpu().numpy()
                 if torch.any(self.split_and_leaf_values[j]["leaves"][:index] * m < 0):
                     offset = torch.max(
-                        self.split_and_leaf_values[j]["leaves"][:index] * m
+                        -self.split_and_leaf_values[j]["leaves"][:index] * m
                     )
                     self.split_and_leaf_values[j]["leaves"][:index] += offset * m
                     offset = offset.cpu().numpy()
@@ -2141,7 +2141,7 @@ class RUMBoost:
                     )
                 if torch.any(self.split_and_leaf_values[j]["leaves"][index:] * m < 0):
                     offset = torch.max(
-                        self.split_and_leaf_values[j]["leaves"][index:] * m
+                        -self.split_and_leaf_values[j]["leaves"][index:] * m
                     )
                     self.split_and_leaf_values[j]["leaves"][index:] += offset * m
                     offset = offset.cpu().numpy()
@@ -2152,13 +2152,13 @@ class RUMBoost:
             else:
                 m = monotone_constraints[0]
                 if np.any(self.split_and_leaf_values[j]["leaves"][:index] * m < 0):
-                    offset = np.max(self.split_and_leaf_values[j]["leaves"][:index] * m)
+                    offset = np.max(-self.split_and_leaf_values[j]["leaves"][:index] * m)
                     self.split_and_leaf_values[j]["leaves"][:index] += offset * m
                     self.boosters[j].set_leaf_output(
                         self.boosters[j].num_trees() - 1, 0, l_0 + offset * m
                     )
                 if np.any(self.split_and_leaf_values[j]["leaves"][index:] * m < 0):
-                    offset = np.max(self.split_and_leaf_values[j]["leaves"][index:] * m)
+                    offset = np.max(-self.split_and_leaf_values[j]["leaves"][index:] * m)
                     self.split_and_leaf_values[j]["leaves"][index:] += offset * m
                     self.boosters[j].set_leaf_output(
                         self.boosters[j].num_trees() - 1, 1, l_1 + offset * m
@@ -3337,7 +3337,7 @@ def rum_train(
             rumb._monotonise_hess = rumb._monotonise_hess_relu
 
         optim_interval = params.get("optim_interval", 1)
-        optimise_ascs = all(rumb.boost_from_parameter_space) and optim_interval > 0
+        optimise_ascs = optim_interval > 0
 
         rumb.asc = np.zeros(rumb.num_classes)
 
