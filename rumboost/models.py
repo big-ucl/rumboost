@@ -3,7 +3,6 @@ import pandas as pd
 try:
     import biogeme.database as db
     import biogeme.biogeme as bio
-    import biogeme.logging as blog
     from biogeme.expressions import Beta
     from biogeme.models import (
         loglogit,
@@ -952,9 +951,6 @@ def LPMC_nested(dataset_train, for_prob=False):
 
     globals().update(database_train.variables)
 
-    logger = blog.get_screen_logger(level=blog.DEBUG)
-    logger.info("Nested LPMC")
-
     # several model specifications are available below - the best one is the uncommented one.
     # driving_percentage, congestion charge as a binary variable NEW PB 0.6730 with lr = 0.1
     MNL_beta_params_positive = ["B_car_ownership_Car", "B_driving_license_Car"]
@@ -1214,9 +1210,6 @@ def LPMC_nested_normalised(dataset_train, for_prob=False):
     database_train = db.Database("LTDS_train", dataset_train)
 
     globals().update(database_train.variables)
-
-    logger = blog.get_screen_logger(level=blog.DEBUG)
-    logger.info("Nested LPMC")
 
     # several model specifications are available below - the best one is the uncommented one.
     # driving_percentage, congestion charge as a binary variable NEW PB 0.6730 with lr = 0.1
@@ -2003,10 +1996,6 @@ def MTMC_lausanne_MNL(dataset_train: pd.DataFrame, for_prob=False, results=None)
     database = db.Database("mtmc_train", dataset_train)
     globals().update(database.variables)
 
-    # define level of verbosity
-    logger = blog.get_screen_logger(level=blog.DEBUG)
-    logger.info("LPMC MNL")
-
     alt = 88
 
     ASC_c = Beta("ASC_c", 0, None, None, 0)
@@ -2235,10 +2224,6 @@ def MTMC_lausanne_CNL(dataset_train: pd.DataFrame, for_prob=False, results=None)
     nest_east = MU_EAST, ALPHA_EAST
 
     nests = nest_car, nest_pt, nest_act, nest_west, nest_center, nest_east
-
-    # define level of verbosity
-    logger = blog.get_screen_logger(level=blog.DEBUG)
-    logger.info("LPMC CNL")
 
     # for predicting
     # if for_prob:
