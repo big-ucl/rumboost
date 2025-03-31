@@ -2758,22 +2758,7 @@ def rum_train(
             "Only one model specification can be used at a time. Choose between nested_logit, cross_nested_logit or ordinal_logit"
         )
 
-    # store utility function specifications
-    rumb.utility_functions = {u: [] for u in range(rumb.num_classes)}
-    for j, struct in enumerate(rumb.rum_structure):
-        for u in struct["utility"]:
-            rumb.utility_functions[u].append(j)
 
-    rumb.max_booster_to_update = params.get("max_booster_to_update", rumb.num_classes)
-    if rumb.max_booster_to_update < rumb.num_classes:
-        raise ValueError(
-            f"The maximum number of boosters to update must be at least equal to the number of classes ({rumb.num_classes})"
-        )
-    min_utility = min([len(u_idx) for u_idx in rumb.utility_functions.values()])
-    if rumb.max_booster_to_update > rumb.num_classes * min_utility:
-        raise ValueError(
-            f"The maximum number of boosters to update must be at most equal to the number of classes ({rumb.num_classes}) times the maximum number of boosters in the smallest utility function ({min_utility})"
-        )
 
     rumb.batch_size = params.get("batch_size", 0)
 
@@ -3036,6 +3021,23 @@ def rum_train(
         rumb.additional_params_idx.append(opt_mu_or_alpha_idx)
     else:
         opt_mu_or_alpha_idx = None
+
+    # store utility function specifications
+    rumb.utility_functions = {u: [] for u in range(rumb.num_classes)}
+    for j, struct in enumerate(rumb.rum_structure):
+        for u in struct["utility"]:
+            rumb.utility_functions[u].append(j)
+
+    rumb.max_booster_to_update = params.get("max_booster_to_update", rumb.num_classes)
+    if rumb.max_booster_to_update < rumb.num_classes:
+        raise ValueError(
+            f"The maximum number of boosters to update must be at least equal to the number of classes ({rumb.num_classes})"
+        )
+    min_utility = min([len(u_idx) for u_idx in rumb.utility_functions.values()])
+    if rumb.max_booster_to_update > rumb.num_classes * min_utility:
+        raise ValueError(
+            f"The maximum number of boosters to update must be at most equal to the number of classes ({rumb.num_classes}) times the maximum number of boosters in the smallest utility function ({min_utility})"
+        )
 
     if params.get("boost_from_parameter_space", []):
         if len(params["boost_from_parameter_space"]) != len(rumb.rum_structure):
