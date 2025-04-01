@@ -212,11 +212,6 @@ def _inner_predict_torch(
 
             return preds, None, None
 
-        if ord_model == "corn":
-            preds = _corn_preds_torch(raw_preds)
-
-            return preds, None, None
-
         if num_classes == 2:  # binary classification
             preds = torch.sigmoid(raw_preds)
 
@@ -275,11 +270,6 @@ def _inner_predict_torch_compiled(
         if thresholds is not None:
             if ord_model in ["proportional_odds", "coral"]:
                 preds = _threshold_preds_torch_compiled(raw_preds, thresholds)
-
-            return preds, None, None
-
-        if ord_model == "corn":
-            preds = _corn_preds_torch_compiled(raw_preds)
 
             return preds, None, None
 
@@ -598,59 +588,6 @@ def _threshold_preds_torch_compiled(raw_preds, thresholds):
     preds[:, 0] = 1 - sigmoids[:, 0]
     preds[:, 1:-1] = -torch.diff(sigmoids, dim=1)
     preds[:, -1] = sigmoids[:, -1]
-
-    return preds
-
-
-def _corn_preds_torch(raw_preds):
-    """
-    Compute ordinal predictions with the corn method.
-
-    Parameters
-    ----------
-    raw_preds :
-        The raw predictions from the booster
-
-    Returns
-    -------
-    preds :
-        The ordinal predictions
-    """
-    preds = torch.zeros(
-        raw_preds.shape[0], raw_preds.shape[1] + 1, device=raw_preds.device
-    )
-    sigmoid = torch.sigmoid(raw_preds)
-    cumul_preds = torch.cumprod(sigmoid, dim=1)
-    preds[:, 0] = 1 - cumul_preds[:, 0]
-    preds[:, 1:-1] = -torch.diff(cumul_preds, dim=1)
-    preds[:, -1] = cumul_preds[:, -1]
-
-    return preds
-
-
-@compile_decorator
-def _corn_preds_torch_compiled(raw_preds):
-    """
-    Compute ordinal predictions with the corn method.
-
-    Parameters
-    ----------
-    raw_preds :
-        The raw predictions from the booster
-
-    Returns
-    -------
-    preds :
-        The ordinal predictions
-    """
-    preds = torch.zeros(
-        raw_preds.shape[0], raw_preds.shape[1] + 1, device=raw_preds.device
-    )
-    sigmoid = torch.sigmoid(raw_preds)
-    cumul_preds = torch.cumprod(sigmoid, dim=1)
-    preds[:, 0] = 1 - cumul_preds[:, 0]
-    preds[:, 1:-1] = -torch.diff(cumul_preds, dim=1)
-    preds[:, -1] = cumul_preds[:, -1]
 
     return preds
 
@@ -1009,17 +946,14 @@ def _f_obj_cross_nested_torch(
         keepdim=True,
     )
 
-    # print(d2_pred_i_Vi)
     mask = torch.from_numpy(np.array(utility)).to(device)[None, :] == label[:, None]
-    grad = torch.where(
-        mask[:, :, None],
-        ((-1 / pred_i) * d_pred_i_Vi),
-        ((-1 / pred_i) * d_pred_i_Vj),
-    )
-    hess = torch.where(
-        mask[:, :, None],
-        ((-1 / pred_i**2) * (d2_pred_i_Vi * pred_i - d_pred_i_Vi**2)),
-        ((-1 / pred_i**2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj**2)),
+    grad = mask[:, :, None] * (((-1 / pred_i) * d_pred_i_Vi)) + (
+        1 - mask[:, :, None]
+    ) * (((-1 / pred_i) * d_pred_i_Vj))
+    hess = mask[:, :, None] * (
+        (-1 / pred_i**2) * (d2_pred_i_Vi * pred_i - d_pred_i_Vi**2)
+    ) + (1 - mask[:, :, None]) * (
+        (-1 / pred_i**2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj**2)
     )
     hess.mul_(factor)
 
@@ -1103,17 +1037,14 @@ def _f_obj_cross_nested_torch_compiled(
         keepdim=True,
     )
 
-    # print(d2_pred_i_Vi)
     mask = torch.from_numpy(np.array(utility)).to(device)[None, :] == label[:, None]
-    grad = torch.where(
-        mask[:, :, None],
-        ((-1 / pred_i) * d_pred_i_Vi),
-        ((-1 / pred_i) * d_pred_i_Vj),
-    )
-    hess = torch.where(
-        mask[:, :, None],
-        ((-1 / pred_i**2) * (d2_pred_i_Vi * pred_i - d_pred_i_Vi**2)),
-        ((-1 / pred_i**2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj**2)),
+    grad = mask[:, :, None] * (((-1 / pred_i) * d_pred_i_Vi)) + (
+        1 - mask[:, :, None]
+    ) * (((-1 / pred_i) * d_pred_i_Vj))
+    hess = mask[:, :, None] * (
+        (-1 / pred_i**2) * (d2_pred_i_Vi * pred_i - d_pred_i_Vi**2)
+    ) + (1 - mask[:, :, None]) * (
+        (-1 / pred_i**2) * (d2_pred_i_Vj * pred_i - d_pred_i_Vj**2)
     )
     hess.mul_(factor)
 
@@ -1126,40 +1057,37 @@ def _f_obj_proportional_odds_torch(
     raw_preds,
     thresholds,
 ):
-    raise NotImplementedError(
-        "The proportional odds loss is not yet implemented for torch tensors."
-    )
     if not torch_installed:
         raise ImportError(
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
 
     thresholds = torch.tensor(thresholds).to(raw_preds.device)
+    # add a zero
+    thresholds = torch.cat([thresholds, torch.tensor([0], device=raw_preds.device)])
     labels = labels.view(-1).int()
 
-    grad = torch.where(
-        labels == 0,
-        torch.sigmoid(raw_preds - thresholds[0]),
-        torch.where(
-            labels == thresholds.shape[0],
-            preds[:, -1] - 1,
-            torch.sigmoid(raw_preds - thresholds[None, labels - 1])
-            + torch.sigmoid(raw_preds - thresholds[None, labels])
-            - 1,
-        ),
+    grad = (
+        (labels == 0).float() * torch.sigmoid(raw_preds - thresholds[0])
+        + (labels == thresholds.shape[0]).float() * (preds[:, -1] - 1)
+        + ((labels > 0) & (labels < thresholds.shape[0])).float()
+        * (
+            torch.sigmoid(raw_preds - thresholds[labels - 1])
+            + torch.sigmoid(raw_preds - thresholds[labels])
+            - 1
+        )
     )
 
-    hess = torch.where(
-        labels == 0,
-        preds[:, 0] * torch.sigmoid(raw_preds - thresholds[0]),
-        torch.where(
-            labels == thresholds.shape[0],
-            preds[:, -1] * (1 - preds[:, -1]),
-            torch.sigmoid(raw_preds - thresholds[None, labels - 1])
-            * (1 - torch.sigmoid(raw_preds - thresholds[None, labels - 1]))
-            + torch.sigmoid(raw_preds - thresholds[None, labels])
-            * (1 - torch.sigmoid(raw_preds - thresholds[None, labels])),
-        ),
+    hess = (
+        (labels == 0).float() * preds[:, 0] * torch.sigmoid(raw_preds - thresholds[0])
+        + (labels == thresholds.shape[0]).float() * preds[:, -1] * (1 - preds[:, -1])
+        + ((labels > 0) & (labels < thresholds.shape[0])).float()
+        * (
+            torch.sigmoid(raw_preds - thresholds[labels - 1])
+            * (1 - torch.sigmoid(raw_preds - thresholds[labels - 1]))
+            + torch.sigmoid(raw_preds - thresholds[labels])
+            * (1 - torch.sigmoid(raw_preds - thresholds[labels]))
+        )
     )
 
     return grad, hess
@@ -1172,40 +1100,37 @@ def _f_obj_proportional_odds_torch_compiled(
     raw_preds,
     thresholds,
 ):
-    raise NotImplementedError(
-        "The proportional odds loss is not yet implemented for torch tensors."
-    )
     if not torch_installed:
         raise ImportError(
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
 
     thresholds = torch.tensor(thresholds).to(raw_preds.device)
+    # add a zero
+    thresholds = torch.cat([thresholds, torch.tensor([0], device=raw_preds.device)])
     labels = labels.view(-1).int()
 
-    grad = torch.where(
-        labels == 0,
-        torch.sigmoid(raw_preds - thresholds[0]),
-        torch.where(
-            labels == len(thresholds),
-            preds[:, -1] - 1,
+    grad = (
+        (labels == 0).float() * torch.sigmoid(raw_preds - thresholds[0])
+        + (labels == thresholds.shape[0]).float() * (preds[:, -1] - 1)
+        + ((labels > 0) & (labels < thresholds.shape[0])).float()
+        * (
             torch.sigmoid(raw_preds - thresholds[labels - 1])
             + torch.sigmoid(raw_preds - thresholds[labels])
-            - 1,
-        ),
+            - 1
+        )
     )
 
-    hess = torch.where(
-        labels == 0,
-        preds[:, 0] * torch.sigmoid(raw_preds - thresholds[0]),
-        torch.where(
-            labels == len(thresholds),
-            preds[:, -1] * (1 - preds[:, -1]),
+    hess = (
+        (labels == 0).float() * preds[:, 0] * torch.sigmoid(raw_preds - thresholds[0])
+        + (labels == thresholds.shape[0]).float() * preds[:, -1] * (1 - preds[:, -1])
+        + ((labels > 0) & (labels < thresholds.shape[0])).float()
+        * (
             torch.sigmoid(raw_preds - thresholds[labels - 1])
             * (1 - torch.sigmoid(raw_preds - thresholds[labels - 1]))
             + torch.sigmoid(raw_preds - thresholds[labels])
-            * (1 - torch.sigmoid(raw_preds - thresholds[labels])),
-        ),
+            * (1 - torch.sigmoid(raw_preds - thresholds[labels]))
+        )
     )
 
     return grad, hess
@@ -1216,9 +1141,10 @@ def _f_obj_coral_torch(
     raw_preds,
     thresholds,
 ):
-    raise NotImplementedError(
-        "The CORAL loss is not yet implemented for torch tensors."
-    )
+    if not torch_installed:
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
     raw_preds = raw_preds[:, None]
     thresholds = torch.tensor(thresholds).to(raw_preds.device)
 
@@ -1238,9 +1164,10 @@ def _f_obj_coral_torch_compiled(
     raw_preds,
     thresholds,
 ):
-    raise NotImplementedError(
-        "The CORAL loss is not yet implemented for torch tensors."
-    )
+    if not torch_installed:
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
     raw_preds = raw_preds[:, None]
     thresholds = torch.tensor(thresholds).to(raw_preds.device)
 
@@ -1250,55 +1177,6 @@ def _f_obj_coral_torch_compiled(
     grad = torch.sum(sigmoids - (labels[:, None] > classes[None, :]).float(), dim=1)
 
     hess = torch.sum(sigmoids * (1 - sigmoids), dim=1)
-
-    return grad, hess
-
-
-def _f_obj_corn_torch(
-    labels,
-    raw_preds,
-    j,
-):
-    raise NotImplementedError(
-        "The CORN loss is not yet implemented for torch tensors."
-    )
-    raw_preds = raw_preds[:, j]
-    sigmoids = torch.sigmoid(raw_preds)
-
-    grad = torch.where(
-        j < labels,
-        torch.tensor(0.0, device=labels.device),
-        sigmoids - (j > labels).float(),
-    )
-
-    hess = torch.where(
-        j < labels, torch.tensor(1.0, device=labels.device), sigmoids * (1 - sigmoids)
-    )
-
-    return grad, hess
-
-
-@compile_decorator
-def _f_obj_corn_torch_compiled(
-    labels,
-    raw_preds,
-    j,
-):
-    raise NotImplementedError(
-        "The CORN loss is not yet implemented for torch tensors."
-    )
-    raw_preds = raw_preds[:, j]
-    sigmoids = torch.sigmoid(raw_preds)
-
-    grad = torch.where(
-        j < labels,
-        torch.tensor(0.0, device=labels.device),
-        sigmoids - (j > labels).float(),
-    )
-
-    hess = torch.where(
-        j < labels, torch.tensor(1.0, device=labels.device), sigmoids * (1 - sigmoids)
-    )
 
     return grad, hess
 
@@ -1373,6 +1251,7 @@ def cross_entropy_torch_compiled(preds, labels):
         .numpy()
     )
 
+
 def binary_cross_entropy_torch(preds, label):
     """
     Compute binary cross entropy for given predictions and data.
@@ -1394,13 +1273,12 @@ def binary_cross_entropy_torch(preds, label):
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
     return (
-        -torch.mean(
-            label * torch.log(preds) + (1 - label) * torch.log(1 - preds)
-        )
+        -torch.mean(label * torch.log(preds) + (1 - label) * torch.log(1 - preds))
         .cpu()
         .type(torch.float32)
         .numpy()
     )
+
 
 @compile_decorator
 def binary_cross_entropy_torch_compiled(preds, label):
@@ -1424,12 +1302,11 @@ def binary_cross_entropy_torch_compiled(preds, label):
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
     return (
-        -torch.mean(
-            label * torch.log(preds) + (1 - label) * torch.log(1 - preds)
-        )
+        -torch.mean(label * torch.log(preds) + (1 - label) * torch.log(1 - preds))
         .cpu()
         .numpy()
     )
+
 
 def mse_torch(preds, target):
     """
@@ -1451,7 +1328,8 @@ def mse_torch(preds, target):
         raise ImportError(
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
-    return torch.mean((preds - target)**2).cpu().numpy()
+    return torch.mean((preds - target) ** 2).cpu().numpy()
+
 
 @compile_decorator
 def mse_torch_compiled(preds, target):
@@ -1474,4 +1352,4 @@ def mse_torch_compiled(preds, target):
         raise ImportError(
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
-    return torch.mean((preds - target)**2).cpu().numpy()
+    return torch.mean((preds - target) ** 2).cpu().numpy()
