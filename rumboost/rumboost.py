@@ -33,7 +33,6 @@ from rumboost.ordinal import (
     diff_to_threshold,
     threshold_to_diff,
     threshold_preds,
-    corn_preds,
     optimise_thresholds_coral,
     optimise_thresholds_proportional_odds,
 )
@@ -59,8 +58,6 @@ try:
         _f_obj_proportional_odds_torch_compiled,
         _f_obj_coral_torch,
         _f_obj_coral_torch_compiled,
-        _f_obj_corn_torch,
-        _f_obj_corn_torch_compiled,
         cross_entropy_torch,
         cross_entropy_torch_compiled,
         binary_cross_entropy_torch,
@@ -900,7 +897,8 @@ class RUMBoost:
         labels = self.labels[self.subsample_idx]
         preds = self._preds
         thresholds = self.thresholds
-        thresholds = np.append(thresholds, 0)
+        # add 0 to the end of thresholds to avoid index error, but not used for calculations
+        thresholds = np.append(thresholds, 0) 
         raw_preds = self.raw_preds[self.subsample_idx]
         grad = np.where(
             labels == 0,
@@ -996,116 +994,6 @@ class RUMBoost:
 
             grad = grad_rescaled
             hess = hess_rescaled
-
-        return grad, hess
-
-    @multiply_grad_hess_by_data
-    def f_obj_corn(self, _, __):
-        """
-        Objective function for an ordinal corn rumboost.
-
-        Returns
-        -------
-        grad : numpy array
-            The gradient of the conditional binary cross-entropy loss function with corn probabilities.
-        hess : numpy array
-            The hessian of the conditional binary cross-entropy loss function with corn probabilities (second derivative approximation rather than the hessian).
-        """
-        j = self._current_j  # jth booster
-        if self.device is not None:
-            if self.torch_compile:
-                grad, hess = _f_obj_corn_torch_compiled(
-                    self.labels[self.subsample_idx],
-                    self.raw_preds.view(-1, self.num_obs[0]).T[self.subsample_idx, :],
-                    j,
-                )
-            else:
-                grad, hess = _f_obj_corn_torch(
-                    self.labels[self.subsample_idx],
-                    self.raw_preds.view(-1, self.num_obs[0]).T[self.subsample_idx, :],
-                    j,
-                )
-
-            grad = grad.cpu().numpy()
-            hess = hess.cpu().numpy()
-
-            if self.subsample_idx.shape[0] < self.num_obs[0]:
-                grad_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
-                hess_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
-                grad_rescaled[self.subsample_idx.cpu().numpy(), :] = grad
-                hess_rescaled[self.subsample_idx.cpu().numpy(), :] = hess
-
-                grad = grad_rescaled
-                hess = hess_rescaled
-
-            if (
-                not self.rum_structure[j]["shared"]
-                and len(self.rum_structure[j]["utility"]) > 1
-            ):
-                grad = grad.sum(axis=1)
-                hess = hess.sum(axis=1)
-            elif len(self.rum_structure[j]["variables"]) < len(
-                self.rum_structure[j]["utility"]
-            ):
-                grad = grad.T.reshape(
-                    int(
-                        len(self.rum_structure[j]["utility"])
-                        / len(self.rum_structure[j]["variables"])
-                    ),
-                    -1,
-                ).sum(axis=0)
-                hess = hess.T.reshape(
-                    int(
-                        len(self.rum_structure[j]["utility"])
-                        / len(self.rum_structure[j]["variables"])
-                    ),
-                    -1,
-                ).sum(axis=0)
-
-            return grad.reshape(-1, order="F"), hess.reshape(-1, order="F")
-
-        labels = self.labels[self.subsample_idx]
-        raw_preds = self.raw_preds.reshape((self.num_obs[0], -1), order="F")[
-            self.subsample_idx, :
-        ][:, j]
-        sigmoids = expit(raw_preds)
-
-        grad = np.where(j < labels, 0, sigmoids - (j > labels))
-
-        hess = np.where(j < labels, 1, sigmoids * (1 - sigmoids))
-
-        if self.subsample_idx.shape[0] < self.num_obs[0]:
-            grad_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
-            hess_rescaled = np.zeros((self.num_obs[0], len(self.thresholds) - 1))
-            grad_rescaled[self.subsample_idx.cpu().numpy(), :] = grad
-            hess_rescaled[self.subsample_idx.cpu().numpy(), :] = hess
-
-            grad = grad_rescaled
-            hess = hess_rescaled
-
-        if (
-            not self.rum_structure[j]["shared"]
-            and len(self.rum_structure[j]["utility"]) > 1
-        ):
-            grad = grad.sum(axis=1)
-            hess = hess.sum(axis=1)
-        elif len(self.rum_structure[j]["variables"]) < len(
-            self.rum_structure[j]["utility"]
-        ):
-            grad = grad.T.reshape(
-                int(
-                    len(self.rum_structure[j]["utility"])
-                    / len(self.rum_structure[j]["variables"])
-                ),
-                -1,
-            ).sum(axis=0)
-            hess = hess.T.reshape(
-                int(
-                    len(self.rum_structure[j]["utility"])
-                    / len(self.rum_structure[j]["variables"])
-                ),
-                -1,
-            ).sum(axis=0)
 
         return grad, hess
 
@@ -1292,11 +1180,6 @@ class RUMBoost:
 
                 return preds
 
-            if self.ord_model == "corn":
-                preds = corn_preds(raw_preds)
-
-                return preds
-
             if self.num_classes == 2:  # binary classification
                 preds = expit(raw_preds)
 
@@ -1457,11 +1340,6 @@ class RUMBoost:
             if self.thresholds is not None:
                 if self.ord_model in ["proportional_odds", "coral"]:
                     preds = threshold_preds(raw_preds, self.thresholds)
-
-                return preds
-
-            if self.ord_model == "corn":
-                preds = corn_preds(raw_preds)
 
                 return preds
 
@@ -2521,11 +2399,7 @@ def rum_train(
                     - 'model': str, default = 'proportional_odds'
                         The type of ordinal model. It can be:
                             - 'proportional_odds': the proportional odds model.
-                            - 'unimodal_poisson': the unimodal poisson model.
-                            - 'unimodal_binomial': the unimodal binomial model.
                             - 'coral': a rank consistent binary decomposition model.
-                            - 'corn': a more advanced version of the coral model,
-                                      allowing for alternative specific utility functions.
                     - 'optim_interval': int, optional (default = 20)
                         Interval at which the thresholds are optimised. This is only
                         used for the proportional odds and the coral models. If 0,
@@ -2914,26 +2788,10 @@ def rum_train(
         # some checks
         if ordinal_model not in [
             "proportional_odds",
-            "unimodal_poisson",
-            "unimodal_binomial",
             "coral",
-            "corn",
         ]:
             raise ValueError(
-                "Ordinal logit model must be proportional_odds, unimodal_poisson, unimodal_binomial, coral or corn."
-            )
-        if (
-            set([u for rum in rumb.rum_structure for u in rum["utility"]]) != {0}
-            and ordinal_model != "corn"
-        ):  # check if all utility functions are the same
-            raise ValueError(
-                "Ordinal logit requires the same utility function for all parameter ensembles or use the CORN method"
-            )
-        if ordinal_model == "corn" and rumb.num_classes - 1 != len(
-            set([u for rum in rumb.rum_structure for u in rum["utility"]])
-        ):
-            raise ValueError(
-                "Ordinal logit with the CORN method requires a utility function for each class"
+                "Ordinal logit model must be proportional_odds or coral."
             )
         if rumb.num_classes == 2:
             raise ValueError("Ordinal logit requires a minimum of 3 classes")
@@ -2947,16 +2805,6 @@ def rum_train(
             bounds = [(None, None)]
             bounds.extend([(0, None)] * (rumb.num_classes - 2))
             rumb.num_classes = 1
-        elif ordinal_model == "unimodal_poisson":
-            f_obj = rumb.f_obj_unimodal_poisson
-            optimise_thresholds = False
-            rumb.thresholds = None
-            rumb.num_classes = 1
-        elif ordinal_model == "unimodal_binomial":
-            f_obj = rumb.f_obj_unimodal_binomial
-            optimise_thresholds = False
-            rumb.thresholds = None
-            rumb.num_classes = 1
         elif ordinal_model == "coral":
             f_obj = rumb.f_obj_coral
             optimise_thresholds = optim_interval > 0
@@ -2964,11 +2812,6 @@ def rum_train(
             bounds = [(None, None)]
             bounds.extend([(0, None)] * (rumb.num_classes - 2))
             rumb.num_classes = 1
-        elif ordinal_model == "corn":
-            f_obj = rumb.f_obj_corn
-            optimise_thresholds = False
-            rumb.thresholds = None
-            rumb.num_classes = rumb.num_classes - 1
         rumb.ord_model = ordinal_model
 
         # no nesting structure
