@@ -1353,3 +1353,84 @@ def mse_torch_compiled(preds, target):
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
     return torch.mean((preds - target) ** 2).cpu().numpy()
+
+
+def coral_eval_torch(
+    preds,
+    labels,
+):
+    """
+    Compute the coral evaluation function.
+
+    Parameters
+    ----------
+    preds : torch.Tensor
+        The predictions from the booster
+    labels : torch.Tensor
+        The labels of the original dataset, as int.
+    Returns
+    -------
+    float
+        The coral evaluation function, as float.
+    """
+
+    if not torch_installed:
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
+    sigmoids = -torch.cumsum(preds, dim=1)[:, :-1] + 1
+    classes = torch.arange(preds.shape[1] - 1, device=preds.device)
+    levels = labels[:, None] > classes[None, :]
+
+    return (
+        -torch.mean(
+            torch.mean(
+                torch.log(sigmoids) * levels.float()
+                + torch.log(1 - sigmoids) * (1 - levels.float()),
+                dim=1,
+            )
+        )
+        .cpu()
+        .numpy()
+    )
+
+
+@compile_decorator
+def coral_eval_torch_compiled(
+    preds,
+    labels,
+):
+    """
+    Compute the coral evaluation function.
+
+    Parameters
+    ----------
+    preds : torch.Tensor
+        The predictions from the booster
+    labels : torch.Tensor
+        The labels of the original dataset, as int.
+    Returns
+    -------
+    float
+        The coral evaluation function, as float.
+    """
+
+    if not torch_installed:
+        raise ImportError(
+            "Pytorch is not installed. Please install it to run rumboost on torch tensors."
+        )
+    sigmoids = -torch.cumsum(preds, dim=1)[:, :-1] + 1
+    classes = torch.arange(preds.shape[1] - 1, device=preds.device)
+    levels = labels[:, None] > classes[None, :]
+
+    return (
+        -torch.mean(
+            torch.mean(
+                torch.log(sigmoids) * levels.float()
+                + torch.log(1 - sigmoids) * (1 - levels.float()),
+                dim=1,
+            )
+        )
+        .cpu()
+        .numpy()
+    )
