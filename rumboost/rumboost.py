@@ -23,7 +23,7 @@ from lightgbm.basic import (
 )
 from lightgbm.compat import SKLEARN_INSTALLED, _LGBMGroupKFold, _LGBMStratifiedKFold
 
-from rumboost.metrics import cross_entropy, binary_cross_entropy, mse, safe_softplus
+from rumboost.metrics import cross_entropy, binary_cross_entropy, mse, coral_eval
 from rumboost.nested_cross_nested import (
     nest_probs,
     cross_nested_probs,
@@ -64,6 +64,8 @@ try:
         binary_cross_entropy_torch_compiled,
         mse_torch,
         mse_torch_compiled,
+        coral_eval_torch,
+        coral_eval_torch_compiled,
     )
 
     torch_installed = True
@@ -898,7 +900,7 @@ class RUMBoost:
         preds = self._preds
         thresholds = self.thresholds
         # add 0 to the end of thresholds to avoid index error, but not used for calculations
-        thresholds = np.append(thresholds, 0) 
+        thresholds = np.append(thresholds, 0)
         raw_preds = self.raw_preds[self.subsample_idx]
         grad = np.where(
             labels == 0,
@@ -1767,13 +1769,17 @@ class RUMBoost:
             else:
                 m = monotone_constraints[0]
                 if np.any(self.split_and_leaf_values[j]["leaves"][:index] * m < 0):
-                    offset = np.max(-self.split_and_leaf_values[j]["leaves"][:index] * m)
+                    offset = np.max(
+                        -self.split_and_leaf_values[j]["leaves"][:index] * m
+                    )
                     self.split_and_leaf_values[j]["leaves"][:index] += offset * m
                     self.boosters[j].set_leaf_output(
                         self.boosters[j].num_trees() - 1, 0, l_0 + offset * m
                     )
                 if np.any(self.split_and_leaf_values[j]["leaves"][index:] * m < 0):
-                    offset = np.max(-self.split_and_leaf_values[j]["leaves"][index:] * m)
+                    offset = np.max(
+                        -self.split_and_leaf_values[j]["leaves"][index:] * m
+                    )
                     self.split_and_leaf_values[j]["leaves"][index:] += offset * m
                     self.boosters[j].set_leaf_output(
                         self.boosters[j].num_trees() - 1, 1, l_1 + offset * m
@@ -2089,7 +2095,11 @@ class RUMBoost:
                     ),
                     "num_classes": self.num_classes,
                     "num_obs": self.num_obs,
-                    "labels": self.labels.cpu().numpy().tolist(),
+                    "labels": (
+                        self.labels.cpu().numpy().tolist()
+                        if self.labels is not None
+                        else None
+                    ),
                     "labels_j": labels_j_numpy,
                     "valid_labels": valid_labels_numpy,
                     "device": "cuda" if self.device.type == "cuda" else "cpu",
@@ -2141,7 +2151,7 @@ class RUMBoost:
                     ),
                     "num_classes": self.num_classes,
                     "num_obs": self.num_obs,
-                    "labels": self.labels.tolist(),
+                    "labels": self.labels.tolist() if self.labels is not None else None,
                     "labels_j": labels_j_list,
                     "valid_labels": valid_labs,
                     "device": None,
@@ -2532,6 +2542,10 @@ def rum_train(
     )
     if params["early_stopping_round"] is None:
         params["early_stopping_round"] = 10000
+    if "eval_func" in params:
+        eval_func = params.pop("eval_func")
+    else:
+        eval_func = None
     first_metric_only = params.get("first_metric_only", False)
 
     if num_boost_round <= 0:
@@ -2631,8 +2645,6 @@ def rum_train(
         raise ValueError(
             "Only one model specification can be used at a time. Choose between nested_logit, cross_nested_logit or ordinal_logit"
         )
-
-
 
     rumb.batch_size = params.get("batch_size", 0)
 
@@ -2790,9 +2802,7 @@ def rum_train(
             "proportional_odds",
             "coral",
         ]:
-            raise ValueError(
-                "Ordinal logit model must be proportional_odds or coral."
-            )
+            raise ValueError("Ordinal logit model must be proportional_odds or coral.")
         if rumb.num_classes == 2:
             raise ValueError("Ordinal logit requires a minimum of 3 classes")
         if "model" not in model_specification["ordinal_logit"]:
@@ -3103,14 +3113,16 @@ def rum_train(
                 rumb.subsample_idx_valid = np.arange(rumb.num_obs[1])
 
     # setting up eval function
-    if "eval_func" in params:
-        rumb.eval_func = params["eval_func"]
+    if eval_func is not None:
+        rumb.eval_func = eval_func
     elif torch_tensors:
         if rumb.torch_compile:
             if rumb.num_classes == 2:
                 eval_func = binary_cross_entropy_torch_compiled
             elif rumb.num_classes == 1 and not rumb.ord_model:
                 eval_func = mse_torch_compiled
+            elif rumb.ord_model == "coral":
+                eval_func = coral_eval_torch_compiled
             else:
                 eval_func = cross_entropy_torch_compiled
         else:
@@ -3118,6 +3130,8 @@ def rum_train(
                 eval_func = binary_cross_entropy_torch
             elif rumb.num_classes == 1 and not rumb.ord_model:
                 eval_func = mse_torch
+            elif rumb.ord_model == "coral":
+                eval_func = coral_eval_torch
             else:
                 eval_func = cross_entropy_torch
     else:
@@ -3125,6 +3139,8 @@ def rum_train(
             eval_func = binary_cross_entropy
         elif rumb.num_classes == 1 and not rumb.ord_model:
             eval_func = mse
+        elif rumb.ord_model == "coral":
+            eval_func = coral_eval
         else:
             eval_func = cross_entropy
 
@@ -3302,11 +3318,11 @@ def rum_train(
         if optimise_ascs and ((i + 1) % optim_interval == 0):
             if rumb.device is not None:
                 raw_preds = (
-                    rumb.raw_preds.view(-1, rumb.num_obs[0])
-                    .T[rumb.subsample_idx, :]
+                    rumb.raw_preds.view(-1, rumb.num_obs[0]).T[
+                        rumb.subsample_idx, :
+                    ]
                     .cpu()
                     .numpy()
-                    .reshape((rumb.num_obs[0], -1), order="F")
                 )
                 labels = rumb.labels[rumb.subsample_idx].cpu().numpy()
                 ascs = rumb.asc.cpu().numpy()

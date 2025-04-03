@@ -101,10 +101,10 @@ def weighted_binary_cross_entropy(preds, labels):
     Cross entropy : float
         The negative cross-entropy, as float.
     """
-    classes = np.arange(np.unique(labels).shape[0] - 1)
+    classes = np.arange(preds.shape[1])
     binary_labels = labels[:, None] > classes[None, :]
     return -np.mean(
-        np.sum(
+        np.mean(
             binary_labels * np.log(preds) + (1 - binary_labels) * np.log(1 - preds),
             axis=1,
         )
@@ -129,3 +129,24 @@ def safe_softplus(x, beta = 1, threshold = 20):
         The softplus function applied to x.
     """
     return np.where(beta * x > threshold, x, (1 / beta) * np.logaddexp(0, beta * x))
+
+def coral_eval(preds, labels):
+    """
+    Evaluate the Coral model using the multilabel binary cross-entropy loss function.
+
+    Parameters
+    ----------
+    preds : np.array
+        The predictions of the model.
+    labels : np.array
+        The labels of the dataset.
+
+    Returns
+    -------
+    loss : float
+        The cross-entropy loss.
+    """
+    sigmoids = - np.cumsum(preds, axis=1)[:, :-1] + 1
+    classes = np.arange(preds.shape[1] - 1)
+    levels = labels[:, None] > classes[None, :]
+    return - np.mean(np.log(sigmoids) * levels + np.log(1 - sigmoids) * (1 - levels), axis=1).mean()
