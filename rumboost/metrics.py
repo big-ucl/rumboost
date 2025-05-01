@@ -102,7 +102,7 @@ def weighted_binary_cross_entropy(logits, labels):
         The negative cross-entropy, as float.
     """
     binary_labels = labels.reshape(-1, 1) > np.arange(logits.shape[1])
-    logits_exp = np.log(1 + np.exp(logits)) 
+    logits_exp = np.logaddexp(0, logits)
     loss = (1 - binary_labels) * logits -logits_exp
 
     return -np.mean(loss)
