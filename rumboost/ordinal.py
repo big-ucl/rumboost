@@ -108,8 +108,8 @@ def optimise_thresholds_coral(thresh_diff, labels, raw_preds):
     """
 
     threshold = diff_to_threshold(thresh_diff)
-    sigmoids = expit(raw_preds - threshold)
+    logits = -raw_preds + threshold.reshape(1, -1)
 
-    loss = weighted_binary_cross_entropy(sigmoids, labels)
+    loss = weighted_binary_cross_entropy(logits, labels)
 
     return loss
