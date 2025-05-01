@@ -2441,7 +2441,7 @@ def rum_train(
                         It means that the GBDT algorithm will ouput betas instead of piece-wise constant utility
                         values. The resulting utility functions will be piece-wise linear. Monotonicity
                         is not guaranteed in this case and only one variable per parameter ensemble is allowed.
-                    - 'optim_interval': int, optional (default = 1)
+                    - 'optim_interval': int, optional (default = 20)
                         If all the ensembles are boosted from the parameter space, the interval at which the
                         ASCs are optimised. If 0, the ASCs are fixed.
                     - 'save_model_interval': int, optional (default = 0)
@@ -2531,7 +2531,8 @@ def rum_train(
                     - 'optim_interval': int, optional (default = 20)
                         Interval at which the thresholds are optimised. This is only
                         used for the proportional odds and the coral models. If 0,
-                        the thresholds are fixed.
+                        the thresholds are fixed. For ordinal models, the thresholds
+                        are optimised from the first iteration.
 
     num_boost_round : int, optional (default = 100)
         Number of boosting iterations.
