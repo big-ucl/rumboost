@@ -25,6 +25,7 @@ experiment/
 myriad/
 swiss_model_analysis.*
 a lot of*
+cubic*
 
 #vs_code
 *.deb
