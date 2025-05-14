@@ -18,7 +18,9 @@ For more details, you can refer to our [paper](https://doi.org/10.1016/j.trc.202
 
 ## Installation
 
-RUMBoost is launched on [pypi](https://pypi.org/project/rumboost/). You can install it with the following command:
+To use the latest version of RUMBoost, we recommend cloning this repository and installing the requirements in a separate environment.
+
+An oldest version of RUMBoost is also available on [pypi](https://pypi.org/project/rumboost/). All the resources (examples, docs and requirements) related to this version are in the [commit associated with the release](https://github.com/big-ucl/rumboost/tree/v1.0.2). You can install RUMBoost from PyPI with the following command:
 
 `pip install rumboost`
 
