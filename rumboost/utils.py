@@ -1,6 +1,6 @@
 import numpy as np
-from rumboost.metrics import cross_entropy
-from scipy.special import softmax
+from rumboost.metrics import cross_entropy, binary_cross_entropy
+from scipy.special import softmax, expit
 
 def optimise_asc(asc, raw_preds, labels):
     """
@@ -18,11 +18,15 @@ def optimise_asc(asc, raw_preds, labels):
     Returns
     -------
     asc : np.array
-        The optimised ASC parameters.
+    The optimised ASC parameters.
     """
     raw_preds_asc = raw_preds + asc
-    new_preds = softmax(raw_preds_asc, axis=1)
-    new_ce = cross_entropy(new_preds, labels)
+    if len(np.unique(labels)) == 2:
+        new_preds = expit(raw_preds_asc)
+        new_ce = binary_cross_entropy(new_preds, labels)
+    else:
+        new_preds = softmax(raw_preds_asc, axis=1)
+        new_ce = cross_entropy(new_preds, labels)
 
     return new_ce
     

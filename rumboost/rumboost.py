@@ -36,7 +36,7 @@ from rumboost.ordinal import (
     optimise_thresholds_coral,
     optimise_thresholds_proportional_odds,
 )
-
+from rumboost.constant_parameter import Constant
 from rumboost.utils import optimise_asc, _check_rum_structure
 
 try:
@@ -1169,7 +1169,9 @@ class RUMBoost:
                                 "monotone_constraints"
                             ][0],
                         )
-                        * data.get_data()[self.rum_structure[k]["endogenous_variable"]].values
+                        * data.get_data()[
+                            self.rum_structure[k]["endogenous_variable"]
+                        ].values
                     )
                     if "endogenous_variable" in self.rum_structure[k].keys()
                     else booster.predict(
@@ -1264,12 +1266,15 @@ class RUMBoost:
         # using pytorch if required
         if self.device is not None:
             if data_idx == 0:
-                raw_preds = (
-                    self.raw_preds.view(-1, self.num_obs[data_idx]).T[
-                        self.subsample_idx, :
-                    ]
-                    + self.asc
-                )
+                if self.num_classes == 2:
+                    raw_preds = self.raw_preds + self.asc
+                else:
+                    raw_preds = (
+                        self.raw_preds.view(-1, self.num_obs[data_idx]).T[
+                            self.subsample_idx, :
+                        ]
+                        + self.asc
+                    )
             else:
                 if (
                     self.num_classes == 2
@@ -1351,12 +1356,16 @@ class RUMBoost:
 
         # reshaping raw predictions into num_obs, num_classes array
         if data_idx == 0:
-            raw_preds = (
-                self.raw_preds.reshape((self.num_obs[data_idx], -1), order="F")[
-                    self.subsample_idx, :
-                ]
-                + self.asc
-            )
+            if self.num_classes == 2:
+                raw_preds = self.raw_preds + self.asc
+            else:
+                # reshaping raw predictions into num_obs, num_classes array
+                raw_preds = (
+                    self.raw_preds.reshape((self.num_obs[data_idx], -1), order="F")[
+                        self.subsample_idx, :
+                    ]
+                    + self.asc
+                )
         else:
             if self.num_classes == 2:  # binary classification requires only one column
                 raw_preds = np.zeros(self.num_obs[data_idx])
@@ -1767,13 +1776,19 @@ class RUMBoost:
             The indices of the best booster(s) chosen to be updated.
         """
         # reinitialise raw predictions
-        if self.device is not None:
-            self.raw_preds = torch.zeros(
-                self.num_obs[0] * self.num_classes,
-                device=self.device,
-            )
+        if self.num_classes == 2:
+            if self.device is not None:
+                self.raw_preds = torch.zeros(self.num_obs[0], device=self.device)
+            else:
+                self.raw_preds = np.zeros(self.num_obs[0])
         else:
-            self.raw_preds = np.zeros(self.num_obs[0] * self.num_classes)
+            if self.device is not None:
+                self.raw_preds = torch.zeros(
+                    self.num_obs[0] * self.num_classes,
+                    device=self.device,
+                )
+            else:
+                self.raw_preds = np.zeros(self.num_obs[0] * self.num_classes)
 
         # add all ensembles prediction to raw utility predictions
         for j, booster in enumerate(self.boosters):
@@ -1847,6 +1862,13 @@ class RUMBoost:
             The leaf value of the left child.
         l_1 : float
             The leaf value of the right child.
+
+        Returns
+        -------
+        l_0 : float
+            The new leaf value of the left child, respecting monotonicity constraints.
+        l_1 : float
+            The new leaf value of the right child, respecting monotonicity constraints.
         """
         monotone_constraints = self.rum_structure[j]["boosting_params"].get(
             "monotone_constraints", [0]
@@ -1866,6 +1888,7 @@ class RUMBoost:
                     self.boosters[j].set_leaf_output(
                         self.boosters[j].num_trees() - 1, 0, l_0 + offset * m_copy
                     )
+                    l_0 = torch.tensor(l_0 + offset * m_copy).to(self.device)
                 if torch.any(self.split_and_leaf_values[j]["leaves"][index:] * m < 0):
                     offset = torch.max(
                         -self.split_and_leaf_values[j]["leaves"][index:] * m
@@ -1876,6 +1899,8 @@ class RUMBoost:
                     self.boosters[j].set_leaf_output(
                         self.boosters[j].num_trees() - 1, 1, l_1 + offset * m
                     )
+                    l_1 = torch.tensor(l_1 + offset * m).to(self.device)
+
             else:
                 m = monotone_constraints[0]
                 if np.any(self.split_and_leaf_values[j]["leaves"][:index] * m < 0):
@@ -1886,6 +1911,7 @@ class RUMBoost:
                     self.boosters[j].set_leaf_output(
                         self.boosters[j].num_trees() - 1, 0, l_0 + offset * m
                     )
+                    l_0 = l_0 + offset * m
                 if np.any(self.split_and_leaf_values[j]["leaves"][index:] * m < 0):
                     offset = np.max(
                         -self.split_and_leaf_values[j]["leaves"][index:] * m
@@ -1894,6 +1920,9 @@ class RUMBoost:
                     self.boosters[j].set_leaf_output(
                         self.boosters[j].num_trees() - 1, 1, l_1 + offset * m
                     )
+                    l_1 = l_1 + offset * m
+
+        return l_0, l_1
 
     def _gather_split_info(self, booster):
         """
@@ -1920,14 +1949,25 @@ class RUMBoost:
             elif "leaf_value" in root:  # leaf
                 leaf_values.append(root["leaf_value"])
                 leaf_id.append(root["leaf_index"] if "leaf_index" in root else -1)
+                gain.append(root["leaf_value"] ** 2 * root["leaf_weight"])
 
         model = booster.dump_model()
         last_tree = model["tree_info"][-1]
         split_values: List[float] = []
         leaf_values: List[float] = []
+        gain: List[float] = []
         tree_id = last_tree["tree_index"]
         leaf_id = []
         add(last_tree["tree_structure"])
+
+        # if gain[0] > gain[1]:
+        #     leaf_values[0] = -leaf_values[0]
+        #     leaf_values[1] = 0
+        #     booster.set_leaf_output(tree_id, leaf_id[1], 0)
+        #     booster.set_leaf_output(tree_id, leaf_id[0], leaf_values[0])
+        # else:
+        #     leaf_values[0] = 0
+        #     booster.set_leaf_output(tree_id, leaf_id[0], 0)
 
         booster.set_leaf_output(tree_id, leaf_id[0], -leaf_values[0])
 
@@ -1966,7 +2006,13 @@ class RUMBoost:
                     self.split_and_leaf_values[j]["leaves"][:index] += l_0
                     self.split_and_leaf_values[j]["leaves"][index:] += l_1
                     # check and ensure monotonicity
-                    self._check_leaves_monotonicity(j, index, l_0, l_1)
+                    l_0, l_1 = self._check_leaves_monotonicity(j, index, l_0, l_1)
+
+                    # self.split_and_leaf_values[j]["constants"] = torch.cat(
+                    #     self.split_and_leaf_values[j]["constants"][:index] + l_1 * s,
+                    #     self.split_and_leaf_values[j]["constants"][index:]
+                    #     + l_0 * s,
+                    # )
                 else:
                     index = torch.searchsorted(
                         self.split_and_leaf_values[j]["splits"], s
@@ -1986,19 +2032,44 @@ class RUMBoost:
                         )
                     )
                     # check and ensure monotonicity
-                    self._check_leaves_monotonicity(j, index, l_0, l_1)
+                    l_0, l_1 = self._check_leaves_monotonicity(j, index, l_0, l_1)
 
-                self.split_and_leaf_values[j]["constants"] = torch.cat(
-                    (
-                        torch.zeros(1, device=self.device),
-                        torch.cumsum(
-                            self.split_and_leaf_values[j]["leaves"]
-                            * torch.diff(self.split_and_leaf_values[j]["splits"]),
-                            dim=0,
-                        ),
-                    ),
-                    dim=0,
+                    # self.split_and_leaf_values[j]["constants"] = torch.cat(
+                    #     self.split_and_leaf_values[j]["constants"][:index] + l_1 * s,
+                    #     self.split_and_leaf_values[j]["constants"][index],
+                    #     self.split_and_leaf_values[j]["constants"][index:]
+                    #     + l_0 * s,
+                    # )
+
+                indices = torch.arange(
+                    self.split_and_leaf_values[j]["splits"].shape[0],
+                    device=self.device,
                 )
+                indices_l = (indices[None, :] <= indices[:, None]).T
+                indices_r = (indices[None, :] >= indices[:, None]).T
+                splits = self.split_and_leaf_values[j]["splits"]
+                leaves = self.split_and_leaf_values[j]["leaves"]
+                left_constants = splits * torch.cat(
+                    (leaves, torch.zeros(1, device=self.device))
+                )
+                right_constants = splits * torch.cat(
+                    (torch.zeros(1, device=self.device), leaves)
+                )
+                self.split_and_leaf_values[j]["value_at_splits"] = (
+                    left_constants * indices_l + right_constants * indices_r
+                ).sum(axis=1)
+
+                # self.split_and_leaf_values[j]["value_at_splits"] = torch.cat(
+                #     (
+                #         torch.zeros(1, device=self.device),
+                #         torch.cumsum(
+                #             self.split_and_leaf_values[j]["leaves"]
+                #             * torch.diff(self.split_and_leaf_values[j]["splits"]),
+                #             dim=0,
+                #         ),
+                #     ),
+                #     dim=0,
+                # ) + self.split_and_leaf_values[j]["constants"]
             else:
                 l_0 = leaf_values[0]
                 l_1 = leaf_values[1]
@@ -2009,7 +2080,7 @@ class RUMBoost:
                     self.split_and_leaf_values[j]["leaves"][:index] += l_0
                     self.split_and_leaf_values[j]["leaves"][index:] += l_1
                     # check and ensure monotonicity
-                    self._check_leaves_monotonicity(j, index, l_0, l_1)
+                    l_0, l_1 = self._check_leaves_monotonicity(j, index, l_0, l_1)
                 else:
                     index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
                     self.split_and_leaf_values[j]["splits"] = np.insert(
@@ -2022,7 +2093,7 @@ class RUMBoost:
                         )
                     )
                     # check and ensure monotonicity
-                    self._check_leaves_monotonicity(j, index, l_0, l_1)
+                    l_0, l_1 = self._check_leaves_monotonicity(j, index, l_0, l_1)
 
                 self.split_and_leaf_values[j]["constants"] = np.cumsum(
                     self.split_and_leaf_values[j]["leaves"]
@@ -2032,7 +2103,7 @@ class RUMBoost:
     def _linear_predict(self, j, data):
         """Predict the linear part of the utility function."""
         sp = self.split_and_leaf_values[j]["splits"]
-        csts = self.split_and_leaf_values[j]["constants"]
+        csts = self.split_and_leaf_values[j]["value_at_splits"]
         lvs = self.split_and_leaf_values[j]["leaves"]
         if self.device is not None:
             data_t = torch.from_numpy(data).to(self.device)
@@ -2043,7 +2114,8 @@ class RUMBoost:
             constants = csts[indices]
             distances = data_t - sp[indices]
             if distances.shape[0] == self.num_obs[0]:
-                self.distances[j] = distances.cpu().numpy()
+                # self.distances[j] = distances.cpu().numpy()
+                self.distances[j] = data
             preds = constants + distances * lvs[indices]
         else:
             indices = np.searchsorted(sp, data) - 1  # need i-1 to get the correct index
@@ -2051,7 +2123,8 @@ class RUMBoost:
             constants = csts[indices]
             distances = data - sp[indices]
             if distances.shape[0] == self.num_obs[0]:
-                self.distances[j] = distances
+                # self.distances[j] = distances
+                self.distances[j] = data
             preds = constants + distances * (csts[indices + 1] - constants) / (
                 sp[indices + 1] - sp[indices]
             )
@@ -2176,6 +2249,8 @@ class RUMBoost:
                     k: {
                         "splits": v["splits"].cpu().numpy().tolist(),
                         "leaves": v["leaves"].cpu().numpy().tolist(),
+                        "constants": v["constants"].cpu().numpy().tolist(),
+                        "value_at_split": v["value_at_split"].cpu().numpy().tolist(),
                     }
                     for k, v in self.split_and_leaf_values.items()
                 }
@@ -2238,6 +2313,8 @@ class RUMBoost:
                     k: {
                         "splits": v["splits"].tolist(),
                         "leaves": v["leaves"].tolist(),
+                        "constants": v["constants"].tolist(),
+                        "value_at_split": v["value_at_split"].tolist(),
                     }
                     for k, v in self.split_and_leaf_values.items()
                 }
@@ -2995,20 +3072,31 @@ def rum_train(
         opt_mu_or_alpha_idx = None
 
     # store utility function specifications
-    rumb.utility_functions = {u: [] for u in range(rumb.num_classes)}
+    rumb.utility_functions = {}
     for j, struct in enumerate(rumb.rum_structure):
         for u in struct["utility"]:
+            if u not in rumb.utility_functions:
+                rumb.utility_functions[u] = []
             rumb.utility_functions[u].append(j)
 
-    rumb.max_booster_to_update = params.get("max_booster_to_update", rumb.num_classes)
-    if rumb.max_booster_to_update < rumb.num_classes:
-        raise ValueError(
-            f"The maximum number of boosters to update must be at least equal to the number of classes ({rumb.num_classes})"
+    if rumb.num_classes > 2:
+        rumb.max_booster_to_update = params.get(
+            "max_booster_to_update", rumb.num_classes
         )
-    min_utility = min([len(u_idx) for u_idx in rumb.utility_functions.values()])
-    if rumb.max_booster_to_update > rumb.num_classes * min_utility:
-        raise ValueError(
-            f"The maximum number of boosters to update must be at most equal to the number of classes ({rumb.num_classes}) times the maximum number of boosters in the smallest utility function ({min_utility})"
+        if rumb.max_booster_to_update < rumb.num_classes:
+            raise ValueError(
+                f"The maximum number of boosters to update must be at least equal to the number of classes ({rumb.num_classes})"
+            )
+        min_utility = min([len(u_idx) for u_idx in rumb.utility_functions.values()])
+        if rumb.max_booster_to_update > rumb.num_classes * min_utility:
+            raise ValueError(
+                f"The maximum number of boosters to update must be at most equal to the number of classes ({rumb.num_classes}) times the maximum number of boosters in the smallest utility function ({min_utility})"
+            )
+    else:
+        # if binary classification, the maximum number of boosters to update is multiplied
+        # by 2 because it is then divided by the number of classed when lookinf dor best booster
+        rumb.max_booster_to_update = (
+            params.get("max_booster_to_update", 1) * rumb.num_classes
         )
 
     if params.get("boost_from_parameter_space", []):
@@ -3022,6 +3110,7 @@ def rum_train(
         optimise_ascs = (optim_interval > 0) and (
             "ordinal_logit" not in model_specification
         )
+        constant_parameters = [Constant(str(i), 0) for i in range(rumb.num_classes)]
 
         if optimise_ascs and "nested_logit" in model_specification:
             raise ValueError(
@@ -3082,6 +3171,7 @@ def rum_train(
                         "splits": np.array([data.min(), data.max()]),
                         "constants": np.array([0.0, 0.0]),
                         "leaves": np.array([0.0]),
+                        "value_at_splits": np.array([0.0, 0.0]),
                     }
                     rumb.distances[j] = data
     else:
@@ -3089,6 +3179,9 @@ def rum_train(
         rumb.split_and_leaf_values = None
         optimise_ascs = False
         rumb.asc = np.zeros(rumb.num_classes)
+
+    if rumb.num_classes == 2:
+        rumb.asc = np.zeros(1)
 
     # check dataset and preprocess it
     if isinstance(train_set, dict):
@@ -3160,6 +3253,10 @@ def rum_train(
 
     # create J boosters with corresponding params and datasets
     rumb._construct_boosters(train_data_name, is_valid_contain_train, name_valid_sets)
+
+    # if optimise ascs start with observed market shares
+    if optimise_ascs:
+        rumb.asc = np.mean(rumb.labels[:, None] == range(rumb.asc.shape[0]), axis=0)
 
     # free datasets from memory
     if not any(rumb.boost_from_parameter_space):
@@ -3436,7 +3533,9 @@ def rum_train(
 
             rumb._update_mu_or_alphas(res, optimise_mu, optimise_alphas, alpha_shape)
 
-        if optimise_thresholds and (i % optim_interval == 0): # need to optimise form first iteration for ordinal logit
+        if optimise_thresholds and (
+            i % optim_interval == 0
+        ):  # need to optimise form first iteration for ordinal logit
 
             thresh_diff = threshold_to_diff(rumb.thresholds)
 
@@ -3489,6 +3588,10 @@ def rum_train(
                 ]
                 labels = rumb.labels[rumb.subsample_idx]
                 ascs = rumb.asc
+
+            if rumb.num_classes == 2:
+                raw_preds = raw_preds[:, 0]
+
             res = minimize(
                 optimise_asc,
                 ascs,
