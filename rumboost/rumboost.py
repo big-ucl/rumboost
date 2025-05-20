@@ -1876,8 +1876,6 @@ class RUMBoost:
         if monotone_constraints[0] != 0:
             if self.device is not None:
                 m = torch.tensor(monotone_constraints[0]).to(self.device)
-                l_0 = l_0.cpu().numpy()
-                l_1 = l_1.cpu().numpy()
                 if torch.any(self.split_and_leaf_values[j]["leaves"][:index] * m < 0):
                     offset = torch.max(
                         -self.split_and_leaf_values[j]["leaves"][:index] * m
@@ -1885,22 +1883,21 @@ class RUMBoost:
                     self.split_and_leaf_values[j]["leaves"][:index] += offset * m
                     offset = offset.cpu().numpy()
                     m_copy = m.cpu().numpy()
+                    l_0_copy = l_0.cpu().numpy()
                     self.boosters[j].set_leaf_output(
-                        self.boosters[j].num_trees() - 1, 0, l_0 + offset * m_copy
+                        self.boosters[j].num_trees() - 1, 0, l_0_copy + offset * m_copy
                     )
-                    l_0 = torch.tensor(l_0 + offset * m_copy).to(self.device)
                 if torch.any(self.split_and_leaf_values[j]["leaves"][index:] * m < 0):
                     offset = torch.max(
                         -self.split_and_leaf_values[j]["leaves"][index:] * m
                     )
                     self.split_and_leaf_values[j]["leaves"][index:] += offset * m
                     offset = offset.cpu().numpy()
-                    m = m.cpu().numpy()
+                    m_copy = m.cpu().numpy()
+                    l_1_copy = l_1.cpu().numpy()
                     self.boosters[j].set_leaf_output(
-                        self.boosters[j].num_trees() - 1, 1, l_1 + offset * m
+                        self.boosters[j].num_trees() - 1, 1, l_1_copy + offset * m_copy
                     )
-                    l_1 = torch.tensor(l_1 + offset * m).to(self.device)
-
             else:
                 m = monotone_constraints[0]
                 if np.any(self.split_and_leaf_values[j]["leaves"][:index] * m < 0):
@@ -2008,11 +2005,13 @@ class RUMBoost:
                     # check and ensure monotonicity
                     l_0, l_1 = self._check_leaves_monotonicity(j, index, l_0, l_1)
 
-                    # self.split_and_leaf_values[j]["constants"] = torch.cat(
-                    #     self.split_and_leaf_values[j]["constants"][:index] + l_1 * s,
-                    #     self.split_and_leaf_values[j]["constants"][index:]
-                    #     + l_0 * s,
-                    # )
+                    self.split_and_leaf_values[j]["constants"] = torch.cat(
+                        (
+                            self.split_and_leaf_values[j]["constants"][:index+1] + l_1 * s,
+                            self.split_and_leaf_values[j]["constants"][index+1:]
+                            + l_0 * s,
+                        )
+                    )
                 else:
                     index = torch.searchsorted(
                         self.split_and_leaf_values[j]["splits"], s
@@ -2028,48 +2027,28 @@ class RUMBoost:
                     self.split_and_leaf_values[j]["leaves"] = torch.cat(
                         (
                             self.split_and_leaf_values[j]["leaves"][:index] + l_0,
-                            self.split_and_leaf_values[j]["leaves"][index - 1 :] + l_1,
+                            self.split_and_leaf_values[j]["leaves"][index-1:] + l_1,
                         )
                     )
                     # check and ensure monotonicity
                     l_0, l_1 = self._check_leaves_monotonicity(j, index, l_0, l_1)
 
-                    # self.split_and_leaf_values[j]["constants"] = torch.cat(
-                    #     self.split_and_leaf_values[j]["constants"][:index] + l_1 * s,
-                    #     self.split_and_leaf_values[j]["constants"][index],
-                    #     self.split_and_leaf_values[j]["constants"][index:]
-                    #     + l_0 * s,
-                    # )
+                    self.split_and_leaf_values[j]["constants"] = torch.cat(
+                        (
+                            self.split_and_leaf_values[j]["constants"][:index+1] + l_1 * s,
+                            self.split_and_leaf_values[j]["constants"][index:]
+                            + l_0 * s,
+                        )
+                    )
 
-                indices = torch.arange(
-                    self.split_and_leaf_values[j]["splits"].shape[0],
-                    device=self.device,
-                )
-                indices_l = (indices[None, :] <= indices[:, None]).T
-                indices_r = (indices[None, :] >= indices[:, None]).T
-                splits = self.split_and_leaf_values[j]["splits"]
                 leaves = self.split_and_leaf_values[j]["leaves"]
-                left_constants = splits * torch.cat(
-                    (leaves, torch.zeros(1, device=self.device))
+                splits = self.split_and_leaf_values[j]["splits"]
+                all_leaves = torch.cat(
+                    (leaves[0].view(-1), leaves)
                 )
-                right_constants = splits * torch.cat(
-                    (torch.zeros(1, device=self.device), leaves)
-                )
-                self.split_and_leaf_values[j]["value_at_splits"] = (
-                    left_constants * indices_l + right_constants * indices_r
-                ).sum(axis=1)
+                constants = self.split_and_leaf_values[j]["constants"]
 
-                # self.split_and_leaf_values[j]["value_at_splits"] = torch.cat(
-                #     (
-                #         torch.zeros(1, device=self.device),
-                #         torch.cumsum(
-                #             self.split_and_leaf_values[j]["leaves"]
-                #             * torch.diff(self.split_and_leaf_values[j]["splits"]),
-                #             dim=0,
-                #         ),
-                #     ),
-                #     dim=0,
-                # ) + self.split_and_leaf_values[j]["constants"]
+                self.split_and_leaf_values[j]["value_at_splits"] = all_leaves * splits + constants
             else:
                 l_0 = leaf_values[0]
                 l_1 = leaf_values[1]
@@ -2104,6 +2083,7 @@ class RUMBoost:
         """Predict the linear part of the utility function."""
         sp = self.split_and_leaf_values[j]["splits"]
         csts = self.split_and_leaf_values[j]["value_at_splits"]
+        # csts = self.split_and_leaf_values[j]["constants"]
         lvs = self.split_and_leaf_values[j]["leaves"]
         if self.device is not None:
             data_t = torch.from_numpy(data).to(self.device)
@@ -2113,16 +2093,16 @@ class RUMBoost:
             indices = torch.clip(indices, 0, len(csts) - 2)
             constants = csts[indices]
             distances = data_t - sp[indices]
-            if distances.shape[0] == self.num_obs[0]:
-                # self.distances[j] = distances.cpu().numpy()
+            if data.shape[0] == self.num_obs[0]:
                 self.distances[j] = data
             preds = constants + distances * lvs[indices]
+            # preds = csts[indices] + data_t * lvs[indices]
         else:
             indices = np.searchsorted(sp, data) - 1  # need i-1 to get the correct index
             indices = np.clip(indices, 0, len(csts) - 2)
             constants = csts[indices]
             distances = data - sp[indices]
-            if distances.shape[0] == self.num_obs[0]:
+            if data.shape[0] == self.num_obs[0]: #to not store distances of validation set
                 # self.distances[j] = distances
                 self.distances[j] = data
             preds = constants + distances * (csts[indices + 1] - constants) / (
@@ -3121,8 +3101,6 @@ def rum_train(
                 "The ASCs cannot be optimised when using cross nested logit. Please set optim_interval to 0."
             )
 
-        rumb.asc = np.zeros(rumb.num_classes)
-
         rumb.split_and_leaf_values = {}
         rumb.distances = {}
         for j, struct in enumerate(rumb.rum_structure):
@@ -3178,10 +3156,6 @@ def rum_train(
         rumb.boost_from_parameter_space = [False] * len(rumb.rum_structure)
         rumb.split_and_leaf_values = None
         optimise_ascs = False
-        rumb.asc = np.zeros(rumb.num_classes)
-
-    if rumb.num_classes == 2:
-        rumb.asc = np.zeros(1)
 
     # check dataset and preprocess it
     if isinstance(train_set, dict):
@@ -3254,9 +3228,11 @@ def rum_train(
     # create J boosters with corresponding params and datasets
     rumb._construct_boosters(train_data_name, is_valid_contain_train, name_valid_sets)
 
-    # if optimise ascs start with observed market shares
-    if optimise_ascs:
-        rumb.asc = np.mean(rumb.labels[:, None] == range(rumb.asc.shape[0]), axis=0)
+    # ascs start with observed market shares
+    if rumb.num_classes == 2:
+        rumb.asc = np.log(np.mean(rumb.labels), axis=0)
+    elif rumb.num_classes > 2:
+        rumb.asc = np.log(np.mean(rumb.labels[:, None] == range(rumb.num_classes), axis=0))
 
     # free datasets from memory
     if not any(rumb.boost_from_parameter_space):
