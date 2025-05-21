@@ -11,10 +11,7 @@ class Constant:
         The name of the parameter.
     value : float
         The value of the parameter.
-    learning_rate : float
-        The learning rate for the parameter.
-        Default is 0.1.
-
+            
     Methods
     -------
     __call__():
@@ -50,7 +47,7 @@ class Constant:
         hess : np.array
             The hessian of the loss function. (n_samples,)
         """
-        self.value = self.value - self.learning_rate * (grad.sum() / hess.sum())
+        self.value = self.value - (grad.sum() / hess.sum())
 
 def compute_grad_hess(preds, device, num_classes, labels, labels_j):
     if device is not None:

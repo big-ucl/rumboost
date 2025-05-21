@@ -1,6 +1,7 @@
 # coding: utf-8
 """Library with training routines of LightGBM."""
 import collections
+import warnings
 import copy
 import json
 import numpy as np
@@ -3248,14 +3249,14 @@ def rum_train(
     if rumb.num_classes == 2:
         rumb.asc = np.log(np.mean(rumb.labels), axis=0)
         lr = rumb.rum_structure[0]["boosting_params"]["learning_rate"]
-        Warning(f"Assuming the learning rate is {lr} for all boosters")
+        warnings.warn(f"Assuming the learning rate is {lr} for all boosters")
         constant_parameters = [Constant(str(i), rumb.asc[i]) for i in range(1)]
     elif rumb.num_classes > 2:
         rumb.asc = np.log(
             np.mean(rumb.labels[:, None] == range(rumb.num_classes), axis=0)
         )
         lr = rumb.rum_structure[0]["boosting_params"]["learning_rate"]
-        Warning(f"Assuming the learning rate is {lr} for all boosters")
+        warnings.warn(f"Assuming the learning rate is {lr} for all boosters")
         constant_parameters = [Constant(str(i), rumb.asc[i]) for i in range(rumb.num_classes)]
 
     # free datasets from memory
