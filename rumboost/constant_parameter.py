@@ -23,10 +23,10 @@ class Constant:
 
     """
 
-    def __init__(self, name: str, value: float, learning_rate: float = 1):
+    def __init__(self, name: str, value: float):
         self.name = name
         self.value = value
-        self.learning_rate = learning_rate
+        self.learning_rate = 1 
 
     def __call__(self):
         """
@@ -52,41 +52,33 @@ class Constant:
         """
         self.value = self.value - self.learning_rate * (grad.sum() / hess.sum())
 
-def compute_grad_hess():
-    raise NotImplementedError("compute_grad_hess is not implemented yet.")
-    preds = rumb._preds
-    if rumb.device is not None:
+def compute_grad_hess(preds, device, num_classes, labels, labels_j):
+    if device is not None:
         preds = preds.cpu().numpy()
     eps = 1e-05
 
-    if rumb.num_classes > 2:
-        labels = rumb.labels_j[rumb.subsample_idx]
-        if rumb.device is not None:
+    if num_classes > 2:
+        labels = labels_j
+        if device is not None:
             labels = labels.cpu().numpy()
-        factor = rumb.num_classes / (
-            rumb.num_classes - 1
+        factor = num_classes / (
+            num_classes - 1
         )  # factor to correct redundancy (see Friedmann, Greedy Function Approximation)
         grad = preds - labels
         hess = np.maximum(
             factor * preds * (1 - preds), eps
         )  # truncate low values to avoid numerical errors
-    elif rumb.num_classes == 2:
+    elif num_classes == 2:
         preds = preds.reshape(-1)
-        labels = rumb.labels[rumb.subsample_idx]
-        if rumb.device is not None:
+        if device is not None:
             labels = labels.cpu().numpy()
         grad = preds - labels
         hess = np.maximum(preds * (1 - preds), eps)
     else:
-        labels = rumb.labels[rumb.subsample_idx]
-        if rumb.device is not None:
+        if device is not None:
             labels = labels.cpu().numpy()
         grad = 2 * (preds - labels)
         hess = 2 * np.ones_like(preds)
 
-    for j, cst in enumerate(constant_parameters):
-        cst.boost(grad[:, j], hess[:, j])
-    if rumb.device is not None:
-        rumb.asc = torch.from_numpy(np.array([c() for c in constant_parameters])).type(torch.double).to(rumb.device)
-    else:
-        rumb.asc = np.array([c() for c in constant_parameters])
+    return grad, hess
+
