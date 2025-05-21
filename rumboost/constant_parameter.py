@@ -23,7 +23,6 @@ class Constant:
     def __init__(self, name: str, value: float):
         self.name = name
         self.value = value
-        self.learning_rate = 1 
 
     def __call__(self):
         """

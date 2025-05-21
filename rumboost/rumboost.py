@@ -1858,7 +1858,7 @@ class RUMBoost:
         current_leaves : numpy array or torch tensor
             The current leaf values of the jth booster.
         l: numpy array or torch tensor
-            The new leaf value of the left child.
+            The new leaf valuei
         j: int
             The index of the booster.
         right: bool
@@ -1867,7 +1867,7 @@ class RUMBoost:
         Returns
         -------
         new_l: float
-            The new leaf value of the left child.
+            The new leaf value respecting monotonicity.
         """
         monotone_constraints = self.rum_structure[j]["boosting_params"].get(
             "monotone_constraints", [0]
@@ -3247,7 +3247,7 @@ def rum_train(
 
     # ascs start with observed market shares
     if rumb.num_classes == 2:
-        rumb.asc = np.log(np.mean(rumb.labels), axis=0)
+        rumb.asc = np.log(np.mean(rumb.labels, axis=0))
         lr = rumb.rum_structure[0]["boosting_params"]["learning_rate"]
         warnings.warn(f"Assuming the learning rate is {lr} for all boosters")
         constant_parameters = [Constant(str(i), rumb.asc[i]) for i in range(1)]
