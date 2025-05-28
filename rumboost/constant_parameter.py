@@ -73,7 +73,7 @@ def compute_grad_hess(preds, device, num_classes, labels, labels_j):
     else:
         if device is not None:
             labels = labels.cpu().numpy()
-        grad = 2 * (preds - labels)
+        grad = 2 * (preds.reshape(-1) - labels).reshape(-1, 1)
         hess = 2 * np.ones_like(preds)
 
     return grad, hess
