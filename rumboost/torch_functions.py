@@ -1273,7 +1273,7 @@ def binary_cross_entropy_torch(preds, label):
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
     return (
-        -torch.mean(label * torch.log(preds) + (1 - label) * torch.log(1 - preds))
+        -torch.mean(label * torch.log(preds.view(-1)) + (1 - label) * torch.log(1 - preds.view(-1)))
         .cpu()
         .type(torch.float32)
         .numpy()
@@ -1302,7 +1302,7 @@ def binary_cross_entropy_torch_compiled(preds, label):
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
     return (
-        -torch.mean(label * torch.log(preds) + (1 - label) * torch.log(1 - preds))
+        -torch.mean(label * torch.log(preds.view(-1)) + (1 - label) * torch.log(1 - preds.view(-1)))
         .cpu()
         .numpy()
     )
@@ -1328,7 +1328,7 @@ def mse_torch(preds, target):
         raise ImportError(
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
-    return torch.mean((preds - target) ** 2).cpu().numpy()
+    return torch.mean((preds.view(-1) - target) ** 2).cpu().numpy()
 
 
 @compile_decorator
@@ -1352,7 +1352,7 @@ def mse_torch_compiled(preds, target):
         raise ImportError(
             "Pytorch is not installed. Please install it to run rumboost on torch tensors."
         )
-    return torch.mean((preds - target) ** 2).cpu().numpy()
+    return torch.mean((preds.view(-1) - target) ** 2).cpu().numpy()
 
 
 def coral_eval_torch(

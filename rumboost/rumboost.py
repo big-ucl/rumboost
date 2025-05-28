@@ -476,7 +476,7 @@ class RUMBoost:
 
         preds = self._preds
         targets = self.labels[self.subsample_idx]
-        grad = 2 * (preds - targets)
+        grad = 2 * (preds.reshape(-1) - targets).reshape(1, -1)
         hess = 2 * np.ones_like(preds)
 
         if self.subsample_idx.size < self.num_obs[0]:
@@ -1964,14 +1964,6 @@ class RUMBoost:
         # only implemented for a max depth of 1 so one split value and two leaf values
         split_values, leaf_values = self._gather_split_info(booster)
 
-        grad, hess = compute_grad_hess(
-            self._preds,
-            self.device,
-            self.num_classes,
-            self.labels[self.subsample_idx],
-            self.labels_j[self.subsample_idx],
-        )
-
         for s in split_values:
             if self.device is not None:
                 s = torch.tensor([s]).to(self.device)
@@ -3258,6 +3250,11 @@ def rum_train(
         lr = rumb.rum_structure[0]["boosting_params"]["learning_rate"]
         warnings.warn(f"Assuming the learning rate is {lr} for all boosters")
         constant_parameters = [Constant(str(i), rumb.asc[i]) for i in range(rumb.num_classes)]
+    elif rumb.num_classes == 1 and not rumb.ord_model:
+        rumb.asc = np.mean(rumb.labels, axis=0).reshape(1)
+        constant_parameters = [Constant("0", rumb.asc[0])]
+    else: # rumb.num_classes == 1 and rumb.ord_model
+        rumb.asc = np.array([0.0])  # for ordinal logit, the asc is not used
 
     # free datasets from memory
     if not any(rumb.boost_from_parameter_space):
@@ -3609,7 +3606,7 @@ def rum_train(
                 rumb.device,
                 rumb.num_classes,
                 rumb.labels[rumb.subsample_idx],
-                rumb.labels_j[rumb.subsample_idx],
+                rumb.labels_j[rumb.subsample_idx] if rumb.labels_j is not None else None,
             )
 
             for j, cst in enumerate(constant_parameters):
