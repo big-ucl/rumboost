@@ -14,6 +14,7 @@ from rumboost.utility_smoothing import (
     mean_monotone_spline,
     data_leaf_value,
 )
+from rumboost.linear_trees import LinearTree
 
 if not matplotlib_seaborn_installed:
     raise ImportError(
@@ -234,6 +235,15 @@ def plot_parameters(
     save_file : str, optional (default='')
         The name to save the figure with. The figure will be saved only if save_file is not an empty string.
     """
+
+    if boost_from_parameter_space:
+        for u, key in boost_from_parameter_space.items():
+            for f, val in key.items():
+                if val:
+                    raise NotImplementedError(
+                        "Plotting from parameter space is not implemented yet."
+                    )
+
     weights_arranged = weights_to_plot_v2(model, num_iteration=num_iteration)
 
     if with_asc:
@@ -2206,8 +2216,11 @@ def get_weights(model, num_iteration=None):
         Dataframe with weights arranged for market segmentation, used in the case of market segmentation.
 
     """
-    # using self object or a given model
-    model_json = model.dump_model(num_iteration=num_iteration)
+    if isinstance(model, LinearTree):
+        model_json = model.dump_model()
+        return model_json["split_and_leaves_values"], None, None
+    else:
+        model_json = model.dump_model(num_iteration=num_iteration)
 
     weights = []
     weights_2d = []

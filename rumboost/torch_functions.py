@@ -686,7 +686,7 @@ def _f_obj_mse_torch(
     preds = preds.view(-1)
     target = target.view(-1)
     grad = 2 * (preds - target)
-    hess = torch.ones_like(preds)
+    hess = 2 * torch.ones_like(preds)
 
     return grad, hess
 
@@ -703,7 +703,7 @@ def _f_obj_mse_torch_compiled(
     preds = preds.view(-1)
     target = target.view(-1)
     grad = 2 * (preds - target)
-    hess = torch.ones_like(preds)
+    hess = 2 * torch.ones_like(preds)
 
     return grad, hess
 
