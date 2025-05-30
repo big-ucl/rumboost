@@ -47,6 +47,7 @@ class Constant:
             The hessian of the loss function. (n_samples,)
         """
         self.value = self.value - (grad.sum() / hess.sum())
+        # self.value = self.value
 
 def compute_grad_hess(preds, device, num_classes, labels, labels_j):
     if device is not None:

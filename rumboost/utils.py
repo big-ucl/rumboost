@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 from rumboost.metrics import cross_entropy, binary_cross_entropy
 from scipy.special import softmax, expit
 
@@ -428,6 +429,44 @@ def sort_dict(dict_to_sort):
         dict_sorted[k] = dict_to_sort[k]
 
     return dict_sorted
+    
+def _load_arrays_and_tensors(rumb):
+    
+    if isinstance(rumb.device, str):
+        rumb.device = torch.device(rumb.device)
+
+    if isinstance(rumb.alphas, list):  # numpy.ndarray so need to specify not None
+        if "device" in rumb.__dict__ and rumb.device is not None:
+            rumb.alphas = torch.tensor(rumb.alphas, device=rumb.device)
+        else:
+            rumb.alphas = np.array(rumb.alphas)
+    if isinstance(rumb.mu, list):  # numpy.ndarray so need to specify not None
+        if "device" in rumb.__dict__ and rumb.device is not None:
+            rumb.mu = torch.tensor(rumb.mu, device=rumb.device)
+        else:
+            rumb.mu = np.array(rumb.mu)
+    if isinstance(rumb.thresholds, list):  # numpy.ndarray so need to specify not None
+        if "device" in rumb.__dict__ and rumb.device is not None:
+            rumb.thresholds = torch.tensor(rumb.thresholds, device=rumb.device)
+        else:
+            rumb.thresholds = np.array(rumb.thresholds)
+    if isinstance(rumb.asc, list):  # numpy.ndarray so need to specify not None
+        if "device" in rumb.__dict__ and rumb.device is not None:
+            rumb.asc = torch.tensor(rumb.asc, device=rumb.device)
+        else:
+            rumb.asc = np.array(rumb.asc)
+
+    if isinstance(rumb.split_and_leaf_values, dict):
+        if "device" in rumb.__dict__ and rumb.device is not None:
+            rumb.split_and_leaf_values = {
+                k: {c: torch.tensor(v[c], device=rumb.device) for c in v.keys()}
+                for k, v in rumb.split_and_leaf_values.items()
+            }
+        else:
+            rumb.split_and_leaf_values = {
+                k: {c: np.array(v[c]) for c in v.keys()}
+                for k, v in rumb.split_and_leaf_values.items()
+                }
     
 def _check_rum_structure(rum_structure):
     """ Check that rum_structure, a list of dictionaries, is of the correct format. """
