@@ -463,8 +463,8 @@ class RUMBoost:
 
         preds = self._preds
         targets = self.labels[self.subsample_idx]
-        grad = 2 * (preds.reshape(-1) - targets).reshape(-1, 1)
-        hess = 2 * np.ones_like(preds)
+        grad = (preds.reshape(-1) - targets).reshape(-1, 1)
+        hess = np.ones_like(preds)
 
         if self.subsample_idx.size < self.num_obs[0]:
             grad_rescaled = np.zeros(
@@ -1474,11 +1474,16 @@ class RUMBoost:
             for valid_set in reduced_valid_set:
                 valid_set.construct()
                 self.num_obs.append(valid_set.num_data())
+                val_labs = valid_set.get_label()
+                if self.num_classes > 1 and self.thresholds is not None:
+                    val_labs = val_labs.astype(np.int32)
                 self.valid_labels.append(
-                    valid_set.get_label().astype(np.int32)
+                    val_labs
                 )  # saving labels
 
-        self.labels = data.get_label().astype(np.int32)  # saving labels
+        self.labels = data.get_label()  # saving labels
+        if self.num_classes > 1 and self.thresholds is not None:
+            self.labels = self.labels.astype(np.int32)
         self.labels_j = (
             self.labels[:, None] == np.array(range(self.num_classes))[None, :]
         ).astype(np.int8)
@@ -1675,6 +1680,7 @@ class RUMBoost:
                         self.train_set[j].construct()
                         booster = LinearTree(
                             self.train_set[j].get_data().reshape(-1),
+                            init_leaf_val=struct.get("init_leaf_val", 0.0),
                             monotonic_constraint=params["monotone_constraints"][0],
                             max_bin=params.get("max_bin", 255),
                             learning_rate=params.get("learning_rate", 0.1),
@@ -1858,107 +1864,6 @@ class RUMBoost:
 
         return preds
 
-    def _check_leaves_monotonicity(self, current_leaves, l, j, right=True):
-        """
-        Check that the new leaf values of the jth booster are not violating monotonicity constraint.
-        If so, replace the leaf values by the max (or min if negative monotonic constraint) value
-        that the leaf can take to ensure monotonicity.
-
-        Parameters
-        ----------
-        current_leaves : numpy array or torch tensor
-            The current leaf values of the jth booster.
-        l: numpy array or torch tensor
-            The new leaf valuei
-        j: int
-            The index of the booster.
-        right: bool
-            If True, check the right child, otherwise check the left child.
-
-        Returns
-        -------
-        new_l: float
-            The new leaf value respecting monotonicity.
-        """
-        monotone_constraints = self.rum_structure[j]["boosting_params"].get(
-            "monotone_constraints", [0]
-        )
-        new_l = l
-        if monotone_constraints[0] != 0:
-            if self.device is not None:
-                m = torch.tensor(monotone_constraints[0]).to(self.device)
-                if (current_leaves * m < 0).any():
-                    offset = torch.min(current_leaves * m)
-                    current_leaves -= offset * m
-                    new_l = l - offset * m
-                    self.boosters[j].set_leaf_output(
-                        self.boosters[j].num_trees() - 1,
-                        int(right),
-                        new_l.cpu().numpy(),
-                    )
-            else:
-                m = monotone_constraints[0]
-                if (current_leaves * m < 0).any():
-                    offset = np.min(current_leaves * m)
-                    current_leaves -= offset * m
-                    new_l = l - offset * m
-                    self.boosters[j].set_leaf_output(
-                        self.boosters[j].num_trees() - 1, int(right), new_l
-                    )
-
-        return new_l
-
-    def _gather_split_info(self, booster):
-        """
-        Gather split information for each booster.
-        Code adapted from LightGBM get_split_value_histogram Booster method.
-
-        Parameters
-        ----------
-        booster : Booster
-            The booster to gather split information from.
-        """
-
-        def add(root: Dict[str, Any]) -> None:
-            """Recursively add thresholds."""
-            if "split_index" in root:  # non-leaf
-                if isinstance(root["threshold"], str):
-                    raise LightGBMError(
-                        "Cannot compute split value histogram for the categorical feature"
-                    )
-                else:
-                    split_values.append(root["threshold"])
-                add(root["left_child"])
-                add(root["right_child"])
-            elif "leaf_value" in root:  # leaf
-                leaf_values.append(root["leaf_value"])
-                leaf_id.append(root["leaf_index"] if "leaf_index" in root else -1)
-                gain.append(root["leaf_value"] ** 2 * root["leaf_weight"])
-
-        model = booster.dump_model()
-        last_tree = model["tree_info"][-1]
-        split_values: List[float] = []
-        leaf_values: List[float] = []
-        gain: List[float] = []
-        tree_id = last_tree["tree_index"]
-        leaf_id = []
-        add(last_tree["tree_structure"])
-
-        # if gain[0] > gain[1]:
-        #     leaf_values[0] = -leaf_values[0]
-        #     leaf_values[1] = 0
-        #     booster.set_leaf_output(tree_id, leaf_id[1], 0)
-        #     booster.set_leaf_output(tree_id, leaf_id[0], leaf_values[0])
-        # else:
-        #     leaf_values[0] = 0
-        #     booster.set_leaf_output(tree_id, leaf_id[0], 0)
-
-        booster.set_leaf_output(tree_id, leaf_id[0], -leaf_values[0])
-
-        leaf_values[0] = -leaf_values[0]
-
-        return split_values, leaf_values
-
     def _update_linear_constants(self, j, booster):
         """
         Update the linear constants for the jth booster.
@@ -1988,163 +1893,6 @@ class RUMBoost:
         else:
             self.split_and_leaf_values[j] = copy.deepcopy(booster.split_and_leaf_values)
 
-        # only implemented for a max depth of 1 so one split value and two leaf values
-        # split_values, leaf_values = self._gather_split_info(booster)
-
-        # for s in split_values:
-        #     if self.device is not None:
-        #         s = torch.tensor([s]).to(self.device)
-        #         l_0 = torch.tensor([leaf_values[0]]).to(self.device)
-        #         l_1 = torch.tensor([leaf_values[1]]).to(self.device)
-        #         if (
-        #             s in self.split_and_leaf_values[j]["splits"]
-        #         ):  # if the split value exists already
-        #             index = torch.searchsorted(
-        #                 self.split_and_leaf_values[j]["splits"], s
-        #             )
-        #             index = index.item()
-
-        #             self.split_and_leaf_values[j]["leaves"][:index] += l_0
-        #             # check and ensure monotonicity if needed
-        #             l_0 = self._check_leaves_monotonicity(
-        #                 self.split_and_leaf_values[j]["leaves"][:index],
-        #                 l_0,
-        #                 j,
-        #                 right=False,
-        #             )
-
-        #             self.split_and_leaf_values[j]["leaves"][index:] += l_1
-        #             # check and ensure monotonicity if needed
-        #             l_1 = self._check_leaves_monotonicity(
-        #                 self.split_and_leaf_values[j]["leaves"][index:], l_1, j
-        #             )
-
-        #             self.split_and_leaf_values[j]["constants"] = torch.cat(
-        #                 (
-        #                     self.split_and_leaf_values[j]["constants"][: index + 1]
-        #                     + l_1 * s,
-        #                     self.split_and_leaf_values[j]["constants"][index + 1 :]
-        #                     + l_0 * s,
-        #                 )
-        #             )
-        #         else:
-        #             index = torch.searchsorted(
-        #                 self.split_and_leaf_values[j]["splits"], s
-        #             )
-        #             index = index.item()
-        #             self.split_and_leaf_values[j]["splits"] = torch.cat(
-        #                 (
-        #                     self.split_and_leaf_values[j]["splits"][:index],
-        #                     s,
-        #                     self.split_and_leaf_values[j]["splits"][index:],
-        #                 )
-        #             )
-
-        #             self.split_and_leaf_values[j]["leaves"] = torch.cat(
-        #                 (
-        #                     self.split_and_leaf_values[j]["leaves"][:index] + l_0,
-        #                     self.split_and_leaf_values[j]["leaves"][index - 1 :] + l_1,
-        #                 )
-        #             )
-        #             # check and ensure monotonicity
-        #             l_0 = self._check_leaves_monotonicity(
-        #                 self.split_and_leaf_values[j]["leaves"][:index],
-        #                 l_0,
-        #                 j,
-        #                 right=False,
-        #             )
-        #             l_1 = self._check_leaves_monotonicity(
-        #                 self.split_and_leaf_values[j]["leaves"][index - 1 :], l_1, j
-        #             )
-
-        #             self.split_and_leaf_values[j]["constants"] = torch.cat(
-        #                 (
-        #                     self.split_and_leaf_values[j]["constants"][: index + 1]
-        #                     + l_1 * s,
-        #                     self.split_and_leaf_values[j]["constants"][index:]
-        #                     + l_0 * s,
-        #                 )
-        #             )
-
-        #         leaves = self.split_and_leaf_values[j]["leaves"]
-        #         splits = self.split_and_leaf_values[j]["splits"]
-        #         all_leaves = torch.cat((leaves[0].view(-1), leaves))
-        #         constants = self.split_and_leaf_values[j]["constants"]
-
-        #         self.split_and_leaf_values[j]["value_at_splits"] = (
-        #             all_leaves * splits + constants
-        #         )
-        #     else:
-        #         l_0 = leaf_values[0]
-        #         l_1 = leaf_values[1]
-        #         if (
-        #             s in self.split_and_leaf_values[j]["splits"]
-        #         ):  # if the split value exists already
-        #             index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
-        #             self.split_and_leaf_values[j]["leaves"][:index] += l_0
-        #             # check and ensure monotonicity if needed
-        #             l_0 = self._check_leaves_monotonicity(
-        #                 self.split_and_leaf_values[j]["leaves"][:index],
-        #                 l_0,
-        #                 j,
-        #                 right=False,
-        #             )
-
-        #             self.split_and_leaf_values[j]["leaves"][index:] += l_1
-        #             # check and ensure monotonicity if needed
-        #             l_1 = self._check_leaves_monotonicity(
-        #                 self.split_and_leaf_values[j]["leaves"][index:], l_1, j
-        #             )
-
-        #             self.split_and_leaf_values[j]["constants"] = np.concatenate(
-        #                 (
-        #                     self.split_and_leaf_values[j]["constants"][: index + 1]
-        #                     + l_1 * s,
-        #                     self.split_and_leaf_values[j]["constants"][index + 1 :]
-        #                     + l_0 * s,
-        #                 )
-        #             )
-        #         else:
-        #             index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
-        #             self.split_and_leaf_values[j]["splits"] = np.insert(
-        #                 self.split_and_leaf_values[j]["splits"], index, s
-        #             )
-
-        #             self.split_and_leaf_values[j]["leaves"] = np.concatenate(
-        #                 (
-        #                     self.split_and_leaf_values[j]["leaves"][:index] + l_0,
-        #                     self.split_and_leaf_values[j]["leaves"][index - 1 :] + l_1,
-        #                 )
-        #             )
-        #             # check and ensure monotonicity
-        #             l_0 = self._check_leaves_monotonicity(
-        #                 self.split_and_leaf_values[j]["leaves"][:index],
-        #                 l_0,
-        #                 j,
-        #                 right=False,
-        #             )
-        #             l_1 = self._check_leaves_monotonicity(
-        #                 self.split_and_leaf_values[j]["leaves"][index - 1 :], l_1, j
-        #             )
-
-        #             self.split_and_leaf_values[j]["constants"] = np.concatenate(
-        #                 (
-        #                     self.split_and_leaf_values[j]["constants"][: index + 1]
-        #                     + l_1 * s,
-        #                     self.split_and_leaf_values[j]["constants"][index:]
-        #                     + l_0 * s,
-        #                 )
-        #             )
-
-        #         leaves = self.split_and_leaf_values[j]["leaves"]
-        #         splits = self.split_and_leaf_values[j]["splits"]
-        #         all_leaves = np.concatenate((leaves[0].reshape(-1), leaves))
-        #         constants = self.split_and_leaf_values[j]["constants"]
-
-        #         self.split_and_leaf_values[j]["value_at_splits"] = (
-        #             all_leaves * splits + constants
-        #         )
-
     def _linear_predict(self, j, data):
         """Predict the linear part of the utility function."""
         if isinstance(data, int):
@@ -2156,7 +1904,6 @@ class RUMBoost:
             raw_preds = torch.from_numpy(raw_preds).to(self.device)
 
         return raw_preds
-
 
     def _compute_grads(self, preds, labels_j):
         """Compute the gradients of the utility function."""
@@ -2179,7 +1926,7 @@ class RUMBoost:
         self.grads = (torch.linalg.pinv(hess) @ grads[:, :, None]).squeeze()
         self.hess = torch.ones_like(grads)
 
-    def _update_mu_or_alphas(self, res, optimise_mu, optimise_alphas, alpha_shape):
+    def _update_mu_or_alphas(self, res, optimise_mu: bool, optimise_alphas: bool, alpha_shape: Tuple[int, int]):
         """Update mu or alphas for the cross-nested model.
 
         Parameters
@@ -2222,7 +1969,7 @@ class RUMBoost:
                 alphas_opt = alphas_opt / alphas_opt.sum(axis=1)[:, None]
                 self.alphas += 0.1 * (alphas_opt - self.alphas)
 
-    def _rollback_boosters(self, unchosen_boosters):
+    def _rollback_boosters(self, unchosen_boosters: list[int]) -> None:
         """Rollback the unchosen booster(s)."""
         for j in unchosen_boosters:
             if self._current_gains[j] > 0:
@@ -2242,10 +1989,15 @@ class RUMBoost:
     def _from_dict(self, models: Dict[str, Any]) -> None:
         """Load RUMBoost from dict."""
         self.boosters = []
-        for model_str in models["boosters"]:
-            self._append(Booster(model_str=model_str))
         if "attributes" in models:
             self.__dict__.update(models["attributes"])
+        for j, model_str in enumerate(models["boosters"]):
+            if self.boost_from_parameter_space and self.boost_from_parameter_space[j]:
+                booster = LinearTree()
+                self._append(booster.model_from_string(s=model_str))
+            else:
+                self._append(Booster(model_str=model_str))
+
 
     def _to_dict(
         self, num_iteration: Optional[int], start_iteration: int, importance_type: str
@@ -2573,12 +2325,15 @@ def rum_train(
                         If the same variable is shared across alternatives, it must be repeated in the
                         variables list (by example variables = ['var1', 'var1', 'var1'] and utility = [0, 1, 2]).
 
-                And one optional key:
+                And two optional keys:
                     - 'endogenous_variable': str
                         The name of one variable in the train_set. This is only used if boosted from the parameter
                         space, and the variable is not included in the variables list. The output of the
                         trees are the slope and the variable in endogenous_variable is the variable used in the
                         beta times x output. The variable must be continuous or binary.
+                    - 'init_leaf_val': float
+                        Initial leaf value for the ensemble in the parameter space. This will only be
+                        used for ensembles boosted from the parameter space.
 
         The other keys are optional and can be:
 
@@ -3301,7 +3056,10 @@ def rum_train(
 
     # convert a few numpy arrays to torch tensors if needed
     if torch_tensors:
-        rumb.labels = torch.from_numpy(rumb.labels).type(torch.int16).to(rumb.device)
+        if rumb.num_classes == 1 and rumb.thresholds is None:
+            rumb.labels = torch.from_numpy(rumb.labels).type(torch.double).to(rumb.device)
+        else:
+            rumb.labels = torch.from_numpy(rumb.labels).type(torch.int16).to(rumb.device)
         rumb.asc = torch.from_numpy(rumb.asc).type(torch.double).to(rumb.device)
         if rumb.labels_j is not None:
             rumb.labels_j = (
@@ -3465,6 +3223,7 @@ def rum_train(
             else:
                 rumb.raw_preds[rumb.booster_train_idx[j]] += init_preds
 
+    rumb._update_raw_preds([])
     rumb._preds = rumb._inner_predict()
 
     if params.get("full_hessian", False):
@@ -3606,37 +3365,9 @@ def rum_train(
 
             rumb.thresholds = diff_to_threshold(res.x)
 
+        rumb._preds = rumb._inner_predict()
+
         if optimise_ascs and ((i + 1) % optim_interval == 0):
-            #     if rumb.device is not None:
-            #         raw_preds = (
-            #             rumb.raw_preds.view(-1, rumb.num_obs[0])
-            #             .T[rumb.subsample_idx, :]
-            #             .cpu()
-            #             .numpy()
-            #         )
-            #         labels = rumb.labels[rumb.subsample_idx].cpu().numpy()
-            #         ascs = rumb.asc.cpu().numpy()
-            #     else:
-            #         raw_preds = rumb.raw_preds.reshape((rumb.num_obs[0], -1), order="F")[
-            #             rumb.subsample_idx, :
-            #         ]
-            #         labels = rumb.labels[rumb.subsample_idx]
-            #         ascs = rumb.asc
-
-            #     if rumb.num_classes == 2:
-            #         raw_preds = raw_preds[:, 0]
-
-            #     res = minimize(
-            #         optimise_asc,
-            #         ascs,
-            #         args=(raw_preds, labels),
-            #         method="SLSQP",
-            #     )
-            #     if rumb.device is not None:
-            #         rumb.asc = torch.from_numpy(res.x).type(torch.double).to(rumb.device)
-            #     else:
-            #         rumb.asc = res.x
-
             grad, hess = compute_grad_hess(
                 rumb._preds,
                 rumb.device,

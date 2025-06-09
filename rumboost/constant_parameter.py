@@ -46,8 +46,7 @@ class Constant:
         hess : np.array
             The hessian of the loss function. (n_samples,)
         """
-        self.value = self.value - (grad.sum() / hess.sum())
-        # self.value = self.value
+        self.value = self.value - 0.1 * (grad.sum() / hess.sum())
 
 def compute_grad_hess(preds, device, num_classes, labels, labels_j):
     if device is not None:
@@ -74,8 +73,8 @@ def compute_grad_hess(preds, device, num_classes, labels, labels_j):
     else:
         if device is not None:
             labels = labels.cpu().numpy()
-        grad = 2 * (preds.reshape(-1) - labels).reshape(-1, 1)
-        hess = 2 * np.ones_like(preds)
+        grad = (preds.reshape(-1) - labels).reshape(-1, 1)
+        hess = np.ones_like(preds)
 
     return grad, hess
 

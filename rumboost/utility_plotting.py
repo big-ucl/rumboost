@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import torch
 
 try:
     import matplotlib.pyplot as plt
@@ -235,14 +236,6 @@ def plot_parameters(
     save_file : str, optional (default='')
         The name to save the figure with. The figure will be saved only if save_file is not an empty string.
     """
-
-    if boost_from_parameter_space:
-        for u, key in boost_from_parameter_space.items():
-            for f, val in key.items():
-                if val:
-                    raise NotImplementedError(
-                        "Plotting from parameter space is not implemented yet."
-                    )
 
     weights_arranged = weights_to_plot_v2(model, num_iteration=num_iteration)
 
@@ -592,7 +585,7 @@ def plot_parameters(
                     non_lin_func = model._linear_predict(int(u), x)
                     if model.device is not None and not isinstance(non_lin_func, list):
                         non_lin_func = non_lin_func.cpu().numpy()
-                if f in list(X.columns):
+                elif f in list(X.columns):
                     x, non_lin_func = non_lin_function(
                         weights_arranged[u][f],
                         0,
@@ -1941,6 +1934,53 @@ def create_name(features):
     return new_name
 
 
+def lintree_to_weights(split_and_leaf_values: dict, feature: str, utility: int):
+    """
+    Convert a split and leaf values dictionary from a linear tree to a list of weights.
+    The split_and_leaf_values dictionary should contain the keys "splits" and "leaves",
+    where "splits" is a list of split points and "leaves" is a list of leaf values.
+
+    Parameters
+    ----------
+    split_and_leaf_values : dict
+        A dictionary containing the split points and leaf values.
+        It should have the keys "splits" and "leaves".
+    feature : str
+        The name of the feature for which the weights are being calculated.
+    utility : int
+        The utility index for which the weights are being calculated.
+    
+    Returns
+    -------
+    lin_weights : list
+        A list of lists, where each inner list contains the feature name, split point,
+        left leaf value, right leaf value, and utility index.
+    """
+
+    lin_weights = []
+
+    splits = np.array(split_and_leaf_values["splits"])
+    leaves = np.array(split_and_leaf_values["leaves"])
+
+    #find unique splits and leaves among all splits and leaves
+    leaf_change_idx = np.where(leaves[:-1] != leaves[1:])[0]
+    unique_splits = splits[leaf_change_idx + 1]
+    unique_leaves = np.concat([leaves[leaf_change_idx], leaves[-1].reshape(1)])
+
+    #rearrnage leaves to have them in same format than trees boosted from utility space
+    for i, u in enumerate(unique_leaves[:-1]):
+        if i == 0:
+            left_leaf = u
+            right_leaf = unique_leaves[i+1]
+        else:
+            left_leaf = 0
+            right_leaf = unique_leaves[i+1] - unique_leaves[i]
+
+        lin_weights.append([feature, unique_splits[i], left_leaf, right_leaf, utility])
+
+    return lin_weights
+
+
 def get_child(
     model,
     weights,
@@ -2216,39 +2256,42 @@ def get_weights(model, num_iteration=None):
         Dataframe with weights arranged for market segmentation, used in the case of market segmentation.
 
     """
-    if isinstance(model, LinearTree):
-        model_json = model.dump_model()
-        return model_json["split_and_leaves_values"], None, None
-    else:
-        model_json = model.dump_model(num_iteration=num_iteration)
+    model_json = model.dump_model(num_iteration=num_iteration)
 
     weights = []
     weights_2d = []
     weights_market = []
 
     for i, b in enumerate(model_json):
-        feature_names = b["feature_names"]
-        for trees in b["tree_info"]:
-            features = []
-            split_points = []
-            market_segm = False
+        #trees booster from parameter space
+        if "split_and_leaf_values" in b:
+            feature = model.rum_structure[i]["variables"][0]
+            lin_weights = lintree_to_weights(b["split_and_leaf_values"], feature, i)
+            weights.extend(lin_weights)
+        else: 
+            #trees boosted from utility space
+            feature_names = b["feature_names"]
+            for trees in b["tree_info"]:
+                features = []
+                split_points = []
+                market_segm = False
 
-            # skipping empty trees
-            if "split_feature" not in trees["tree_structure"]:
-                continue
+                # skipping empty trees
+                if "split_feature" not in trees["tree_structure"]:
+                    continue
 
-            get_child(
-                model,
-                weights,
-                weights_2d,
-                weights_market,
-                trees["tree_structure"],
-                split_points,
-                features,
-                feature_names,
-                i,
-                market_segm,
-            )
+                get_child(
+                    model,
+                    weights,
+                    weights_2d,
+                    weights_market,
+                    trees["tree_structure"],
+                    split_points,
+                    features,
+                    feature_names,
+                    i,
+                    market_segm,
+                )
 
     weights_df = pd.DataFrame(
         weights,
@@ -2416,7 +2459,7 @@ def non_lin_function(
                     start_point
                     + float(weights_ordered["Histogram values"][i]) * (x - x_pad)
                 ]  # a + bx
-            elif x < float(
+            elif x <= float(
                 weights_ordered["Splitting points"][i]
             ):  # up to last interval
                 nonlin_function += [
