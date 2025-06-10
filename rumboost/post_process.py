@@ -120,7 +120,7 @@ def assist_model_spec(
     choice: pd.Series,
     alt_to_normalise: int = 0,
     return_utilities: bool = False,
-    dataset_test: pd.Series = None,
+    dataset_test: pd.DataFrame = None,
     choice_test: pd.Series = None,
 ):
     """

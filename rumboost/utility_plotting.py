@@ -1965,7 +1965,7 @@ def lintree_to_weights(split_and_leaf_values: dict, feature: str, utility: int):
     #find unique splits and leaves among all splits and leaves
     leaf_change_idx = np.where(leaves[:-1] != leaves[1:])[0]
     unique_splits = splits[leaf_change_idx + 1]
-    unique_leaves = np.concat([leaves[leaf_change_idx], leaves[-1].reshape(1)])
+    unique_leaves = np.concatenate([leaves[leaf_change_idx], leaves[-1].reshape(1)])
 
     #rearrnage leaves to have them in same format than trees boosted from utility space
     for i, u in enumerate(unique_leaves[:-1]):
