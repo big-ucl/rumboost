@@ -455,18 +455,6 @@ def _load_arrays_and_tensors(rumb):
             rumb.asc = torch.tensor(rumb.asc, device=rumb.device)
         else:
             rumb.asc = np.array(rumb.asc)
-
-    if isinstance(rumb.split_and_leaf_values, dict):
-        if "device" in rumb.__dict__ and rumb.device is not None:
-            rumb.split_and_leaf_values = {
-                k: {c: torch.tensor(v[c], device=rumb.device) for c in v.keys()}
-                for k, v in rumb.split_and_leaf_values.items()
-            }
-        else:
-            rumb.split_and_leaf_values = {
-                k: {c: np.array(v[c]) for c in v.keys()}
-                for k, v in rumb.split_and_leaf_values.items()
-                }
     
 def _check_rum_structure(rum_structure):
     """ Check that rum_structure, a list of dictionaries, is of the correct format. """
