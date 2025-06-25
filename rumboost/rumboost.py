@@ -38,7 +38,7 @@ from rumboost.ordinal import (
     optimise_thresholds_proportional_odds,
 )
 from rumboost.constant_parameter import Constant, compute_grad_hess
-from rumboost.utils import optimise_asc, _check_rum_structure, _load_arrays_and_tensors
+from rumboost.utils import _check_rum_structure, _load_arrays_and_tensors
 from rumboost.linear_trees import LinearTree
 
 try:
@@ -1475,14 +1475,14 @@ class RUMBoost:
                 valid_set.construct()
                 self.num_obs.append(valid_set.num_data())
                 val_labs = valid_set.get_label()
-                if self.num_classes > 1 and self.thresholds is not None:
+                if self.num_classes > 1 or self.thresholds is not None:
                     val_labs = val_labs.astype(np.int32)
                 self.valid_labels.append(
                     val_labs
                 )  # saving labels
 
         self.labels = data.get_label()  # saving labels
-        if self.num_classes > 1 and self.thresholds is not None:
+        if self.num_classes > 1 or self.thresholds is not None:
             self.labels = self.labels.astype(np.int32)
         self.labels_j = (
             self.labels[:, None] == np.array(range(self.num_classes))[None, :]
@@ -1814,7 +1814,7 @@ class RUMBoost:
                 "endogenous_variable" not in self.rum_structure[j].keys()
             ):
                 if j in best_boosters:
-                    self._update_linear_constants(j, booster)
+                    self._update_linear_constants(booster)
                 current_preds = self._linear_predict(
                     j, 0
                 )
@@ -1864,7 +1864,7 @@ class RUMBoost:
 
         return preds
 
-    def _update_linear_constants(self, j, booster):
+    def _update_linear_constants(self, booster):
         """
         Update the linear constants for the jth booster.
         The linear constants are the intercept of each model after a split point.
@@ -1872,26 +1872,10 @@ class RUMBoost:
 
         Parameters
         ----------
-        j : int
-            The index of the booster.
         booster : Booster
             The booster to gather linear constants from.
         """
         booster._update_linear_constants()
-
-        if self.device is not None:
-            salv = booster.split_and_leaf_values
-            self.split_and_leaf_values[j]["splits"] = torch.from_numpy(
-                salv["splits"]
-            ).to(self.device)
-            self.split_and_leaf_values[j]["leaves"] = torch.from_numpy(
-                salv["leaves"]
-            ).to(self.device)
-            self.split_and_leaf_values[j]["value_at_splits"] = torch.from_numpy(
-                salv["value_at_splits"]
-            ).to(self.device)
-        else:
-            self.split_and_leaf_values[j] = copy.deepcopy(booster.split_and_leaf_values)
 
     def _linear_predict(self, j, data):
         """Predict the linear part of the utility function."""
@@ -2023,17 +2007,6 @@ class RUMBoost:
                 ]
             else:
                 valid_labels_numpy = []
-            if self.split_and_leaf_values is not None:
-                split_and_leaf_values = {
-                    k: {
-                        "splits": v["splits"].cpu().numpy().tolist(),
-                        "leaves": v["leaves"].cpu().numpy().tolist(),
-                        "value_at_splits": v["value_at_splits"].cpu().numpy().tolist(),
-                    }
-                    for k, v in self.split_and_leaf_values.items()
-                }
-            else:
-                split_and_leaf_values = None
             rumb_to_dict = {
                 "boosters": models_str,
                 "attributes": {
@@ -2074,7 +2047,6 @@ class RUMBoost:
                         if self.asc is not None
                         else None
                     ),
-                    "split_and_leaf_values": split_and_leaf_values,
                 },
             }
         else:
@@ -2086,17 +2058,6 @@ class RUMBoost:
                 valid_labs = [v.tolist() for v in self.valid_labels]
             else:
                 valid_labs = []
-            if self.split_and_leaf_values is not None:
-                split_and_leaf_values = {
-                    k: {
-                        "splits": v["splits"].tolist(),
-                        "leaves": v["leaves"].tolist(),
-                        "value_at_splits": v["value_at_splits"].tolist(),
-                    }
-                    for k, v in self.split_and_leaf_values.items()
-                }
-            else:
-                split_and_leaf_values = None
             rumb_to_dict = {
                 "boosters": models_str,
                 "attributes": {
@@ -2123,7 +2084,6 @@ class RUMBoost:
                     "rum_structure": self.rum_structure,
                     "boost_from_parameter_space": self.boost_from_parameter_space,
                     "asc": self.asc.tolist() if self.asc is not None else None,
-                    "split_and_leaf_values": split_and_leaf_values,
                 },
             }
 
@@ -2900,7 +2860,6 @@ def rum_train(
                 "The ASCs cannot be optimised when using cross nested logit. Please set optim_interval to 0."
             )
 
-        rumb.split_and_leaf_values = {}
         rumb.distances = {}
         for j, struct in enumerate(rumb.rum_structure):
             if params["boost_from_parameter_space"][j]:
@@ -2944,15 +2903,9 @@ def rum_train(
 
                     feature = struct["variables"][0]
                     data = train_set.get_data()[feature]
-                    rumb.split_and_leaf_values[j] = {
-                        "splits": np.array([data.min(), data.max()]),
-                        "leaves": np.array([0.0]),
-                        "value_at_splits": np.array([0.0, 0.0]),
-                    }
                     rumb.distances[j] = data
     else:
         rumb.boost_from_parameter_space = [False] * len(rumb.rum_structure)
-        rumb.split_and_leaf_values = None
         optimise_ascs = False
 
     # check dataset and preprocess it
@@ -3028,10 +2981,10 @@ def rum_train(
 
     # ascs start with observed market shares
     if rumb.num_classes == 2:
-        rumb.asc = np.log(np.mean(rumb.labels, axis=0))
+        rumb.asc = [np.log(np.mean(rumb.labels, axis=0))]
         lr = rumb.rum_structure[0]["boosting_params"]["learning_rate"]
         warnings.warn(f"Assuming the learning rate is {lr} for all boosters")
-        constant_parameters = [Constant(str(i), rumb.asc[i]) for i in range(1)]
+        constant_parameters = [Constant(str(0), rumb.asc[0])]
     elif rumb.num_classes > 2:
         rumb.asc = np.log(
             np.mean(rumb.labels[:, None] == range(rumb.num_classes), axis=0)
@@ -3066,8 +3019,12 @@ def rum_train(
                 torch.from_numpy(rumb.labels_j).type(torch.int8).to(rumb.device)
             )
         if rumb.valid_labels:
+            if rumb.num_classes == 1 and rumb.thresholds is None:
+                dtype = torch.double
+            else:
+                dtype = torch.int16
             rumb.valid_labels = [
-                torch.from_numpy(valid_labs).type(torch.int16).to(rumb.device)
+                torch.from_numpy(valid_labs).type(dtype).to(rumb.device)
                 for valid_labs in rumb.valid_labels
             ]
         if rumb.mu is not None:
@@ -3076,14 +3033,6 @@ def rum_train(
             rumb.alphas = (
                 torch.from_numpy(rumb.alphas).type(torch.double).to(rumb.device)
             )
-        if rumb.split_and_leaf_values:
-            rumb.split_and_leaf_values = {
-                j: {
-                    k: torch.from_numpy(v).type(torch.double).to(rumb.device)
-                    for k, v in split_and_leaf.items()
-                }
-                for j, split_and_leaf in rumb.split_and_leaf_values.items()
-            }
 
     if "subsampling" in params and rumb.batch_size > 0:
         subsample = params["subsampling"]
