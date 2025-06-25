@@ -70,6 +70,8 @@ def compute_grad_hess(preds, device, num_classes, labels, labels_j):
             labels = labels.cpu().numpy()
         grad = preds - labels
         hess = np.maximum(preds * (1 - preds), eps)
+        grad = grad.reshape(-1, 1)
+        hess = hess.reshape(-1, 1)
     else:
         if device is not None:
             labels = labels.cpu().numpy()
