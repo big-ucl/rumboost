@@ -446,10 +446,7 @@ def _load_arrays_and_tensors(rumb):
         else:
             rumb.mu = np.array(rumb.mu)
     if isinstance(rumb.thresholds, list):  # numpy.ndarray so need to specify not None
-        if "device" in rumb.__dict__ and rumb.device is not None:
-            rumb.thresholds = torch.tensor(rumb.thresholds, device=rumb.device)
-        else:
-            rumb.thresholds = np.array(rumb.thresholds)
+        rumb.thresholds = np.array(rumb.thresholds)
     if isinstance(rumb.asc, list):  # numpy.ndarray so need to specify not None
         if "device" in rumb.__dict__ and rumb.device is not None:
             rumb.asc = torch.tensor(rumb.asc, device=rumb.device)
