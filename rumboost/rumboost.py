@@ -2981,10 +2981,10 @@ def rum_train(
 
     # ascs start with observed market shares
     if rumb.num_classes == 2:
-        rumb.asc = np.log(np.mean(rumb.labels, axis=0))
+        rumb.asc = [np.log(np.mean(rumb.labels, axis=0))]
         lr = rumb.rum_structure[0]["boosting_params"]["learning_rate"]
         warnings.warn(f"Assuming the learning rate is {lr} for all boosters")
-        constant_parameters = [Constant(str(i), rumb.asc[i]) for i in range(1)]
+        constant_parameters = [Constant(str(0), rumb.asc[0])]
     elif rumb.num_classes > 2:
         rumb.asc = np.log(
             np.mean(rumb.labels[:, None] == range(rumb.num_classes), axis=0)
