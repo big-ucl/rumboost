@@ -545,6 +545,10 @@ def optimal_knots_position(
     nests=None,
     alphas=None,
     thresholds=None,
+    edge_fraction=0.25,
+    middle_quantile=(0.05, 0.95),
+    jump_data_limitation=95,
+    jump_weight=1.0,
 ):
     """
     Find the optimal position of knots for a given number of knots for given attributes.
@@ -634,6 +638,10 @@ def optimal_knots_position(
             max_iter=max_iter,
             deg_freedom=deg_freedom,
             criterion=criterion,
+            edge_fraction=edge_fraction,
+            middle_quantile=middle_quantile,
+            jump_data_limitation=jump_data_limitation,
+            jump_weight=jump_weight,
         )
 
     ce = np.inf
@@ -873,6 +881,10 @@ def independent_smoothing(
     max_iter=200,
     method="SLSQP",
     criterion="BIC",
+    edge_fraction=0.25,
+    middle_quantile=(0.05, 0.95),
+    jump_data_limitation=95,
+    jump_weight=1.0,
 ):
     """
     A function that creates a new utility collection with independent smoothing.
@@ -942,6 +954,10 @@ def independent_smoothing(
         max_iter=max_iter,
         method=method,
         criterion=criterion,
+        edge_fraction=edge_fraction,
+        middle_quantile=middle_quantile,
+        jump_data_limitation=jump_data_limitation,
+        jump_weight=jump_weight,
     )
 
     return None, None, new_util_collection
@@ -964,6 +980,10 @@ def independent_utility_collection(
     max_iter=200,
     method="SLSQP",
     criterion="BIC",
+    edge_fraction=0.25,
+    middle_quantile=(0.05, 0.95),
+    jump_data_limitation=95,
+    jump_weight=1.0,
 ):
     """
     Create a dictionary that stores what type of utility (smoothed or not) should be used for smooth_predict.
@@ -1050,6 +1070,10 @@ def independent_utility_collection(
                     max_iter=max_iter,
                     method=method,
                     criterion=criterion,
+                    edge_fraction=edge_fraction,
+                    middle_quantile=middle_quantile,
+                    jump_data_limitation=jump_data_limitation,
+                    jump_weight=jump_weight,
                 )
             # stairs functions
             else:
@@ -1085,6 +1109,10 @@ def find_best_spline(
     max_iter=200,
     method="SLSQP",
     criterion="BIC",
+    edge_fraction=0.25,
+    middle_quantile=(0.05, 0.95),
+    jump_data_limitation=95,
+    jump_weight=1.0,
 ):
     """
     A function that apply monotonic spline interpolation on a given feature.
@@ -1151,6 +1179,13 @@ def find_best_spline(
                 x_knots = np.quantile(
                     np.unique(x_spline), np.linspace(0.01, 0.99, n_knot)
                 )
+            elif x0_method == "data_stabled":
+                x_knots = edge_mutant_stable(
+                    x_spline, y_data, n_knot,
+                    edge_fraction=edge_fraction,
+                    middle_quantile=middle_quantile,
+                    jump_data_limitation=jump_data_limitation,
+                    jump_weight=jump_weight)
 
             if optimise_knot_position:
                 bounds = [
@@ -1282,3 +1317,131 @@ def optimise_single_spline(
     loss = np.mean((y_data - y_spline) ** 2)
 
     return loss
+
+
+def edge_mutant_stable(
+    x_spline,
+    y_data,
+    n_knot,
+    edge_fraction=0.25,
+    middle_quantile=(0.05, 0.95),
+    jump_data_limitation=95, # or None --- no cap
+    jump_weight=1.0
+):
+    """
+    A function that initialise spline knots for classification with the stability of edge and mutant data.
+    
+    Paramaters
+    ----------
+    x_data : numpy array
+        Data from the interpolated feature.
+    y_data : numpy array
+        V(x_value), the values of the utility at x.
+    x_spline : numpy array
+        A vector of x values used to plot the splines.
+    n_knot : int
+        Total number of knots to place.
+    edge_fraction : float
+        Fraction of number of knots reserved for each edge. Evenly distribute these knots at each edge. Aim to improve the stability of edge interpolation.
+    middle_quantile : tuple(float, float)
+        Quantile range on Cumulative Distribution Function (CDF) used to distribute knots (a range for middle knots to distribute). Aim to improve the stability of the middle knots and reduce the risk of extrapolation.
+    jump_data_limitation : int or None
+        Apply percentile limitation to the mutant data and keep the robustness. Aim to avoid the extreme data jump and avoid the knots accumulate at the jump data points
+    jump_weight : float
+        Decide how middle knots will distribute. The data with big changes has larger weight and the flat data has less weight. Aim to distribute knots on the useful place to get a better smooth spline. It will combine with the jump_data_limitation.
+
+    Returns
+    -------
+    x_knots : Monotonically increasing knot positions
+    
+    """
+
+    # Uniquely ordered x-axis because of the requirements of spline interpolation
+    x_order = np.unique(x_spline).astype(float, copy=False)
+    
+     # If number of knots is less than 2, the spline can't distribute these knots. So directly return the 1d array of knots.
+  #  if x_order.size < 2:
+   #     return x_order.copy()
+
+    # Spline interpolation needs at least 2 knots to form an interval. So when there is only one value, constructing a strictly increasing sequence of length n_knot to ensure the sucessful caluculation and avoid the duplicated knots
+    if x_order.size == 1:
+        only_value = float(x_order[0])
+        eps_1 = 1e-9 * max(1.0, abs(only_value)) # a very small value -- epsilon
+        return only_value + eps_1 * np.arange(int(n_knot), dtype=float)
+        #Return a sequence based on only_value, with gradually increasing small offsets
+
+
+   # n_knot = min(n_knot, x_order.size - 1) # guarantee strict progressive increase and no duplicate knots at the same x value point.
+    n_knot = int(n_knot)
+
+    # 1. Edge Strategy
+    edge_knot = max(2, int(round(n_knot * edge_fraction))) # At least 2 knots. Aim to calculate the number of knots should be put evenly at each edge.
+    #If edge_fraction is really large, mid_knot can be protect by setting the minimum
+    edge_knot = min(edge_knot, (n_knot - 2) // 2)  # guarantee the left-right symmetry. Make sure there is at least 2 knots in the middle.
+    mid_knot  = n_knot - 2 * edge_knot # calculate the number of knots should be distributed in the middle range.
+
+    quantile_low, quantile_high = middle_quantile
+    # (start---min value of x, stop, num of knots, endpoint)
+    low_loc = np.linspace(x_order[0],  np.quantile(x_order, quantile_low), edge_knot, endpoint=False)
+    # (start, stop---max value of x, num of knots, endpoint)
+    high_loc = np.linspace(np.quantile(x_order, quantile_high), x_order[-1],  edge_knot, endpoint=True)
+    # Without border, thereby avoiding repetition. Then the middle range will have the border
+
+
+    # 2. Mutant Strategy
+    if mid_knot > 0:
+        y_order = np.interp(x_order, x_spline, y_data)   # 1d linear interpolation
+        dy = np.abs(np.diff(y_order))    # calculate |deta y| - The amplitude of change between two adjacent y values
+        if dy.size == 0: # no jump data -- evenly distribute according to the place
+            mid = np.linspace(np.quantile(x_order, quantile_low), np.quantile(x_order, quantile_high), mid_knot) # evenly
+        else: # if there is jump data
+            if jump_data_limitation is not None:
+                cap = np.percentile(dy, jump_data_limitation) # find the target less than 95% dy (default value) -- improve robustness
+                dy = np.minimum(dy, cap) # get the new dy range - maximum dy from original value to 95% value
+            w = (dy ** jump_weight) + 1e-16  # weight and avoid 0
+            w = w / w.sum()   # Normalised to probability weights (summing to 1).
+            w   = np.r_[w, w[-1]] # Align the lengths of w and x_order.
+            cdf = np.cumsum(w)
+            cdf = cdf / cdf[-1] # Make the last one is 1. Rescale the CDF to the interval [0, 1].
+            pb_knot  = np.linspace(quantile_low, quantile_high, mid_knot) # get the middle quantiles of cdf, which are distributed uniformly according to probability
+            mid = np.interp(pb_knot, cdf, x_order) # Map quantile positions (qs) via CDF to x_order to obtain middle-knot locations.
+    else:
+        mid = np.array([])
+
+    # 3. Combine and guarantee the strict increase of x-axis and not duplicated
+    x_knots = np.sort(np.r_[low_loc, mid, high_loc]).astype(float, copy=False) # merge the data - order
+    # x_knots.sort()
+    
+    range_x = float(x_order[-1] - x_order[0]) if x_order.size > 1 else 1.0
+    eps_2 = 1e-9 * max(range_x, 1.0)
+    # When more then 2 knots, checking is working.
+    if x_knots.size >= 2:
+        basis = x_knots[0] # use the first knot as the first basis
+        for i in range(1, x_knots.size):
+            if x_knots[i] <= basis:
+                x_knots[i] = basis + eps_2  # make sure strict increase
+            basis = x_knots[i]  # new basis
+        # both edge: move inside a little bit to avoid edge interpolation instability
+        x_knots[0]  = max(x_knots[0],  x_order[0]  + eps_2)
+        x_knots[-1] = min(x_knots[-1], x_order[-1] - eps_2)
+
+    # 4. Guarantee the length
+    m_knot = x_knots.size  # current number of knots
+    nk = int(n_knot)  # total number of knots to place (get the whole number)
+    if m_knot != nk:
+        if m_knot > nk:  # more knots - use linspace to get nk evenly
+            idx = np.linspace(0, m_knot - 1, nk).round().astype(int)
+            x_knots = x_knots[idx]
+        else:       # m_knots are not enough - need to align the length
+            point  = nk - m_knot  # need to add how many points
+            new_point = np.linspace(x_knots[0], x_knots[-1], point + 2, endpoint=True)[1:-1] # remove edge point and get the middle point
+            x_knots = np.sort(np.r_[x_knots, new_point])
+        # move inside again because there is a new ordered sequence
+        if x_knots.size >= 2:
+            basis = x_knots[0]
+            for i in range(1, x_knots.size):
+                if x_knots[i] <= basis:
+                    x_knots[i] = basis + eps_2
+                basis = x_knots[i]
+    
+    return x_knots
