@@ -1,0 +1,11 @@
+sphinx-rtd-theme
+biogeme==3.2.14
+hyperopt==0.2.7
+lightgbm==4.5.0
+matplotlib==3.10.0
+numpy==2.2.0
+pandas==2.2.3
+scikit-learn==1.6.0
+scipy==1.14.1
+seaborn==0.12.2
+torch==2.5.1+cu121
