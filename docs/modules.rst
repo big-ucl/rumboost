@@ -5,4 +5,3 @@ rumboost
    :maxdepth: 4
 
    rumboost
-   setup

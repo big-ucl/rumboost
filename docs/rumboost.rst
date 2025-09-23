@@ -4,66 +4,114 @@ rumboost package
 Submodules
 ----------
 
-rumboost.basic\_functions module
---------------------------------
+rumboost.constant\_parameter module
+-----------------------------------
 
-.. automodule:: rumboost.basic_functions
+.. automodule:: rumboost.constant_parameter
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
-rumboost.dataset module
+rumboost.datasets module
+------------------------
+
+.. automodule:: rumboost.datasets
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
+rumboost.linear\_trees module
+-----------------------------
+
+.. automodule:: rumboost.linear_trees
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
+rumboost.metrics module
 -----------------------
 
-.. automodule:: rumboost.dataset
+.. automodule:: rumboost.metrics
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 rumboost.models module
 ----------------------
 
 .. automodule:: rumboost.models
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
+
+rumboost.nested\_cross\_nested module
+-------------------------------------
+
+.. automodule:: rumboost.nested_cross_nested
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
+rumboost.ordinal module
+-----------------------
+
+.. automodule:: rumboost.ordinal
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
+rumboost.post\_process module
+-----------------------------
+
+.. automodule:: rumboost.post_process
+   :members:
+   :show-inheritance:
+   :undoc-members:
 
 rumboost.rumboost module
 ------------------------
 
 .. automodule:: rumboost.rumboost
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
+
+rumboost.torch\_functions module
+--------------------------------
+
+.. automodule:: rumboost.torch_functions
+   :members:
+   :show-inheritance:
+   :undoc-members:
 
 rumboost.utility\_plotting module
 ---------------------------------
 
 .. automodule:: rumboost.utility_plotting
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 rumboost.utility\_smoothing module
 ----------------------------------
 
 .. automodule:: rumboost.utility_smoothing
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 rumboost.utils module
 ---------------------
 
 .. automodule:: rumboost.utils
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 Module contents
 ---------------
 
 .. automodule:: rumboost
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
