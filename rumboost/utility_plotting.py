@@ -2405,7 +2405,16 @@ def weights_to_plot_v2(model, market_segm=False, num_iteration=None):
                 "Splitting points": split_points,
                 "Histogram values": function_value,
             }
-
+    # add the asc to the first feature of each utility (arbitrary)
+    for i in weights_for_plot:
+        for j, f in enumerate(weights_for_plot[i]):
+            if j > 0:
+                continue
+            if model.device is not None:
+                asc_i = model.asc[int(i)].cpu().numpy()
+            else:
+                asc_i = model.asc[int(i)]
+            weights_for_plot[i][f]["Histogram values"] += asc_i
     return weights_for_plot
 
 
@@ -2558,3 +2567,4 @@ def function_2d(weights_2d, x_vect, y_vect):
             contour_plot_values[:i_x, :i_y] += weights_2d["area_value"].iloc[k]
 
     return contour_plot_values
+
